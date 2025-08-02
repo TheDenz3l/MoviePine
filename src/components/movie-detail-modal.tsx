@@ -56,16 +56,24 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
         <DialogDescription className="sr-only">Movie details for {movie.title}</DialogDescription>
         
         {/* Compact Hero Section */}
-        <div className="relative h-[40vh] overflow-hidden">
+        <div className="relative h-[40vh] overflow-hidden modal-image-container">
+          {/* Blurred background for letterboxing */}
           <div
-            className="absolute inset-0 bg-cover bg-center"
+            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
             style={{
               backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
+              filter: 'blur(20px) brightness(0.3)',
             }}
-          >
-            <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/60 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-r from-zinc-900/80 via-transparent to-zinc-900/40" />
-          </div>
+          />
+          {/* Main Image with proper aspect ratio */}
+          <img
+            src={movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'}
+            alt={movie.title}
+            className="absolute inset-0 w-full h-full object-contain z-10"
+          />
+          {/* Gradient Overlays */}
+          <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/60 to-transparent z-20" />
+          <div className="absolute inset-0 bg-gradient-to-r from-zinc-900/80 via-transparent to-zinc-900/40 z-20" />
 
           {/* Top Controls */}
           <div className="absolute top-4 right-4 z-30 flex space-x-2">

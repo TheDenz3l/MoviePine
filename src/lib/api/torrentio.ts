@@ -63,15 +63,16 @@ export class TorrentioAPI {
     debridService?: string
     apiKey?: string
   } = {}) {
-    // Default Torrentio configuration
-    this.providers = options.providers || ['rarbg', '1337x', 'thepiratebay', 'kickass']
+    // Default Torrentio configuration - use ALL available providers for maximum coverage
+    this.providers = options.providers || ['rarbg', '1337x', 'thepiratebay', 'kickass', 'torrentgalaxy', 'magnetdl', 'horriblesubs', 'nyaasi', 'tokyotosho', 'anidex']
     this.debridService = options.debridService || 'realdebrid'
-    
+
     // Build Torrentio URL with configuration
     // Torrentio uses the correct domain: torrentio.strem.fun
     const providersParam = this.providers.join('|')
-    // Filter for high quality only: 2160p, 4K, 1080p - exclude lower quality
-    let configString = `providers=${providersParam}|sort=qualitysize|qualityfilter=scr,cam,ts,480p,720p`
+    // Get ALL streams with minimal filtering for maximum discovery
+    // Only exclude the worst quality sources but allow everything else
+    let configString = `providers=${providersParam}|sort=qualitysize`
 
     if (this.debridService && options.apiKey) {
       configString += `|${this.debridService}=${options.apiKey}`
@@ -96,21 +97,34 @@ export class TorrentioAPI {
 
   async getMovieStreams(imdbId: string): Promise<TorrentioStream[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/stream/movie/${imdbId}.json`)
+      const fullUrl = `${this.baseUrl}/stream/movie/${imdbId}.json`
+      console.log(`🔗 Torrentio API call: ${fullUrl}`)
+      console.log(`🔧 Torrentio base URL: ${this.baseUrl}`)
+
+      const response = await fetch(fullUrl)
+      console.log(`📡 Torrentio response: ${response.status} ${response.statusText}`)
+
       if (!response.ok) {
         if (response.status === 404) {
+          console.log(`❌ Torrentio: No streams found for ${imdbId} (404)`)
           return [] // No streams found
         }
+        const errorText = await response.text()
+        console.error(`❌ Torrentio API error: ${response.status} ${response.statusText}`, errorText)
         throw new Error(`Failed to fetch streams: ${response.statusText}`)
       }
 
       const data = await response.json()
+      console.log(`📊 Torrentio raw response:`, JSON.stringify(data, null, 2))
+
       const rawStreams = data.streams || []
 
       // Debug: Log first few streams to check data format
       if (rawStreams.length > 0) {
         console.log(`🎬 Torrentio found ${rawStreams.length} streams for ${imdbId}`)
         console.log(`📊 Sample raw stream data:`, JSON.stringify(rawStreams.slice(0, 2), null, 2))
+      } else {
+        console.log(`❌ Torrentio: No streams in response for ${imdbId}`)
       }
 
       // Process streams to extract info hash properly
@@ -121,9 +135,22 @@ export class TorrentioAPI {
         if (stream.infoHash) {
           infoHash = stream.infoHash
         } else if (stream.url) {
-          // Extract from magnet URL if present
+          // Extract from Torrentio resolve URL (e.g., /resolve/realdebrid/LNWEQRH45NCRI52OTWOGJ24NFQDYTQ...)
+          const torrentioMatch = stream.url.match(/\/resolve\/[^\/]+\/([A-Z0-9]+)/i)
+          if (torrentioMatch) {
+            // Use the extracted identifier as the info hash
+            const extractedHash = torrentioMatch[1]
+            console.log(`🔍 Extracted hash from URL: ${extractedHash}`)
+
+            if (extractedHash.length >= 32) {
+              // Use the extracted hash as identifier (could be base32 or hex)
+              infoHash = extractedHash.toLowerCase()
+            }
+          }
+
+          // Also try to extract from magnet URL if present
           const magnetMatch = stream.url.match(/btih:([a-fA-F0-9]{40})/i)
-          if (magnetMatch) {
+          if (magnetMatch && !infoHash) {
             infoHash = magnetMatch[1].toLowerCase()
           }
         }
@@ -150,7 +177,11 @@ export class TorrentioAPI {
         }
       })
 
-      return streams.filter(stream => stream.infoHash && stream.infoHash.length === 40)
+      // Filter streams that have valid info hashes (any length >= 32)
+      return streams.filter(stream =>
+        stream.infoHash &&
+        stream.infoHash.length >= 32
+      )
     } catch (error) {
       console.error(`Error fetching streams for movie ${imdbId}:`, error)
       return []

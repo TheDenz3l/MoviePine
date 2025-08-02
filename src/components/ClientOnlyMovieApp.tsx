@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Film } from 'lucide-react'
 import { StreamingService, createStreamingService } from '@/lib/services/streaming'
-import { StreamingMovie } from '@/lib/services/streaming'
+import { StreamingMovie, StreamingSeries } from '@/lib/services/streaming'
 import { MovieCard } from '@/components/movie-card'
 import { NetflixMovieGrid } from '@/components/netflix-movie-grid'
 import { NetflixMovieRow } from '@/components/netflix-movie-row'
 import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
+import { VideoPlayerModal } from '@/components/video-player-modal'
 // Fallback movies data
 const fallbackMovies: StreamingMovie[] = [
   {
@@ -33,12 +34,16 @@ export default function ClientOnlyMovieApp() {
   const searchParams = useSearchParams()
 
   const [movies, setMovies] = useState<StreamingMovie[]>([])
+  const [trendingSeries, setTrendingSeries] = useState<StreamingSeries[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [serviceStatus, setServiceStatus] = useState<any>(null)
   const [activeCategory, setActiveCategory] = useState('home')
   const [selectedMovie, setSelectedMovie] = useState<StreamingMovie | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false)
+  const [playingMovieId, setPlayingMovieId] = useState<string | null>(null)
+  const [playingMovieTitle, setPlayingMovieTitle] = useState<string>('')
 
   // Initialize category from URL params
   useEffect(() => {
@@ -95,8 +100,15 @@ export default function ClientOnlyMovieApp() {
 
   // Event handlers for movie interactions
   const handlePlay = (movieId: string) => {
-    console.log('Playing movie:', movieId)
-    alert(`🎬 Playing movie: ${movieId}\n\nStreaming functionality will be implemented here!`)
+    console.log('🎬 Playing movie:', movieId)
+
+    // Find the movie to get its title
+    const movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
+    const title = movie?.title || 'Unknown Movie'
+
+    setPlayingMovieId(movieId)
+    setPlayingMovieTitle(title)
+    setIsVideoPlayerOpen(true)
   }
 
   const handleAddToList = (movieId: string) => {
@@ -105,19 +117,52 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleMoreInfo = (movieId: string) => {
+    // Search in both movies and series arrays
     const movie = movies.find(m => m.id === movieId)
-    if (movie) {
-      setSelectedMovie(movie)
+    const series = trendingSeries.find(s => s.id === movieId)
+    const selectedItem = movie || series
+
+    if (selectedItem) {
+      setSelectedMovie(selectedItem)
       setIsModalOpen(true)
     }
   }
 
-  const handleMovieSelect = (movie: StreamingMovie) => {
-    setSelectedMovie(movie)
+  const handleMovieSelect = (movie: StreamingMovie | StreamingSeries) => {
+    setSelectedMovie(movie as StreamingMovie) // Cast since modal expects StreamingMovie format
+    // Only update hero section, don't open modal
+  }
+
+  const handleMovieSelectWithModal = (movie: StreamingMovie | StreamingSeries) => {
+    setSelectedMovie(movie as StreamingMovie) // Cast since modal expects StreamingMovie format
+    setIsModalOpen(true) // Open modal when movie/series is selected
   }
 
   const handleCloseModal = () => {
     setIsModalOpen(false)
+  }
+
+  const handleCloseVideoPlayer = () => {
+    setIsVideoPlayerOpen(false)
+    setPlayingMovieId(null)
+    setPlayingMovieTitle('')
+  }
+
+  const handleGetStreamingUrl = async (movieId: string): Promise<string | null> => {
+    try {
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+
+      if (configData.success) {
+        const service = createStreamingService(configData.config)
+        return await service.getStreamingUrl(movieId)
+      }
+
+      throw new Error('Failed to load streaming configuration')
+    } catch (error) {
+      console.error('Error getting streaming URL:', error)
+      throw error
+    }
   }
 
   // Transform StreamingMovie to MovieCard format
@@ -129,6 +174,18 @@ export default function ClientOnlyMovieApp() {
     rating: movie.rating,
     genre: movie.genre || [],
     description: movie.description
+  })
+
+  // Transform StreamingSeries to MovieCard format (reusing the same interface)
+  const transformSeries = (series: StreamingSeries) => ({
+    id: series.id,
+    title: series.title,
+    poster: series.poster || 'https://images.unsplash.com/photo-1509347528160-9a9e33742cdb?w=300&h=450&fit=crop',
+    year: series.year,
+    rating: series.rating,
+    genre: series.genre || [],
+    description: series.description,
+    backdrop: series.backdrop
   })
 
   useEffect(() => {
@@ -160,15 +217,45 @@ export default function ClientOnlyMovieApp() {
         setServiceStatus(status)
 
         if (status.tmdb) {
-          console.log('🎬 TMDB is working, fetching real movies...')
-          const popularMovies = await service.getPopularMovies()
+          console.log('🎬 TMDB is working, fetching real movies and series...')
+          const [popularMovies, trendingSeriesData] = await Promise.all([
+            service.getPopularMovies(),
+            service.getTrendingSeries()
+          ])
           console.log('📽️ Fetched movies:', popularMovies.length)
+          console.log('📺 Fetched trending series:', trendingSeriesData.length)
           console.log('🔍 First few movies:', popularMovies.slice(0, 3))
-          setMovies(popularMovies)
-          setSelectedMovie(popularMovies[0] || null)
+          // Add a test movie with known torrent availability for testing streaming
+          const testMovie: StreamingMovie = {
+            id: 'tt0111161', // The Shawshank Redemption - definitely has torrents
+            title: 'The Shawshank Redemption (Test)',
+            overview: 'Test movie with known torrent availability for streaming verification.',
+            posterPath: '/9cqNxx0GxF0bflyCy3FpPiy3BXI.jpg',
+            backdropPath: '/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg',
+            releaseDate: '1994-09-23',
+            voteAverage: 9.3,
+            voteCount: 2000000,
+            genres: ['Drama'],
+            runtime: 142,
+            adult: false,
+            originalLanguage: 'en',
+            originalTitle: 'The Shawshank Redemption',
+            popularity: 100.0,
+            video: false,
+            rating: 9.3, // Add the missing rating property
+            year: '1994' // Add the missing year property
+          }
+
+          // Add test movie to the beginning of the list
+          const moviesWithTest = [testMovie, ...popularMovies]
+
+          setMovies(moviesWithTest)
+          setTrendingSeries(trendingSeriesData)
+          setSelectedMovie(testMovie) // Set test movie as featured
         } else {
           console.log('⚠️ TMDB not working, using fallback movies')
           setMovies(fallbackMovies)
+          setTrendingSeries([])
           setSelectedMovie(fallbackMovies[0] || null)
         }
 
@@ -246,8 +333,8 @@ export default function ClientOnlyMovieApp() {
                 onMovieSelect={handleMovieSelect}
               />
               <NetflixMovieRow
-                title="Popular on Netflix"
-                movies={movies.slice(24, 36).map(transformMovie)}
+                title="Trending Series"
+                movies={trendingSeries.slice(0, 12).map(transformSeries)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
@@ -310,6 +397,15 @@ export default function ClientOnlyMovieApp() {
         onClose={handleCloseModal}
         onPlay={handlePlay}
         onAddToList={handleAddToList}
+      />
+
+      {/* Video Player Modal */}
+      <VideoPlayerModal
+        isOpen={isVideoPlayerOpen}
+        onClose={handleCloseVideoPlayer}
+        movieId={playingMovieId}
+        movieTitle={playingMovieTitle}
+        onGetStreamingUrl={handleGetStreamingUrl}
       />
     </div>
   )

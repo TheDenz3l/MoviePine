@@ -53,8 +53,11 @@ export function NetflixFloatingNav({ onNavigate, activeCategory }: NetflixFloati
   return (
     <>
       {/* Navigation Trigger - Always visible on left edge */}
-      <div 
-        className="fixed left-0 top-0 h-full w-12 z-50 flex items-center justify-center cursor-pointer"
+      <div
+        className={cn(
+          "fixed left-0 top-0 h-full w-12 z-40 flex items-center justify-center cursor-pointer transition-all duration-300",
+          isVisible && "pointer-events-none"
+        )}
         onMouseEnter={() => setIsVisible(true)}
       >
         <div className="w-1 h-16 bg-white/20 rounded-r-full opacity-0 hover:opacity-100 transition-opacity duration-300" />
@@ -63,7 +66,7 @@ export function NetflixFloatingNav({ onNavigate, activeCategory }: NetflixFloati
       {/* Floating Navigation Overlay */}
       <div
         className={cn(
-          "fixed left-0 top-0 h-full w-16 bg-black/95 backdrop-blur-sm z-40 transition-all duration-300 ease-out",
+          "fixed left-0 top-0 h-full w-16 bg-black/95 backdrop-blur-sm z-50 transition-all duration-300 ease-out",
           isVisible ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0"
         )}
         onMouseEnter={() => setIsVisible(true)}

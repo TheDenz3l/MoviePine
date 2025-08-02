@@ -19,6 +19,21 @@ export interface StreamingMovie {
   tmdbId?: number
 }
 
+export interface StreamingSeries {
+  id: string
+  title: string
+  poster?: string
+  backdrop?: string
+  year: number
+  rating: number
+  genre: string[]
+  description: string
+  seasons?: number
+  episodes?: number
+  imdbId?: string
+  tmdbId?: number
+}
+
 export interface StreamingSource {
   name: string
   quality: string
@@ -116,6 +131,25 @@ export class StreamingService {
     }
   }
 
+  async getTrendingSeries(): Promise<StreamingSeries[]> {
+    if (!this.config.tmdbApiKey) {
+      console.warn('TMDB API key not configured')
+      return []
+    }
+
+    try {
+      const trendingResult = await this.tmdb.getTrendingTVShows()
+      const genres = await this.tmdb.getTVGenres()
+
+      return trendingResult.results.map(series =>
+        this.convertToSeries(series as TMDBTVShow, genres.genres)
+      )
+    } catch (error) {
+      console.error('Error fetching trending series:', error)
+      return []
+    }
+  }
+
   async getNowPlayingMovies(): Promise<StreamingMovie[]> {
     if (!this.config.tmdbApiKey) {
       console.warn('TMDB API key not configured')
@@ -179,13 +213,32 @@ export class StreamingService {
         with_genres: genreId.toString(),
       })
       const genres = await this.tmdb.getMovieGenres()
-      
-      return discoverResult.results.map((movie: TMDBMovie) => 
+
+      return discoverResult.results.map((movie: TMDBMovie) =>
         this.tmdb.convertToMovie(movie, genres.genres)
       )
     } catch (error) {
       console.error('Error fetching movies by genre:', error)
       return []
+    }
+  }
+
+  // Helper method to convert TMDB TV show to StreamingSeries
+  private convertToSeries(tmdbSeries: TMDBTVShow, genres: TMDBGenre[]): StreamingSeries {
+    const seriesGenres = tmdbSeries.genres || genres.filter(g => tmdbSeries.genre_ids?.includes(g.id))
+
+    return {
+      id: `tmdb_tv_${tmdbSeries.id}`,
+      title: tmdbSeries.name,
+      poster: tmdbSeries.poster_path ? this.tmdb.getPosterUrl(tmdbSeries.poster_path) : undefined,
+      backdrop: tmdbSeries.backdrop_path ? this.tmdb.getBackdropUrl(tmdbSeries.backdrop_path) : undefined,
+      year: tmdbSeries.first_air_date ? new Date(tmdbSeries.first_air_date).getFullYear() : new Date().getFullYear(),
+      rating: Math.round(tmdbSeries.vote_average * 10),
+      genre: seriesGenres.map(g => g.name),
+      description: tmdbSeries.overview,
+      seasons: tmdbSeries.number_of_seasons,
+      episodes: tmdbSeries.number_of_episodes,
+      tmdbId: tmdbSeries.id,
     }
   }
 
@@ -197,24 +250,41 @@ export class StreamingService {
       // If it's a TMDB ID, get the IMDB ID
       if (movieId.startsWith('tmdb_')) {
         const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+        console.log(`🔄 Converting TMDB ID ${tmdbId} to IMDB ID...`)
+
         const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
+        console.log(`📊 TMDB External IDs response:`, JSON.stringify(externalIds, null, 2))
+
         imdbId = externalIds.imdb_id || movieId
+        console.log(`🎯 Using IMDB ID: ${imdbId} (converted from TMDB ${tmdbId})`)
+      } else {
+        console.log(`🎯 Using provided ID: ${imdbId}`)
       }
 
-      // Get streams from Torrentio
-      const allStreams = await this.torrentio.getMovieStreams(imdbId)
+      // Get ALL streams from Torrentio (no filtering yet)
+      let allStreams = await this.torrentio.getMovieStreams(imdbId)
 
-      // Filter for high quality streams only (4K, 2160p, 1080p)
-      const highQualityStreams = this.torrentio.getHighQualityStreams(allStreams)
+      console.log(`🎬 Found ${allStreams.length} total streams for ${imdbId}`)
+
+      // If no streams found with IMDB ID and we converted from TMDB, try with original TMDB ID as fallback
+      if (allStreams.length === 0 && movieId.startsWith('tmdb_') && imdbId !== movieId) {
+        console.log(`🔄 No streams found with IMDB ID, trying with original TMDB ID: ${movieId}`)
+        allStreams = await this.torrentio.getMovieStreams(movieId)
+        console.log(`🎬 Found ${allStreams.length} total streams for ${movieId} (TMDB fallback)`)
+      }
+
+      // We'll process ALL streams and do intelligent selection later
 
       // Convert to StreamingSource format
       const streamingSources: StreamingSource[] = []
 
-      for (const stream of highQualityStreams) {
+      for (const stream of allStreams) {
         const quality = this.torrentio.parseStreamQuality(stream.title)
 
-        // Skip if not high quality (additional safety check)
-        if (!quality.isHighQuality) continue
+        // Skip only obviously bad quality (screeners, cams, etc.)
+        if (quality.quality.toLowerCase().includes('cam') ||
+            quality.quality.toLowerCase().includes('scr') ||
+            quality.quality.toLowerCase().includes('ts')) continue
 
         // Debug: Log stream data to check info hash
         console.log(`🔍 Processing stream: ${stream.title}`)
@@ -222,8 +292,8 @@ export class StreamingService {
         console.log(`🔗 URL: ${stream.url}`)
         console.log(`📁 File Index: ${stream.fileIdx}`)
 
-        // Validate info hash
-        if (!stream.infoHash || stream.infoHash.length !== 40) {
+        // Validate info hash (accept both 40-char hex and longer base32 hashes)
+        if (!stream.infoHash || stream.infoHash.length < 32) {
           console.warn(`⚠️ Invalid info hash for stream: ${stream.title} - Hash: ${stream.infoHash}`)
           continue
         }
@@ -294,8 +364,33 @@ export class StreamingService {
           console.log(`🚀 Adding torrent to Real-Debrid: ${source.name}`)
           console.log(`📊 Quality: ${source.quality}, Size: ${source.size}, Seeders: ${source.seeders}`)
 
+          // Check if this is a Torrentio resolve URL (indicates cached stream)
+          console.log(`🔗 Checking Torrentio URL: ${source.url}`)
+
+          // If the URL is a Torrentio resolve URL, the stream is already cached on Real-Debrid
+          if (source.url.includes('/resolve/realdebrid/')) {
+            console.log(`✅ Stream is already cached on Real-Debrid!`)
+            console.log(`🎬 Using Torrentio resolve URL via proxy: ${source.url}`)
+
+            // Use our proxy to handle CORS issues
+            const proxyUrl = `/api/stream?url=${encodeURIComponent(source.url)}`
+            console.log(`🔄 Proxy URL: ${proxyUrl}`)
+
+            // Return the proxy URL instead of direct Real-Debrid URL
+            return {
+              url: proxyUrl,
+              quality: source.quality || 'Unknown',
+              size: source.size || 'Unknown',
+              title: source.name
+            }
+          }
+
+          // For non-cached streams, try to add to Real-Debrid
+          console.log(`⏳ Stream not cached, adding to Real-Debrid...`)
+
           // Create magnet link from info hash
           const magnetLink = `magnet:?xt=urn:btih:${source.infoHash}&dn=${encodeURIComponent(source.name)}`
+          console.log(`🧲 Using magnet link: ${magnetLink.substring(0, 100)}...`)
           console.log(`⏳ Waiting for torrent to be ready...`)
 
           const torrent = await this.realdebrid.addTorrentAndWait(magnetLink)
@@ -303,6 +398,13 @@ export class StreamingService {
 
           const streamingUrl = await this.realdebrid.getStreamingUrl(torrent)
           console.log(`🎬 Streaming URL obtained: ${streamingUrl?.substring(0, 50)}...`)
+
+          // Use proxy to handle CORS issues with Real-Debrid URLs
+          if (streamingUrl) {
+            const proxyUrl = `/api/stream?url=${encodeURIComponent(streamingUrl)}`
+            console.log(`🔄 Using proxy URL for Real-Debrid stream`)
+            return proxyUrl
+          }
 
           return streamingUrl
         } catch (error) {
@@ -365,67 +467,129 @@ export class StreamingService {
 
   async getStreamingUrl(movieId: string, preferredQuality?: string): Promise<string | null> {
     try {
+      console.log(`🎬 Starting intelligent stream selection for ${movieId}`)
       const sources = await this.getMovieStreams(movieId)
 
       if (sources.length === 0) {
+        console.log(`❌ No streams found for ${movieId}`)
         return null
       }
 
-      // Prioritize highest quality with most seeders: 4K > 2160p > 1080p
-      const qualityPriority = ['4K', '2160p', '1080p']
+      console.log(`📊 Found ${sources.length} total streams, starting intelligent selection...`)
 
-      let selectedSource: StreamingSource | undefined
+      // Enhanced priority algorithm with fallback logic
+      const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality)
 
-      // If preferred quality is specified, try to find it first (with highest seeders)
-      if (preferredQuality) {
-        const preferredSources = sources.filter(s =>
-          s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) && s.isReady
-        )
-        if (preferredSources.length > 0) {
-          // Sort by seeders within preferred quality
-          selectedSource = preferredSources.sort((a, b) => (b.seeders || 0) - (a.seeders || 0))[0]
-        }
+      if (streamingUrl) {
+        console.log(`✅ Successfully prepared streaming URL`)
+        return streamingUrl
+      } else {
+        console.log(`❌ Failed to prepare any streaming URL after trying all available streams`)
+        return null
       }
-
-      // If no preferred quality match, use priority order with seeder sorting
-      if (!selectedSource) {
-        for (const quality of qualityPriority) {
-          const qualitySources = sources.filter(s =>
-            s.quality.toLowerCase().includes(quality.toLowerCase()) && s.isReady
-          )
-          if (qualitySources.length > 0) {
-            // Sort by seeders within this quality tier
-            selectedSource = qualitySources.sort((a, b) => (b.seeders || 0) - (a.seeders || 0))[0]
-            break
-          }
-        }
-      }
-
-      // If no ready sources, try to prepare the highest quality one with most seeders
-      if (!selectedSource) {
-        for (const quality of qualityPriority) {
-          const qualitySources = sources.filter(s =>
-            s.quality.toLowerCase().includes(quality.toLowerCase())
-          )
-          if (qualitySources.length > 0) {
-            // Sort by seeders within this quality tier
-            selectedSource = qualitySources.sort((a, b) => (b.seeders || 0) - (a.seeders || 0))[0]
-            break
-          }
-        }
-      }
-
-      // Fallback to source with most seeders
-      if (!selectedSource && sources.length > 0) {
-        selectedSource = sources.sort((a, b) => (b.seeders || 0) - (a.seeders || 0))[0]
-      }
-
-      return await this.prepareStream(selectedSource)
 
     } catch (error) {
       console.error('Error getting streaming URL:', error)
       return null
     }
+  }
+
+  private async selectOptimalStreamWithFallback(sources: StreamingSource[], preferredQuality?: string): Promise<string | null> {
+    // Step 1: Sort all sources by our intelligent priority algorithm
+    const sortedSources = this.sortSourcesByPriority(sources, preferredQuality)
+
+    console.log(`🎯 Trying ${sortedSources.length} streams in priority order...`)
+
+    // Step 2: Try each source in order until one works
+    for (let i = 0; i < sortedSources.length; i++) {
+      const source = sortedSources[i]
+      console.log(`🔄 Attempt ${i + 1}/${sortedSources.length}: ${source.quality} - ${source.name} (${source.seeders || 0} seeders)`)
+
+      try {
+        const streamingUrl = await this.prepareStream(source)
+        if (streamingUrl) {
+          console.log(`✅ Success! Stream prepared: ${source.quality} quality`)
+          return streamingUrl
+        }
+      } catch (error) {
+        console.log(`❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        // Continue to next stream
+      }
+    }
+
+    return null
+  }
+
+  private sortSourcesByPriority(sources: StreamingSource[], preferredQuality?: string): StreamingSource[] {
+    return sources.sort((a, b) => {
+      // Priority 1: Preferred quality (if specified)
+      if (preferredQuality) {
+        const aMatchesPreferred = a.quality.toLowerCase().includes(preferredQuality.toLowerCase())
+        const bMatchesPreferred = b.quality.toLowerCase().includes(preferredQuality.toLowerCase())
+        if (aMatchesPreferred && !bMatchesPreferred) return -1
+        if (!aMatchesPreferred && bMatchesPreferred) return 1
+      }
+
+      // Priority 2: Cache status (ready streams first)
+      if (a.isReady && !b.isReady) return -1
+      if (!a.isReady && b.isReady) return 1
+
+      // Priority 3: Audio compatibility (browser-supported codecs first)
+      const aAudioScore = this.getAudioCompatibilityScore(a.name)
+      const bAudioScore = this.getAudioCompatibilityScore(b.name)
+      if (aAudioScore !== bAudioScore) return bAudioScore - aAudioScore
+
+      // Priority 4: Quality priority (4K > 2160p > 1080p > 720p > 480p)
+      const qualityScore = (quality: string): number => {
+        const q = quality.toLowerCase()
+        if (q.includes('4k') || q.includes('2160p')) return 5
+        if (q.includes('1080p')) return 4
+        if (q.includes('720p')) return 3
+        if (q.includes('480p')) return 2
+        return 1
+      }
+
+      const aQualityScore = qualityScore(a.quality)
+      const bQualityScore = qualityScore(b.quality)
+      if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
+
+      // Priority 5: Seeders/peers (higher is better)
+      const aSeeders = a.seeders || 0
+      const bSeeders = b.seeders || 0
+      return bSeeders - aSeeders
+    })
+  }
+
+  private getAudioCompatibilityScore(streamName: string): number {
+    const name = streamName.toLowerCase()
+
+    // Browser-compatible audio codecs (highest priority)
+    if (name.includes('aac') || name.includes('mp3') || name.includes('opus')) {
+      return 10
+    }
+
+    // Dolby Digital Plus (supported by some browsers)
+    if (name.includes('ddp') || name.includes('dd+') || name.includes('eac3')) {
+      return 8
+    }
+
+    // Standard Dolby Digital (limited support)
+    if (name.includes('dd5.1') || name.includes('ac3')) {
+      return 6
+    }
+
+    // DTS variants (not supported by browsers)
+    if (name.includes('dts-hd') || name.includes('dts-ma') || name.includes('dts')) {
+      return 2
+    }
+
+    // TrueHD and other high-end codecs (not supported)
+    if (name.includes('truehd') || name.includes('atmos')) {
+      return 1
+    }
+
+    // Unknown audio codec
+    return 5
   }
 
   // Utility methods

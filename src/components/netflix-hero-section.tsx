@@ -29,19 +29,16 @@ export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSec
   if (!movie) return null
 
   return (
-    <div className="relative h-[70vh] sm:h-[80vh] min-h-[500px] sm:min-h-[600px] overflow-hidden animate-fade-in">
-      {/* Background Image */}
-      <div
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{
-          backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
-        }}
-      >
-        {/* Gradient Overlays */}
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent" />
-      </div>
+    <div
+      className="relative h-screen overflow-hidden animate-fade-in bg-cover bg-center bg-no-repeat"
+      style={{
+        backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
+      }}
+    >
+      {/* Gradient Overlays */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent" />
 
       {/* Content */}
       <div className="relative z-10 flex items-end h-full px-4 sm:px-8 lg:px-16 pt-20 pb-8 sm:pb-16">

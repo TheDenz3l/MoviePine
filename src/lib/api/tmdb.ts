@@ -244,6 +244,25 @@ export class TMDBAPI {
     }
   }
 
+  // Helper method to convert TMDB TV show to our Series interface
+  convertToSeries(tmdbSeries: TMDBTVShow, genres: TMDBGenre[] = []): any {
+    const seriesGenres = tmdbSeries.genres || genres.filter(g => tmdbSeries.genre_ids?.includes(g.id))
+
+    return {
+      id: `tmdb_tv_${tmdbSeries.id}`,
+      title: tmdbSeries.name,
+      poster: tmdbSeries.poster_path ? this.getPosterUrl(tmdbSeries.poster_path) : undefined,
+      backdrop: tmdbSeries.backdrop_path ? this.getBackdropUrl(tmdbSeries.backdrop_path) : undefined,
+      year: tmdbSeries.first_air_date ? new Date(tmdbSeries.first_air_date).getFullYear() : new Date().getFullYear(),
+      rating: Math.round(tmdbSeries.vote_average * 10),
+      genre: seriesGenres.map(g => g.name),
+      description: tmdbSeries.overview,
+      seasons: tmdbSeries.number_of_seasons,
+      episodes: tmdbSeries.number_of_episodes,
+      tmdbId: tmdbSeries.id,
+    }
+  }
+
   // Make the makeRequest method public for use in streaming service
   async makeRequest<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
     const url = new URL(`${this.baseUrl}${endpoint}`)

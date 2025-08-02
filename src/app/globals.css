@@ -54,6 +54,45 @@
   animation: slideInLeft 0.3s ease-out;
 }
 
+/* Image display improvements */
+.image-contain-with-blur {
+  position: relative;
+}
+
+.image-contain-with-blur::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: inherit;
+  background-size: cover;
+  background-position: center;
+  filter: blur(20px) brightness(0.3);
+  z-index: -1;
+}
+
+/* Ensure proper image scaling */
+.hero-image-container {
+  background-color: #1a1a1a;
+}
+
+.modal-image-container {
+  background-color: #27272a;
+}
+
+/* Image aspect ratio handling */
+.image-contain-responsive {
+  object-fit: contain;
+  object-position: center;
+}
+
+.image-cover-blur {
+  object-fit: cover;
+  filter: blur(20px) brightness(0.3);
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
