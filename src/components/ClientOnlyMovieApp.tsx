@@ -165,6 +165,37 @@ export default function ClientOnlyMovieApp() {
     }
   }
 
+  const handleGetStreamingResult = async (movieId: string): Promise<{
+    url: string;
+    subtitles: string[];
+    realSubtitles?: Array<{
+      language: string
+      label: string
+      url: string
+      isExternal: boolean
+    }>
+  } | null> => {
+    try {
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+
+      if (configData.success) {
+        const service = createStreamingService(configData.config)
+        const result = await service.getStreamingResult(movieId)
+        return result ? {
+          url: result.url,
+          subtitles: result.subtitles,
+          realSubtitles: result.realSubtitles
+        } : null
+      }
+
+      throw new Error('Failed to load streaming configuration')
+    } catch (error) {
+      console.error('Error getting streaming result:', error)
+      throw error
+    }
+  }
+
   // Transform StreamingMovie to MovieCard format
   const transformMovie = (movie: StreamingMovie) => ({
     id: movie.id,
@@ -406,6 +437,7 @@ export default function ClientOnlyMovieApp() {
         movieId={playingMovieId}
         movieTitle={playingMovieTitle}
         onGetStreamingUrl={handleGetStreamingUrl}
+        onGetStreamingResult={handleGetStreamingResult}
       />
     </div>
   )

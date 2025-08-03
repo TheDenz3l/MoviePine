@@ -4,6 +4,9 @@ import { TMDBAPI, TMDBMovie, TMDBTVShow } from '../api/tmdb'
 import { TorrentioAPI, TorrentioStream } from '../api/torrentio'
 import { TorboxAPI, TorboxTorrent } from '../api/torbox'
 import RealDebridAPI, { RealDebridTorrent } from '../api/realdebrid'
+import { fetchMovieSubtitles, type ProcessedSubtitle } from './subtitle-service'
+// Debug utilities temporarily disabled to avoid reserved keyword issues
+// import { streamingDebugger, logStreamingStep, logStreamingError, logStreamingSuccess } from '../utils/debug'
 
 export interface StreamingMovie {
   id: string
@@ -44,6 +47,18 @@ export interface StreamingSource {
   isReady: boolean
   torboxId?: number
   realDebridId?: string
+  subtitles?: string[] // Available subtitle languages from stream
+}
+
+export interface StreamingResult {
+  url: string
+  subtitles: string[]
+  realSubtitles?: ProcessedSubtitle[] // Real subtitle files from SubDL API
+  source: StreamingSource
+  movieTitle?: string
+  movieYear?: number
+  imdbId?: string
+  tmdbId?: string
 }
 
 export interface StreamingConfig {
@@ -245,32 +260,43 @@ export class StreamingService {
   // Streaming methods
   async getMovieStreams(movieId: string): Promise<StreamingSource[]> {
     try {
-      let imdbId = movieId
-      
-      // If it's a TMDB ID, get the IMDB ID
-      if (movieId.startsWith('tmdb_')) {
-        const tmdbId = parseInt(movieId.replace('tmdb_', ''))
-        console.log(`🔄 Converting TMDB ID ${tmdbId} to IMDB ID...`)
+      console.log(`🎬 Starting enhanced stream search for movie ID: ${movieId}`)
 
-        const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
-        console.log(`📊 TMDB External IDs response:`, JSON.stringify(externalIds, null, 2))
+      // Enhanced ID conversion with multiple fallback strategies
+      const searchIds = await this.getSearchIds(movieId)
+      console.log(`🔍 Generated search IDs:`, searchIds)
 
-        imdbId = externalIds.imdb_id || movieId
-        console.log(`🎯 Using IMDB ID: ${imdbId} (converted from TMDB ${tmdbId})`)
-      } else {
-        console.log(`🎯 Using provided ID: ${imdbId}`)
+      let allStreams: any[] = []
+
+      // Try each ID until we find streams
+      for (const searchId of searchIds) {
+        console.log(`🔄 Searching streams with ID: ${searchId.id} (${searchId.type})`)
+
+        const streams = await this.torrentio.getMovieStreams(searchId.id)
+        console.log(`📊 Found ${streams.length} streams for ${searchId.id} (${searchId.type})`)
+
+        if (streams.length > 0) {
+          allStreams = streams
+          console.log(`✅ Successfully found streams using ${searchId.type}: ${searchId.id}`)
+          break
+        }
       }
 
-      // Get ALL streams from Torrentio (no filtering yet)
-      let allStreams = await this.torrentio.getMovieStreams(imdbId)
+      console.log(`🎬 Total streams found: ${allStreams.length}`)
 
-      console.log(`🎬 Found ${allStreams.length} total streams for ${imdbId}`)
+      if (allStreams.length === 0) {
+        console.log(`❌ No streams found for any ID variant of ${movieId}`)
 
-      // If no streams found with IMDB ID and we converted from TMDB, try with original TMDB ID as fallback
-      if (allStreams.length === 0 && movieId.startsWith('tmdb_') && imdbId !== movieId) {
-        console.log(`🔄 No streams found with IMDB ID, trying with original TMDB ID: ${movieId}`)
-        allStreams = await this.torrentio.getMovieStreams(movieId)
-        console.log(`🎬 Found ${allStreams.length} total streams for ${movieId} (TMDB fallback)`)
+        // Final fallback: Try alternative search methods
+        console.log(`🔄 Attempting alternative search methods...`)
+        allStreams = await this.alternativeStreamSearch(movieId)
+
+        if (allStreams.length === 0) {
+          console.log(`❌ No streams found after all fallback attempts for ${movieId}`)
+          return []
+        } else {
+          console.log(`✅ Alternative search found ${allStreams.length} streams`)
+        }
       }
 
       // We'll process ALL streams and do intelligent selection later
@@ -328,6 +354,9 @@ export class StreamingService {
           }
         }
 
+        const subtitles = stream.subtitles || []
+        console.log(`📝 StreamingService: Stream "${stream.title}" has subtitles: [${subtitles.join(', ')}]`)
+
         streamingSources.push({
           name: stream.title,
           quality: quality.quality,
@@ -338,18 +367,76 @@ export class StreamingService {
           isReady,
           torboxId,
           realDebridId,
+          subtitles,
         })
       }
-      
+
+      console.log(`✅ Stream search completed for ${movieId}:`, {
+        totalSources: streamingSources.length,
+        readySources: streamingSources.filter(s => s.isReady).length
+      })
+
       return streamingSources
     } catch (error) {
-      console.error('Error getting movie streams:', error)
+      console.error(`❌ Error getting movie streams for ${movieId}:`, error)
       return []
     }
   }
 
   async prepareStream(source: StreamingSource): Promise<string | null> {
     try {
+      console.log(`🔗 PREPARING STREAM: ${source.name}`)
+      console.log(`📊 SOURCE URL: ${source.url}`)
+
+      // STREMIO MODE: If this is a Torrentio resolve URL, resolve it to get the actual video URL
+      if (source.url && source.url.includes('/resolve/realdebrid/')) {
+        console.log(`✅ TORRENTIO RESOLVE URL DETECTED! 🎯`)
+        console.log(`🎬 STREMIO MODE: Resolving Torrentio URL to get actual video URL`)
+        console.log(`🔗 RESOLVE URL: ${source.url}`)
+
+        try {
+          // Use the proxy endpoint to resolve the Torrentio URL
+          const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url)}`
+          console.log(`🔗 Using proxy URL: ${proxyUrl}`)
+
+          const response = await fetch(proxyUrl)
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.resolvedUrl) {
+              console.log(`🚀 RESOLVED VIDEO URL: ${data.resolvedUrl.substring(0, 100)}...`)
+              console.log(`📹 Content Type: ${data.contentType || 'unknown'}`)
+              console.log(`🎬 Is Video: ${data.isVideo ? 'Yes' : 'No'}`)
+              console.log(`📝 Available subtitles: ${source.subtitles?.join(', ') || 'None detected'}`)
+
+              // Use stream proxy for Real-Debrid URLs to handle CORS and streaming
+              if (data.resolvedUrl.includes('real-debrid.com') || data.resolvedUrl.includes('download.')) {
+                const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(data.resolvedUrl)}`
+                console.log(`🔄 Using stream proxy for Real-Debrid URL: ${proxiedUrl.substring(0, 100)}...`)
+                return proxiedUrl
+              }
+
+              // Return the actual video URL for other sources
+              return data.resolvedUrl
+            } else {
+              console.log(`❌ Failed to resolve Torrentio URL: ${data.error || 'Unknown error'}`)
+              return null
+            }
+          } else {
+            const errorText = await response.text().catch(() => 'Unable to read error response')
+            console.log(`❌ Proxy request failed: ${response.status} ${response.statusText}`)
+            console.log(`❌ Error details: ${errorText}`)
+            return null
+          }
+        } catch (error) {
+          console.error(`❌ Error resolving Torrentio URL:`, error)
+          if (error instanceof TypeError && error.message.includes('fetch')) {
+            console.error(`❌ This appears to be a network/CORS error. Check if the proxy endpoint is working.`)
+          }
+          return null
+        }
+      }
+
       // Try Real-Debrid first if available and configured
       if (this.realdebrid && source.realDebridId) {
         const torrent = await this.realdebrid.getTorrent(source.realDebridId)
@@ -363,27 +450,6 @@ export class StreamingService {
         try {
           console.log(`🚀 Adding torrent to Real-Debrid: ${source.name}`)
           console.log(`📊 Quality: ${source.quality}, Size: ${source.size}, Seeders: ${source.seeders}`)
-
-          // Check if this is a Torrentio resolve URL (indicates cached stream)
-          console.log(`🔗 Checking Torrentio URL: ${source.url}`)
-
-          // If the URL is a Torrentio resolve URL, the stream is already cached on Real-Debrid
-          if (source.url.includes('/resolve/realdebrid/')) {
-            console.log(`✅ Stream is already cached on Real-Debrid!`)
-            console.log(`🎬 Using Torrentio resolve URL via proxy: ${source.url}`)
-
-            // Use our proxy to handle CORS issues
-            const proxyUrl = `/api/stream?url=${encodeURIComponent(source.url)}`
-            console.log(`🔄 Proxy URL: ${proxyUrl}`)
-
-            // Return the proxy URL instead of direct Real-Debrid URL
-            return {
-              url: proxyUrl,
-              quality: source.quality || 'Unknown',
-              size: source.size || 'Unknown',
-              title: source.name
-            }
-          }
 
           // For non-cached streams, try to add to Real-Debrid
           console.log(`⏳ Stream not cached, adding to Real-Debrid...`)
@@ -465,9 +531,29 @@ export class StreamingService {
     }
   }
 
-  async getStreamingUrl(movieId: string, preferredQuality?: string): Promise<string | null> {
+  async getStreamingResult(movieId: string, preferredQuality?: string): Promise<StreamingResult | null> {
     try {
-      console.log(`🎬 Starting intelligent stream selection for ${movieId}`)
+      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}`)
+
+      // Get movie metadata for better subtitle searching
+      let movieMetadata: { title?: string, year?: number, imdbId?: string, tmdbId?: string } = {}
+      if (movieId.startsWith('tmdb_')) {
+        try {
+          const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+          const movie = await this.tmdb.getMovieDetails(tmdbId)
+          const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
+          movieMetadata = {
+            title: movie.title,
+            year: movie.release_date ? new Date(movie.release_date).getFullYear() : undefined,
+            imdbId: externalIds.imdb_id,
+            tmdbId: tmdbId.toString()
+          }
+          console.log(`📊 Movie metadata: "${movieMetadata.title}" (${movieMetadata.year}) - IMDB: ${movieMetadata.imdbId}`)
+        } catch (error) {
+          console.warn(`⚠️ Could not fetch movie metadata:`, error)
+        }
+      }
+
       const sources = await this.getMovieStreams(movieId)
 
       if (sources.length === 0) {
@@ -475,7 +561,184 @@ export class StreamingService {
         return null
       }
 
-      console.log(`📊 Found ${sources.length} total streams, starting intelligent selection...`)
+      console.log(`📊 Found ${sources.length} total streams, checking for Torrentio resolve URLs...`)
+
+      // STREMIO MODE: Look for Torrentio resolve URLs with audio compatibility prioritization
+      const torrentioSources = sources.filter(source =>
+        source.url && source.url.includes('/resolve/realdebrid/')
+      )
+
+      if (torrentioSources.length > 0) {
+        console.log(`🎵 Found ${torrentioSources.length} Torrentio streams, prioritizing by audio compatibility...`)
+
+        // Sort Torrentio sources by audio compatibility first, then by quality
+        const sortedTorrentioSources = torrentioSources.sort((a, b) => {
+          // Priority 1: Audio compatibility (browser-supported codecs first)
+          const aAudioScore = this.getAudioCompatibilityScore(a.name)
+          const bAudioScore = this.getAudioCompatibilityScore(b.name)
+          if (aAudioScore !== bAudioScore) {
+            console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
+            return bAudioScore - aAudioScore
+          }
+
+          // Priority 2: Quality (4K > 1080p > 720p)
+          const aQualityScore = this.getQualityScore(a.quality)
+          const bQualityScore = this.getQualityScore(b.quality)
+          if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
+
+          // Priority 3: Seeders/peers (higher is better)
+          const aSeeders = this.extractSeeders(a.name)
+          const bSeeders = this.extractSeeders(b.name)
+          return bSeeders - aSeeders
+        })
+
+        // Try each Torrentio source in audio-compatibility order
+        for (const source of sortedTorrentioSources) {
+          const audioScore = this.getAudioCompatibilityScore(source.name)
+          console.log(`✅ TRYING TORRENTIO STREAM! 🎯`)
+          console.log(`🎵 Stream: ${source.name} (Audio Score: ${audioScore})`)
+          console.log(`📊 Quality: ${source.quality}, Seeders: ${this.extractSeeders(source.name)}`)
+
+          try {
+            const streamingUrl = await this.prepareStream(source)
+            if (streamingUrl) {
+              console.log(`✅ Success! Stream prepared with subtitles: ${source.quality} quality`)
+
+              // Fetch real subtitles from SubDL API
+              let realSubtitles: ProcessedSubtitle[] = []
+              try {
+                console.log(`🎬 Fetching real subtitles using movie metadata...`)
+                realSubtitles = await fetchMovieSubtitles(
+                  movieMetadata?.title || source.name, // Use movie title or stream name as fallback
+                  movieMetadata?.year,
+                  movieMetadata?.imdbId,
+                  movieMetadata?.tmdbId,
+                  ['en', 'es', 'fr', 'de', 'it'] // Default languages
+                )
+                console.log(`✅ Found ${realSubtitles.length} real subtitle tracks`)
+              } catch (error) {
+                console.error(`❌ Failed to fetch real subtitles:`, error)
+              }
+
+              return {
+                url: streamingUrl,
+                subtitles: source.subtitles || [],
+                realSubtitles,
+                source
+              }
+            }
+          } catch (error) {
+            console.log(`❌ Torrentio stream failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            // Continue to next stream
+          }
+        }
+      }
+
+      console.log(`⚠️ No Torrentio resolve URLs found, falling back to traditional method...`)
+
+      // Enhanced priority algorithm with fallback logic
+      const result = await this.selectOptimalStreamWithFallbackResult(sources, preferredQuality, movieMetadata)
+
+      if (result) {
+        console.log(`✅ Successfully prepared streaming URL with subtitles`)
+        return result
+      } else {
+        console.log(`❌ Failed to prepare any streaming URL after trying all available streams`)
+        return null
+      }
+
+    } catch (error) {
+      console.error('Error getting streaming result:', error)
+      return null
+    }
+  }
+
+  async getStreamingUrl(movieId: string, preferredQuality?: string): Promise<string | null> {
+    try {
+      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}`)
+      const sources = await this.getMovieStreams(movieId)
+
+      if (sources.length === 0) {
+        console.log(`❌ No streams found for ${movieId}`)
+        return null
+      }
+
+      console.log(`📊 Found ${sources.length} total streams, checking for Torrentio resolve URLs...`)
+
+      // STREMIO MODE: Look for Torrentio resolve URLs with audio compatibility prioritization
+      const torrentioSources = sources.filter(source =>
+        source.url && source.url.includes('/resolve/realdebrid/')
+      )
+
+      if (torrentioSources.length > 0) {
+        console.log(`🎵 Found ${torrentioSources.length} Torrentio streams, prioritizing by audio compatibility...`)
+
+        // Sort Torrentio sources by audio compatibility first, then by quality
+        const sortedTorrentioSources = torrentioSources.sort((a, b) => {
+          // Priority 1: Audio compatibility (browser-supported codecs first)
+          const aAudioScore = this.getAudioCompatibilityScore(a.name)
+          const bAudioScore = this.getAudioCompatibilityScore(b.name)
+          if (aAudioScore !== bAudioScore) {
+            console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
+            return bAudioScore - aAudioScore
+          }
+
+          // Priority 2: Quality (4K > 1080p > 720p)
+          const aQualityScore = this.getQualityScore(a.quality)
+          const bQualityScore = this.getQualityScore(b.quality)
+          if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
+
+          // Priority 3: Seeders/peers (higher is better)
+          const aSeeders = this.extractSeeders(a.name)
+          const bSeeders = this.extractSeeders(b.name)
+          return bSeeders - aSeeders
+        })
+
+        console.log(`🎵 Top 3 audio-prioritized streams:`)
+        sortedTorrentioSources.slice(0, 3).forEach((source, index) => {
+          const audioScore = this.getAudioCompatibilityScore(source.name)
+          console.log(`  ${index + 1}. ${source.name} (Audio: ${audioScore}, Quality: ${source.quality})`)
+        })
+
+        // Try each Torrentio source in audio-compatibility order
+        for (const source of sortedTorrentioSources) {
+          const audioScore = this.getAudioCompatibilityScore(source.name)
+          console.log(`✅ TRYING TORRENTIO STREAM! 🎯`)
+          console.log(`🎵 Audio compatibility score: ${audioScore}`)
+          console.log(`🔗 RESOLVE URL: ${source.url}`)
+          console.log(`📊 Quality: ${source.quality}, Size: ${source.size}`)
+
+          try {
+            // Use a server-side proxy to resolve the URL and follow redirects
+            const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url)}`
+            const response = await fetch(proxyUrl)
+
+            if (response.ok) {
+              const data = await response.json()
+              if (data.success && data.resolvedUrl) {
+                console.log(`🚀 RESOLVED VIDEO URL: ${data.resolvedUrl.substring(0, 100)}...`)
+                console.log(`🎵 Selected stream with audio score: ${audioScore}`)
+
+                // Use video proxy to bypass CORS issues
+                const proxyUrl = `/api/stream-proxy?url=${encodeURIComponent(data.resolvedUrl)}`
+                console.log(`🎬 Using video proxy for CORS-free streaming`)
+                return proxyUrl
+              } else {
+                console.log(`❌ Failed to resolve stream: ${data.error || 'Unknown error'}`)
+                continue
+              }
+            } else {
+              console.log(`❌ Proxy request failed: ${response.status} ${response.statusText}`)
+              continue
+            }
+          } catch (error) {
+            console.error(`❌ Error resolving Torrentio URL:`, error)
+            continue
+          }
+        }
+      }
+
+      console.log(`⚠️ No Torrentio resolve URLs found, falling back to traditional method...`)
 
       // Enhanced priority algorithm with fallback logic
       const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality)
@@ -520,6 +783,229 @@ export class StreamingService {
     return null
   }
 
+  private async selectOptimalStreamWithFallbackResult(
+    sources: StreamingSource[],
+    preferredQuality?: string,
+    movieMetadata?: { title?: string, year?: number, imdbId?: string, tmdbId?: string }
+  ): Promise<StreamingResult | null> {
+    // Step 1: Sort sources by quality and readiness
+    const sortedSources = this.sortSourcesByPriority(sources, preferredQuality)
+
+    // Step 2: Try each source in order until one works
+    for (let i = 0; i < sortedSources.length; i++) {
+      const source = sortedSources[i]
+      console.log(`🔄 Attempt ${i + 1}/${sortedSources.length}: ${source.quality} - ${source.name} (${source.seeders || 0} seeders)`)
+
+      try {
+        const streamingUrl = await this.prepareStream(source)
+        if (streamingUrl) {
+          console.log(`✅ Success! Stream prepared: ${source.quality} quality`)
+
+          return {
+            url: streamingUrl,
+            subtitles: source.subtitles || [],
+            source,
+            movieTitle: source.name
+          }
+        }
+      } catch (error) {
+        console.log(`❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        // Continue to next stream
+      }
+    }
+
+    return null
+  }
+
+  // Enhanced ID conversion with multiple fallback strategies
+  private async getSearchIds(movieId: string): Promise<Array<{id: string, type: string}>> {
+    const searchIds: Array<{id: string, type: string}> = []
+
+    if (movieId.startsWith('tmdb_')) {
+      const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+      console.log(`🔄 Converting TMDB ID ${tmdbId} to IMDB ID...`)
+
+      try {
+        // Get external IDs from TMDB
+        const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
+        console.log(`📊 TMDB External IDs:`, {
+          imdb_id: externalIds.imdb_id,
+          wikidata_id: externalIds.wikidata_id,
+          facebook_id: externalIds.facebook_id
+        })
+
+        // Primary: Use IMDB ID if available
+        if (externalIds.imdb_id) {
+          searchIds.push({ id: externalIds.imdb_id, type: 'IMDB (from TMDB)' })
+        }
+
+        // Fallback 1: Try TMDB ID directly (some sources might support it)
+        searchIds.push({ id: movieId, type: 'TMDB ID (direct)' })
+        searchIds.push({ id: tmdbId.toString(), type: 'TMDB ID (numeric)' })
+
+        // Fallback 2: If no IMDB ID, try to get movie details and search by title+year
+        if (!externalIds.imdb_id) {
+          try {
+            const movieDetails = await this.tmdb.getMovieDetails(tmdbId)
+            if (movieDetails.title && movieDetails.release_date) {
+              const year = new Date(movieDetails.release_date).getFullYear()
+              const titleSearch = `${movieDetails.title} ${year}`
+              searchIds.push({ id: titleSearch, type: 'Title+Year search' })
+
+              // Also try original title if different
+              if (movieDetails.original_title && movieDetails.original_title !== movieDetails.title) {
+                const originalTitleSearch = `${movieDetails.original_title} ${year}`
+                searchIds.push({ id: originalTitleSearch, type: 'Original Title+Year search' })
+              }
+            }
+          } catch (error) {
+            console.warn(`⚠️ Could not get movie details for TMDB ${tmdbId}:`, error)
+          }
+        }
+
+      } catch (error) {
+        console.error(`❌ Error converting TMDB ID ${tmdbId}:`, error)
+        // Fallback to using TMDB ID directly
+        searchIds.push({ id: movieId, type: 'TMDB ID (error fallback)' })
+        searchIds.push({ id: tmdbId.toString(), type: 'TMDB ID numeric (error fallback)' })
+      }
+    } else if (movieId.startsWith('tt')) {
+      // Already an IMDB ID
+      searchIds.push({ id: movieId, type: 'IMDB (provided)' })
+    } else {
+      // Unknown format, try as-is
+      searchIds.push({ id: movieId, type: 'Unknown format (as-is)' })
+    }
+
+    return searchIds
+  }
+
+  // Alternative stream search methods when primary search fails
+  private async alternativeStreamSearch(movieId: string): Promise<any[]> {
+    console.log(`🔍 Starting alternative stream search for ${movieId}`)
+
+    try {
+      // Method 1: Try with different Torrentio configurations
+      const alternativeStreams = await this.tryAlternativeTorrentioConfigs(movieId)
+      if (alternativeStreams.length > 0) {
+        console.log(`✅ Found ${alternativeStreams.length} streams with alternative Torrentio config`)
+        return alternativeStreams
+      }
+
+      // Method 2: If it's a TMDB ID, try searching by movie title and year
+      if (movieId.startsWith('tmdb_')) {
+        const titleBasedStreams = await this.searchByTitleAndYear(movieId)
+        if (titleBasedStreams.length > 0) {
+          console.log(`✅ Found ${titleBasedStreams.length} streams by title search`)
+          return titleBasedStreams
+        }
+      }
+
+      // Method 3: Try with simplified search terms
+      const simplifiedStreams = await this.trySimplifiedSearch(movieId)
+      if (simplifiedStreams.length > 0) {
+        console.log(`✅ Found ${simplifiedStreams.length} streams with simplified search`)
+        return simplifiedStreams
+      }
+
+    } catch (error) {
+      console.error(`❌ Alternative search failed:`, error)
+    }
+
+    return []
+  }
+
+  // Try alternative Torrentio configurations
+  private async tryAlternativeTorrentioConfigs(movieId: string): Promise<any[]> {
+    // Create alternative Torrentio instance with different provider selection
+    const alternativeProviders = ['1337x', 'rarbg', 'thepiratebay'] // Focus on most reliable providers
+    const altTorrentio = new TorrentioAPI({
+      providers: alternativeProviders,
+      debridService: this.realdebrid ? 'realdebrid' : undefined,
+      apiKey: this.realdebrid ? process.env.NEXT_PUBLIC_DEBRID_API_KEY : undefined
+    })
+
+    // Try with the main ID first
+    let streams = await altTorrentio.getMovieStreams(movieId)
+    if (streams.length > 0) return streams
+
+    // If TMDB ID, try converting to IMDB and search again
+    if (movieId.startsWith('tmdb_')) {
+      try {
+        const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+        const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
+        if (externalIds.imdb_id) {
+          streams = await altTorrentio.getMovieStreams(externalIds.imdb_id)
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not get external IDs for alternative search:`, error)
+      }
+    }
+
+    return streams
+  }
+
+  // Search by movie title and year
+  private async searchByTitleAndYear(movieId: string): Promise<any[]> {
+    if (!movieId.startsWith('tmdb_')) return []
+
+    try {
+      const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+      const movieDetails = await this.tmdb.getMovieDetails(tmdbId)
+
+      if (!movieDetails.title || !movieDetails.release_date) {
+        console.log(`⚠️ Missing title or release date for TMDB ${tmdbId}`)
+        return []
+      }
+
+      const year = new Date(movieDetails.release_date).getFullYear()
+
+      // Try different title variations
+      const titleVariations = [
+        movieDetails.title,
+        movieDetails.original_title,
+        // Remove common subtitle patterns
+        movieDetails.title.split(':')[0].trim(),
+        movieDetails.title.split(' - ')[0].trim(),
+      ].filter((title, index, arr) => title && arr.indexOf(title) === index) // Remove duplicates
+
+      for (const title of titleVariations) {
+        console.log(`🔍 Trying title search: "${title}" (${year})`)
+
+        // This would require implementing a title-based search in Torrentio
+        // For now, we'll try constructing potential IMDB-style searches
+        const searchTerms = [
+          `${title} ${year}`,
+          `${title.toLowerCase().replace(/[^a-z0-9\s]/g, '')} ${year}`,
+        ]
+
+        for (const searchTerm of searchTerms) {
+          try {
+            // This is a placeholder - in a real implementation, you might:
+            // 1. Use a different torrent search API that supports title search
+            // 2. Implement a title-to-IMDB lookup service
+            // 3. Use alternative streaming sources
+            console.log(`🔍 Would search for: "${searchTerm}"`)
+          } catch (error) {
+            console.warn(`⚠️ Title search failed for "${searchTerm}":`, error)
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Title-based search failed:`, error)
+    }
+
+    return []
+  }
+
+  // Try simplified search with basic terms
+  private async trySimplifiedSearch(movieId: string): Promise<any[]> {
+    // This could implement additional fallback search strategies
+    // such as using different torrent search engines or APIs
+    console.log(`🔍 Simplified search not yet implemented for ${movieId}`)
+    return []
+  }
+
   private sortSourcesByPriority(sources: StreamingSource[], preferredQuality?: string): StreamingSource[] {
     return sources.sort((a, b) => {
       // Priority 1: Preferred quality (if specified)
@@ -537,7 +1023,10 @@ export class StreamingService {
       // Priority 3: Audio compatibility (browser-supported codecs first)
       const aAudioScore = this.getAudioCompatibilityScore(a.name)
       const bAudioScore = this.getAudioCompatibilityScore(b.name)
-      if (aAudioScore !== bAudioScore) return bAudioScore - aAudioScore
+      if (aAudioScore !== bAudioScore) {
+        console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
+        return bAudioScore - aAudioScore
+      }
 
       // Priority 4: Quality priority (4K > 2160p > 1080p > 720p > 480p)
       const qualityScore = (quality: string): number => {
@@ -568,12 +1057,13 @@ export class StreamingService {
       return 10
     }
 
-    // Dolby Digital Plus (supported by some browsers)
+    // Dolby Digital Plus with or without Atmos (supported by some browsers)
+    // Check for DDP/EAC3 first, even if it has Atmos metadata
     if (name.includes('ddp') || name.includes('dd+') || name.includes('eac3')) {
       return 8
     }
 
-    // Standard Dolby Digital (limited support)
+    // Standard Dolby Digital with or without Atmos (limited support)
     if (name.includes('dd5.1') || name.includes('ac3')) {
       return 6
     }
@@ -583,13 +1073,36 @@ export class StreamingService {
       return 2
     }
 
-    // TrueHD and other high-end codecs (not supported)
-    if (name.includes('truehd') || name.includes('atmos')) {
+    // TrueHD (not supported by browsers)
+    if (name.includes('truehd')) {
+      return 1
+    }
+
+    // Standalone Atmos without base codec (rare, not supported)
+    if (name.includes('atmos') && !name.includes('ddp') && !name.includes('dd+') && !name.includes('eac3') && !name.includes('dd5.1') && !name.includes('ac3')) {
       return 1
     }
 
     // Unknown audio codec
     return 5
+  }
+
+  private getQualityScore(quality: string): number {
+    const q = quality.toLowerCase()
+    if (q.includes('4k') || q.includes('2160p')) return 5
+    if (q.includes('1080p')) return 4
+    if (q.includes('720p')) return 3
+    if (q.includes('480p')) return 2
+    return 1
+  }
+
+  private extractSeeders(streamName: string): number {
+    // Try to extract seeder count from stream name (format: 👤 123)
+    const seederMatch = streamName.match(/👤\s*(\d+)/)
+    if (seederMatch) {
+      return parseInt(seederMatch[1], 10)
+    }
+    return 0
   }
 
   // Utility methods

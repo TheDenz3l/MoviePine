@@ -208,8 +208,16 @@ export class RealDebridAPI {
     // Get the download link for the video file
     const fileLink = torrent.links[0] // Usually the first link is the main file
     const downloadInfo = await this.getDownloadLink(fileLink)
-    
-    return downloadInfo.download
+
+    // Use stream proxy for Real-Debrid URLs to handle CORS and streaming
+    const directUrl = downloadInfo.download
+    if (directUrl.includes('real-debrid.com') || directUrl.includes('download.')) {
+      const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(directUrl)}`
+      console.log(`🔄 Using stream proxy for Real-Debrid URL: ${proxiedUrl.substring(0, 100)}...`)
+      return proxiedUrl
+    }
+
+    return directUrl
   }
 
   // Add torrent and wait for it to be ready

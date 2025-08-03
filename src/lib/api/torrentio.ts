@@ -1,56 +1,27 @@
-// Torrentio Stremio Plugin API Integration
-// Based on Stremio addon protocol: https://github.com/Stremio/stremio-addon-sdk
+// Torrentio API client for fetching torrent streams
+// This service provides access to torrent streams via the Torrentio addon
 
 export interface TorrentioStream {
   name: string
   title: string
   infoHash: string
   fileIdx?: number
-  url?: string
+  url: string
   behaviorHints?: {
     bingeGroup?: string
-    countryWhitelist?: string[]
-    notWebReady?: boolean
+    filename?: string
   }
-}
-
-export interface TorrentioManifest {
-  id: string
-  version: string
-  name: string
-  description: string
-  resources: string[]
-  types: string[]
-  catalogs: Array<{
-    type: string
-    id: string
-    name: string
-  }>
+  subtitles?: string[] // Available subtitle languages extracted from title
 }
 
 export interface MovieMetadata {
   id: string
-  type: 'movie' | 'series'
-  name: string
-  poster?: string
-  background?: string
-  logo?: string
-  description?: string
-  releaseInfo?: string
-  director?: string[]
-  cast?: string[]
-  imdbRating?: number
-  genre?: string[]
-  runtime?: string
+  title: string
   year?: number
-  country?: string
-  language?: string
-  awards?: string
-  website?: string
-  behaviorHints?: {
-    defaultVideoId?: string
-    hasScheduledVideos?: boolean
-  }
+  imdbId?: string
+  tmdbId?: number
+  poster?: string
+  description?: string
 }
 
 export class TorrentioAPI {
@@ -63,69 +34,73 @@ export class TorrentioAPI {
     debridService?: string
     apiKey?: string
   } = {}) {
-    // Default Torrentio configuration - use ALL available providers for maximum coverage
-    this.providers = options.providers || ['rarbg', '1337x', 'thepiratebay', 'kickass', 'torrentgalaxy', 'magnetdl', 'horriblesubs', 'nyaasi', 'tokyotosho', 'anidex']
+    // Simplified configuration for better compatibility
+    this.providers = options.providers || [
+      'rarbg',           // High quality, reliable
+      '1337x',           // Large selection, good quality
+      'thepiratebay',    // Broad coverage
+      'kickass',         // Good for movies
+      'torrentgalaxy',   // Quality releases
+      'magnetdl',        // Additional coverage
+      'eztv',            // Good for TV shows
+      'ettv',            // TV show alternative
+      'yts',             // Movie-focused, smaller files
+    ]
     this.debridService = options.debridService || 'realdebrid'
 
-    // Build Torrentio URL with configuration
-    // Torrentio uses the correct domain: torrentio.strem.fun
-    const providersParam = this.providers.join('|')
-    // Get ALL streams with minimal filtering for maximum discovery
-    // Only exclude the worst quality sources but allow everything else
-    let configString = `providers=${providersParam}|sort=qualitysize`
-
+    // Simplified configuration for better compatibility
+    let configString = `providers=${this.providers.join('|')}`
+    
+    // Add sorting preference
+    configString += `|sort=qualitysize`
+    
+    // Add debrid service if available
     if (this.debridService && options.apiKey) {
       configString += `|${this.debridService}=${options.apiKey}`
     }
 
     // Use the correct Torrentio domain and URL format
     this.baseUrl = `https://torrentio.strem.fun/${configString}`
-  }
-
-  async getManifest(): Promise<TorrentioManifest> {
-    try {
-      const response = await fetch(`${this.baseUrl}/manifest.json`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch manifest: ${response.statusText}`)
-      }
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching Torrentio manifest:', error)
-      throw error
-    }
+    
+    console.log(`🔧 Torrentio configuration: ${this.baseUrl}`)
   }
 
   async getMovieStreams(imdbId: string): Promise<TorrentioStream[]> {
     try {
-      const fullUrl = `${this.baseUrl}/stream/movie/${imdbId}.json`
-      console.log(`🔗 Torrentio API call: ${fullUrl}`)
-      console.log(`🔧 Torrentio base URL: ${this.baseUrl}`)
+      const torrentioUrl = `${this.baseUrl}/stream/movie/${imdbId}.json`
+      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}`
+      
+      console.log(`🔗 Torrentio API call via proxy: ${torrentioUrl}`)
 
-      const response = await fetch(fullUrl)
-      console.log(`📡 Torrentio response: ${response.status} ${response.statusText}`)
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Accept': 'application/json',
+        }
+      })
+      
+      console.log(`📡 Torrentio proxy response: ${response.status} ${response.statusText}`)
 
       if (!response.ok) {
         if (response.status === 404) {
           console.log(`❌ Torrentio: No streams found for ${imdbId} (404)`)
           return [] // No streams found
         }
-        const errorText = await response.text()
-        console.error(`❌ Torrentio API error: ${response.status} ${response.statusText}`, errorText)
-        throw new Error(`Failed to fetch streams: ${response.statusText}`)
+        if (response.status === 502 || response.status === 503) {
+          console.warn(`⚠️ Torrentio: Service unavailable for ${imdbId} (${response.status})`)
+          return []
+        }
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error(`❌ Torrentio API error: ${response.status} ${response.statusText}`, errorData)
+        return [] // Return empty array instead of throwing
       }
 
       const data = await response.json()
-      console.log(`📊 Torrentio raw response:`, JSON.stringify(data, null, 2))
+      console.log(`📊 Torrentio response for ${imdbId}:`, {
+        streamsCount: data.streams?.length || 0,
+        hasStreams: !!data.streams
+      })
 
       const rawStreams = data.streams || []
-
-      // Debug: Log first few streams to check data format
-      if (rawStreams.length > 0) {
-        console.log(`🎬 Torrentio found ${rawStreams.length} streams for ${imdbId}`)
-        console.log(`📊 Sample raw stream data:`, JSON.stringify(rawStreams.slice(0, 2), null, 2))
-      } else {
-        console.log(`❌ Torrentio: No streams in response for ${imdbId}`)
-      }
 
       // Process streams to extract info hash properly
       const streams: TorrentioStream[] = rawStreams.map((stream: any) => {
@@ -135,15 +110,11 @@ export class TorrentioAPI {
         if (stream.infoHash) {
           infoHash = stream.infoHash
         } else if (stream.url) {
-          // Extract from Torrentio resolve URL (e.g., /resolve/realdebrid/LNWEQRH45NCRI52OTWOGJ24NFQDYTQ...)
+          // Extract from Torrentio resolve URL
           const torrentioMatch = stream.url.match(/\/resolve\/[^\/]+\/([A-Z0-9]+)/i)
           if (torrentioMatch) {
-            // Use the extracted identifier as the info hash
             const extractedHash = torrentioMatch[1]
-            console.log(`🔍 Extracted hash from URL: ${extractedHash}`)
-
             if (extractedHash.length >= 32) {
-              // Use the extracted hash as identifier (could be base32 or hex)
               infoHash = extractedHash.toLowerCase()
             }
           }
@@ -155,33 +126,25 @@ export class TorrentioAPI {
           }
         }
 
-        // Also check if the stream name/title contains the hash
-        if (!infoHash && stream.name) {
-          const hashMatch = stream.name.match(/([a-fA-F0-9]{40})/i)
-          if (hashMatch) {
-            infoHash = hashMatch[1].toLowerCase()
-          }
-        }
-
-        console.log(`🔍 Processing stream: ${stream.title || stream.name}`)
-        console.log(`📊 Extracted info hash: ${infoHash}`)
-        console.log(`🔗 Original URL: ${stream.url}`)
+        const streamTitle = stream.title || stream.name || 'Unknown'
 
         return {
           name: stream.name || stream.title || 'Unknown',
-          title: stream.title || stream.name || 'Unknown',
+          title: streamTitle,
           infoHash,
           fileIdx: stream.fileIdx,
           url: stream.url,
-          behaviorHints: stream.behaviorHints
+          behaviorHints: stream.behaviorHints,
+          subtitles: this.parseSubtitlesFromTitle(streamTitle)
         }
-      })
-
-      // Filter streams that have valid info hashes (any length >= 32)
-      return streams.filter(stream =>
+      }).filter((stream: TorrentioStream) =>
         stream.infoHash &&
         stream.infoHash.length >= 32
       )
+
+      console.log(`✅ Torrentio: Found ${streams.length} valid streams for ${imdbId}`)
+      
+      return streams
     } catch (error) {
       console.error(`Error fetching streams for movie ${imdbId}:`, error)
       return []
@@ -190,12 +153,21 @@ export class TorrentioAPI {
 
   async getSeriesStreams(imdbId: string, season: number, episode: number): Promise<TorrentioStream[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/stream/series/${imdbId}:${season}:${episode}.json`)
+      const torrentioUrl = `${this.baseUrl}/stream/series/${imdbId}:${season}:${episode}.json`
+      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}`
+      
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Accept': 'application/json',
+        }
+      })
+      
       if (!response.ok) {
         if (response.status === 404) {
           return [] // No streams found
         }
-        throw new Error(`Failed to fetch streams: ${response.statusText}`)
+        console.error(`Torrentio API error: ${response.status} ${response.statusText}`)
+        return []
       }
       
       const data = await response.json()
@@ -206,100 +178,194 @@ export class TorrentioAPI {
     }
   }
 
-  async searchContent(query: string, type: 'movie' | 'series' = 'movie'): Promise<MovieMetadata[]> {
-    // Note: Torrentio doesn't provide search functionality directly
-    // This would typically be handled by TMDB or IMDB API for metadata
-    // and then streams would be fetched using the IMDB ID
-    console.warn('Direct search not supported by Torrentio. Use TMDB API for search and then fetch streams.')
-    return []
+  // Helper method to extract info hash from URL
+  private extractInfoHash(url: string): string {
+    if (!url) return ''
+    
+    // Try to extract from magnet URL
+    const magnetMatch = url.match(/btih:([a-fA-F0-9]{40})/i)
+    if (magnetMatch) {
+      return magnetMatch[1].toLowerCase()
+    }
+    
+    // Try to extract from Torrentio resolve URL
+    const torrentioMatch = url.match(/\/resolve\/[^\/]+\/([A-Z0-9]+)/i)
+    if (torrentioMatch) {
+      const extractedHash = torrentioMatch[1]
+      if (extractedHash.length >= 32) {
+        return extractedHash.toLowerCase()
+      }
+    }
+    
+    return ''
   }
 
-  // Helper method to parse stream quality from title
-  parseStreamQuality(streamTitle: string): {
-    quality: string
-    size: string
-    seeders?: number
-    isHighQuality: boolean
-  } {
-    const qualityMatch = streamTitle.match(/(\d{3,4}p|720p|1080p|4K|2160p)/i)
-    const sizeMatch = streamTitle.match(/💾\s*([\d.]+\s*[KMGT]B)/i)
-    const seedersMatch = streamTitle.match(/👤\s*(\d+)/i)
+  // Get manifest for service validation
+  async getManifest(): Promise<any> {
+    try {
+      const manifestUrl = `${this.baseUrl}/manifest.json`
+      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(manifestUrl)}`
 
-    const quality = qualityMatch ? qualityMatch[1] : 'Unknown'
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Accept': 'application/json',
+        }
+      })
 
-    // Check if this is high quality (2160p, 4K, 1080p)
-    const isHighQuality = /^(2160p|4K|1080p)$/i.test(quality)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch manifest: ${response.statusText}`)
+      }
 
-    return {
-      quality,
-      size: sizeMatch ? sizeMatch[1] : 'Unknown',
-      seeders: seedersMatch ? parseInt(seedersMatch[1]) : undefined,
-      isHighQuality
+      return await response.json()
+    } catch (error) {
+      console.error('Error fetching Torrentio manifest:', error)
+      throw error
     }
   }
 
-  // Helper method to get best quality stream (highest quality + most seeders)
-  getBestStream(streams: TorrentioStream[]): TorrentioStream | null {
-    if (streams.length === 0) return null
+  // Parse stream quality information from title
+  parseStreamQuality(title: string): { quality: string; size: string; seeders: number } {
+    if (!title) {
+      return { quality: 'Unknown', size: 'Unknown', seeders: 0 }
+    }
 
-    // Filter for high quality streams (4K, 2160p, 1080p)
-    const highQualityStreams = streams.filter(stream => {
-      const qualityInfo = this.parseStreamQuality(stream.title)
-      return qualityInfo.isHighQuality
-    })
+    // Extract quality information
+    let quality = 'Unknown'
+    const titleLower = title.toLowerCase()
 
-    if (highQualityStreams.length === 0) return null
+    // Quality patterns (ordered by preference)
+    const qualityPatterns = [
+      { pattern: /2160p|4k|uhd/i, quality: '4K' },
+      { pattern: /1080p/i, quality: '1080p' },
+      { pattern: /720p/i, quality: '720p' },
+      { pattern: /480p/i, quality: '480p' },
+      { pattern: /360p/i, quality: '360p' },
+      { pattern: /webrip/i, quality: 'WEBRip' },
+      { pattern: /webdl|web-dl/i, quality: 'WEB-DL' },
+      { pattern: /bluray|brrip/i, quality: 'BluRay' },
+      { pattern: /dvdrip/i, quality: 'DVDRip' },
+      { pattern: /hdtv/i, quality: 'HDTV' },
+      { pattern: /cam/i, quality: 'CAM' },
+      { pattern: /scr|screener/i, quality: 'Screener' },
+      { pattern: /ts|telesync/i, quality: 'TS' }
+    ]
 
-    // Sort by quality preference: 4K > 2160p > 1080p, then by seeders within same quality
-    const qualityOrder = ['4K', '2160p', '1080p']
-
-    return highQualityStreams.sort((a, b) => {
-      const aQualityInfo = this.parseStreamQuality(a.title)
-      const bQualityInfo = this.parseStreamQuality(b.title)
-
-      const aIndex = qualityOrder.indexOf(aQualityInfo.quality)
-      const bIndex = qualityOrder.indexOf(bQualityInfo.quality)
-
-      // First priority: higher quality
-      if (aIndex !== -1 && bIndex !== -1 && aIndex !== bIndex) {
-        return aIndex - bIndex
+    for (const { pattern, quality: q } of qualityPatterns) {
+      if (pattern.test(title)) {
+        quality = q
+        break
       }
-      if (aIndex !== -1 && bIndex === -1) return -1
-      if (aIndex === -1 && bIndex !== -1) return 1
+    }
 
-      // Second priority: within same quality, prefer higher seeders
-      const aSeeders = aQualityInfo.seeders || 0
-      const bSeeders = bQualityInfo.seeders || 0
-      return bSeeders - aSeeders
-    })[0]
+    // Extract file size
+    let size = 'Unknown'
+    const sizeMatch = title.match(/(\d+(?:\.\d+)?)\s*(gb|mb|tb)/i)
+    if (sizeMatch) {
+      size = `${sizeMatch[1]} ${sizeMatch[2].toUpperCase()}`
+    }
+
+    // Extract seeders (if available in title)
+    let seeders = 0
+    const seedersMatch = title.match(/(\d+)\s*seeders?/i)
+    if (seedersMatch) {
+      seeders = parseInt(seedersMatch[1], 10)
+    }
+
+    return { quality, size, seeders }
   }
 
-  // Helper method to filter streams by quality (prioritize quality + seeders)
-  getHighQualityStreams(streams: TorrentioStream[]): TorrentioStream[] {
-    return streams.filter(stream => {
-      const qualityInfo = this.parseStreamQuality(stream.title)
-      return qualityInfo.isHighQuality
-    }).sort((a, b) => {
-      // Sort by quality: 4K > 2160p > 1080p, then by seeders within same quality
-      const qualityOrder = ['4K', '2160p', '1080p']
-      const aQualityInfo = this.parseStreamQuality(a.title)
-      const bQualityInfo = this.parseStreamQuality(b.title)
+  // Parse subtitle languages from stream title
+  parseSubtitlesFromTitle(title: string): string[] {
+    if (!title) {
+      console.log('📝 parseSubtitlesFromTitle: Empty title provided')
+      return []
+    }
 
-      const aIndex = qualityOrder.indexOf(aQualityInfo.quality)
-      const bIndex = qualityOrder.indexOf(bQualityInfo.quality)
+    console.log(`📝 parseSubtitlesFromTitle: Analyzing title: "${title}"`)
 
-      // First priority: higher quality
-      if (aIndex !== -1 && bIndex !== -1 && aIndex !== bIndex) {
-        return aIndex - bIndex
+    const subtitles: string[] = []
+
+    // Enhanced subtitle language patterns in torrent titles
+    const subtitlePatterns = [
+      { pattern: /\b(eng|english)\b/i, language: 'en' },
+      { pattern: /\b(spa|spanish|español)\b/i, language: 'es' },
+      { pattern: /\b(fre|french|français)\b/i, language: 'fr' },
+      { pattern: /\b(ger|german|deutsch)\b/i, language: 'de' },
+      { pattern: /\b(ita|italian|italiano)\b/i, language: 'it' },
+      { pattern: /\b(por|portuguese|português)\b/i, language: 'pt' },
+      { pattern: /\b(rus|russian|русский)\b/i, language: 'ru' },
+      { pattern: /\b(jap|japanese|日本語)\b/i, language: 'ja' },
+      { pattern: /\b(kor|korean|한국어)\b/i, language: 'ko' },
+      { pattern: /\b(chi|chinese|中文)\b/i, language: 'zh' },
+      { pattern: /\b(dut|dutch|nederlands)\b/i, language: 'nl' },
+      { pattern: /\b(swe|swedish|svenska)\b/i, language: 'sv' },
+      { pattern: /\b(nor|norwegian|norsk)\b/i, language: 'no' },
+      { pattern: /\b(dan|danish|dansk)\b/i, language: 'da' },
+      { pattern: /\b(fin|finnish|suomi)\b/i, language: 'fi' },
+      { pattern: /\b(pol|polish|polski)\b/i, language: 'pl' },
+      { pattern: /\b(cze|czech|čeština)\b/i, language: 'cs' },
+      { pattern: /\b(hun|hungarian|magyar)\b/i, language: 'hu' },
+      { pattern: /\b(tur|turkish|türkçe)\b/i, language: 'tr' },
+      { pattern: /\b(ara|arabic|العربية)\b/i, language: 'ar' },
+      { pattern: /\b(heb|hebrew|עברית)\b/i, language: 'he' },
+      { pattern: /\b(hin|hindi|हिन्दी)\b/i, language: 'hi' },
+      { pattern: /\b(tha|thai|ไทย)\b/i, language: 'th' },
+      { pattern: /\b(vie|vietnamese|tiếng việt)\b/i, language: 'vi' },
+    ]
+
+    // Enhanced subtitle indicators - including ESub, HSub, etc.
+    const subtitleIndicators = [
+      /\b(sub|subs|subtitle|subtitles)\b/i,
+      /\b(esub|hsub|vsub)\b/i,  // External/Hard/Soft subtitles
+      /\b(cc|closed.caption)\b/i,
+      /\b(sub\.?\w{2,3})\b/i,  // sub.eng, sub.spa, etc.
+      /\b(\w{2,3}\.?sub)\b/i,  // eng.sub, spa.sub, etc.
+    ]
+
+    // Check for subtitle indicators
+    const hasSubtitles = subtitleIndicators.some(pattern => pattern.test(title))
+    console.log(`📝 parseSubtitlesFromTitle: Subtitle indicators found: ${hasSubtitles}`)
+
+    if (hasSubtitles) {
+      // Check for specific language mentions
+      for (const { pattern, language } of subtitlePatterns) {
+        if (pattern.test(title)) {
+          subtitles.push(language)
+          console.log(`📝 parseSubtitlesFromTitle: Found language: ${language} (${pattern})`)
+        }
       }
-      if (aIndex !== -1 && bIndex === -1) return -1
-      if (aIndex === -1 && bIndex !== -1) return 1
 
-      // Second priority: within same quality, prefer higher seeders
-      const aSeeders = aQualityInfo.seeders || 0
-      const bSeeders = bQualityInfo.seeders || 0
-      return bSeeders - aSeeders
-    })
+      // If no specific languages found but subtitles are mentioned, assume English
+      if (subtitles.length === 0) {
+        subtitles.push('en')
+        console.log('📝 parseSubtitlesFromTitle: No specific languages found, assuming English')
+      }
+    }
+
+    // Look for multi-language indicators
+    const multiLangPatterns = [
+      /\b(multi|multilingual|multi.sub|multi.lang)\b/i,
+      /\b(dual.audio)\b/i,
+      /\b(\d+\s*lang)\b/i,  // 5 lang, 3lang, etc.
+    ]
+
+    const hasMultiLang = multiLangPatterns.some(pattern => pattern.test(title))
+    if (hasMultiLang) {
+      console.log('📝 parseSubtitlesFromTitle: Multi-language indicators found')
+      // Common multi-language releases usually include these
+      subtitles.push('en', 'es', 'fr', 'de', 'it', 'pt')
+    }
+
+    // Special handling for common patterns
+    if (/\besub\b/i.test(title)) {
+      console.log('📝 parseSubtitlesFromTitle: ESub detected - adding multiple languages')
+      subtitles.push('en', 'es', 'fr', 'de', 'it')
+    }
+
+    // Remove duplicates and return
+    const uniqueSubtitles = [...new Set(subtitles)]
+    console.log(`📝 parseSubtitlesFromTitle: Final result: [${uniqueSubtitles.join(', ')}]`)
+    return uniqueSubtitles
   }
 }
 

@@ -146,6 +146,11 @@ export class TMDBAPI {
     return this.makeRequest<TMDBMovie>(`/movie/${id}`)
   }
 
+  // Alias for getMovie to match streaming service expectations
+  async getMovieDetails(id: number): Promise<TMDBMovie> {
+    return this.getMovie(id)
+  }
+
   async getMovieExternalIds(id: number): Promise<TMDBExternalIds> {
     return this.makeRequest<TMDBExternalIds>(`/movie/${id}/external_ids`)
   }

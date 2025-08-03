@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, X } from "lucide-react"
+import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, X, Languages, Subtitles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
@@ -11,9 +11,26 @@ interface VideoPlayerProps {
   title: string
   onClose: () => void
   autoPlay?: boolean
+  onError?: (error: string) => void
+  availableSubtitles?: string[] // Subtitle languages available from the stream (fake metadata)
+  realSubtitles?: Array<{
+    language: string
+    label: string
+    url: string
+    isExternal: boolean
+  }> // Real subtitle files from SubDL API
 }
 
-export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlayerProps) {
+export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, availableSubtitles = [], realSubtitles = [] }: VideoPlayerProps) {
+  // Validate source URL
+  if (!src || typeof src !== 'string' || src.trim() === '') {
+    console.error('❌ Invalid video source provided:', src)
+    if (onError) {
+      onError('Invalid video source. Please try a different stream.')
+    }
+    return null
+  }
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -25,27 +42,172 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [showCursor, setShowCursor] = useState(true)
+  const [audioTracks, setAudioTracks] = useState<{ id: string; label: string; language: string }[]>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<{ id: string; label: string; language: string; src?: string }[]>([])
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState<string>('')
+  const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<string>('off')
+  const [customSubtitles, setCustomSubtitles] = useState<{ text: string; startTime: number; endTime: number }[]>([])
+  const [currentSubtitle, setCurrentSubtitle] = useState<string>('')
   const controlsTimeoutRef = useRef<NodeJS.Timeout>()
   const cursorTimeoutRef = useRef<NodeJS.Timeout>()
+
+  // Enhanced audio context activation function
+  const activateAudioContext = () => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioContext) {
+        console.log('🔊 AudioContext not supported')
+        return
+      }
+
+      const audioContext = new AudioContext()
+      console.log(`🔊 AudioContext state: ${audioContext.state}`)
+
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          console.log('🔊 AudioContext activated successfully')
+        }).catch((error) => {
+          console.log('🔊 AudioContext activation failed:', error)
+        })
+      }
+
+      // Create a brief audio buffer to ensure audio is working
+      const buffer = audioContext.createBuffer(1, 1, 22050)
+      const source = audioContext.createBufferSource()
+      source.buffer = buffer
+      source.connect(audioContext.destination)
+      source.start(0)
+
+      console.log('🔊 Audio test buffer created and played')
+    } catch (error) {
+      console.log('🔊 Audio context setup failed:', error)
+    }
+  }
+
+  // Reset loading state when src changes
+  useEffect(() => {
+    setIsLoading(true)
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+  }, [src])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
+    // Set up a timeout to detect if video takes too long to load
+    const loadTimeout = setTimeout(() => {
+      if (isLoading && onError) {
+        onError('Video is taking too long to load. The stream may be unavailable or your connection is slow.')
+      }
+    }, 30000) // 30 second timeout
+
     const handleLoadedMetadata = () => {
+      // Check if video element is still in the DOM before proceeding
+      if (!video.isConnected) return
+
+      clearTimeout(loadTimeout)
       setDuration(video.duration)
       setIsLoading(false)
-      // Set initial volume
+
+      // Enhanced audio configuration and codec detection
       video.volume = volume
       video.muted = false
+
+      // Force audio context activation for better browser compatibility
+      if (video.volume === 0) {
+        video.volume = 0.8
+        setVolume(0.8)
+      }
+
+      // Detect audio capabilities and codec support
+      const hasAudioTracks = video.audioTracks && video.audioTracks.length > 0
+      const hasAudioData = video.mozHasAudio !== false && video.webkitAudioDecodedByteCount !== 0
+      const audioSupported = video.canPlayType && (
+        video.canPlayType('audio/mp4; codecs="mp4a.40.2"') !== '' ||
+        video.canPlayType('audio/mpeg') !== '' ||
+        video.canPlayType('audio/ogg; codecs="vorbis"') !== '' ||
+        video.canPlayType('audio/webm; codecs="opus"') !== ''
+      )
+
+      console.log(`🔊 Audio configured: volume=${video.volume}, muted=${video.muted}, hasAudio=${!video.muted && video.volume > 0}`)
+      console.log(`🔊 Video element audio properties: readyState=${video.readyState}, networkState=${video.networkState}`)
+      console.log(`🔊 Audio detection: hasAudioTracks=${hasAudioTracks}, hasAudioData=${hasAudioData}, audioSupported=${audioSupported}`)
+      console.log(`🔊 Audio codec support check: ${video.canPlayType ? 'supported' : 'not supported'}`)
+
+      // Try to activate audio context immediately
+      activateAudioContext()
+
+      // Discover available audio and subtitle tracks
+      discoverTracks()
+
       if (autoPlay) {
-        video.play()
-        setIsPlaying(true)
+        // Use a promise-based approach to handle play() properly
+        const playPromise = video.play()
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              // Only update state if video is still connected
+              if (video.isConnected) {
+                setIsPlaying(true)
+                console.log('🔊 Video and audio playback started successfully')
+                // Double-check audio after playback starts
+                setTimeout(() => checkAudioPlayback(), 1000)
+              }
+            })
+            .catch((error) => {
+              console.log('Video play was interrupted:', error)
+              // Don't treat this as a fatal error
+              setIsPlaying(false)
+            })
+        }
+      }
+    }
+
+
+
+    // Function to check if audio is actually playing
+    const checkAudioPlayback = () => {
+      if (!video.isConnected) return
+
+      console.log(`🔊 Audio playback check: volume=${video.volume}, muted=${video.muted}, paused=${video.paused}`)
+      console.log(`🔊 Audio tracks: ${video.audioTracks ? video.audioTracks.length : 'not supported'}`)
+
+      // Check if we can detect audio activity
+      if (video.mozHasAudio !== undefined) {
+        console.log(`🔊 Mozilla audio detection: ${video.mozHasAudio}`)
+      }
+      if (video.webkitAudioDecodedByteCount !== undefined) {
+        console.log(`🔊 WebKit audio bytes: ${video.webkitAudioDecodedByteCount}`)
       }
     }
 
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime)
+
+      // Update custom subtitles with enhanced debugging
+      if (customSubtitles.length > 0 && selectedSubtitleTrack !== 'off') {
+        const currentTime = video.currentTime
+        const activeSubtitle = customSubtitles.find(
+          sub => currentTime >= sub.startTime && currentTime <= sub.endTime
+        )
+
+        // Enhanced debug logging every 5 seconds
+        if (Math.floor(currentTime) % 5 === 0 && Math.floor(currentTime) !== Math.floor(currentTime - 0.1)) {
+          console.log(`📝 Subtitle check at ${currentTime.toFixed(1)}s:`)
+          console.log(`📝 - Custom subtitles: ${customSubtitles.length}`)
+          console.log(`📝 - Selected track: ${selectedSubtitleTrack}`)
+          console.log(`📝 - Active subtitle: ${activeSubtitle ? `"${activeSubtitle.text.substring(0, 30)}..."` : 'None'}`)
+          if (customSubtitles.length > 0) {
+            console.log(`📝 - First subtitle timing: ${customSubtitles[0].startTime}-${customSubtitles[0].endTime}`)
+          }
+        }
+
+        setCurrentSubtitle(activeSubtitle?.text || '')
+      } else {
+        setCurrentSubtitle('')
+      }
     }
 
     const handlePlay = () => setIsPlaying(true)
@@ -56,34 +218,157 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
     }
 
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
+      // Check for fullscreen element with browser compatibility
+      const isFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      )
+      setIsFullscreen(isFullscreen)
+      console.log(`📺 Fullscreen state changed: ${isFullscreen}`)
+    }
+
+    const handleTextTrackChange = () => {
+      console.log(`📝 🎯 TEXT TRACK CHANGE EVENT FIRED!`)
+      if (video.textTracks) {
+        console.log(`📝 Text tracks after change: ${video.textTracks.length}`)
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i]
+          console.log(`📝 Track ${i}: ${track.kind} - ${track.label} (${track.language}) - Mode: ${track.mode}`)
+        }
+      }
+    }
+
+    const handleLoadedData = () => {
+      console.log(`📝 🎯 LOADED DATA EVENT - Video fully loaded!`)
+      console.log(`📝 Checking for text tracks after loadeddata...`)
+      if (video.textTracks && video.textTracks.length > 0) {
+        console.log(`📝 ✅ Found ${video.textTracks.length} text tracks after loadeddata`)
+        discoverTracks()
+      }
+    }
+
+    const handleError = (error: Event) => {
+      console.error('Video error:', error)
+      setIsLoading(false)
+      setIsPlaying(false)
+
+      // Notify parent component about the error
+      if (onError) {
+        const videoElement = error.target as HTMLVideoElement
+        const errorCode = videoElement?.error?.code
+        let errorMessage = 'Video playback failed'
+
+        switch (errorCode) {
+          case MediaError.MEDIA_ERR_NETWORK:
+            errorMessage = 'Network error while loading video. The stream may be temporarily unavailable.'
+            break
+          case MediaError.MEDIA_ERR_DECODE:
+            errorMessage = 'Video format not supported or corrupted stream.'
+            break
+          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMessage = 'Video source not supported. Try a different stream.'
+            break
+          case MediaError.MEDIA_ERR_ABORTED:
+            errorMessage = 'Video loading was aborted.'
+            break
+          default:
+            errorMessage = 'Video playback failed. The stream may be temporarily unavailable.'
+        }
+
+        onError(errorMessage)
+      }
+    }
+
+    const handleAbort = () => {
+      console.log('Video loading aborted')
+      setIsLoading(false)
+      setIsPlaying(false)
     }
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('loadeddata', handleLoadedData)
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
     video.addEventListener('volumechange', handleVolumeChange)
+    video.addEventListener('error', handleError)
+    video.addEventListener('abort', handleAbort)
+
+    // Listen for text track changes
+    if (video.textTracks) {
+      video.textTracks.addEventListener('addtrack', handleTextTrackChange)
+      video.textTracks.addEventListener('change', handleTextTrackChange)
+      video.textTracks.addEventListener('removetrack', handleTextTrackChange)
+    }
+
     document.addEventListener('fullscreenchange', handleFullscreenChange)
 
     return () => {
+      // Clear the timeout
+      clearTimeout(loadTimeout)
+
+      // Pause video before cleanup to prevent play() interruption errors
+      if (video.isConnected && !video.paused) {
+        video.pause()
+      }
+
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('loadeddata', handleLoadedData)
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('volumechange', handleVolumeChange)
+      video.removeEventListener('error', handleError)
+      video.removeEventListener('abort', handleAbort)
+
+      // Remove text track listeners
+      if (video.textTracks) {
+        video.textTracks.removeEventListener('addtrack', handleTextTrackChange)
+        video.textTracks.removeEventListener('change', handleTextTrackChange)
+        video.textTracks.removeEventListener('removetrack', handleTextTrackChange)
+      }
+
+      // Add fullscreen event listeners with browser compatibility
+      // Remove fullscreen event listeners with browser compatibility
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
+      document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.addEventListener('MSFullscreenChange', handleFullscreenChange)
     }
-  }, [autoPlay])
+  }, [autoPlay, volume])
 
   const togglePlay = () => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !video.isConnected) return
 
     if (isPlaying) {
       video.pause()
     } else {
-      video.play()
+      // Ensure audio is enabled before playing
+      video.muted = false
+      video.volume = volume > 0 ? volume : 0.8
+      console.log(`🔊 Play initiated: volume=${video.volume}, muted=${video.muted}`)
+
+      // Enhanced audio context activation
+      activateAudioContext()
+
+      const playPromise = video.play()
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          console.log('🔊 Video and audio playback started successfully')
+          // Check audio after a short delay
+          setTimeout(() => checkAudioPlayback(), 500)
+        }).catch((error) => {
+          console.log('Video play was interrupted:', error)
+          // Don't treat this as a fatal error, just update state
+          setIsPlaying(false)
+        })
+      }
     }
   }
 
@@ -92,6 +377,22 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
     if (!video) return
 
     video.muted = !video.muted
+
+    // If unmuting, ensure volume is set and try to activate audio context
+    if (!video.muted) {
+      if (video.volume === 0) {
+        video.volume = 0.8
+        setVolume(0.8)
+      }
+
+      // Enhanced audio context activation
+      activateAudioContext()
+
+      console.log(`🔊 Unmuted: volume=${video.volume}, muted=${video.muted}`)
+
+      // Check audio after unmuting
+      setTimeout(() => checkAudioPlayback(), 500)
+    }
   }
 
   const handleVolumeChange = (newVolume: number) => {
@@ -116,12 +417,39 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
 
     try {
       if (!document.fullscreenElement) {
-        await video.requestFullscreen()
+        // Try different fullscreen methods for better browser compatibility
+        if (video.requestFullscreen) {
+          await video.requestFullscreen()
+        } else if ((video as any).webkitRequestFullscreen) {
+          await (video as any).webkitRequestFullscreen()
+        } else if ((video as any).mozRequestFullScreen) {
+          await (video as any).mozRequestFullScreen()
+        } else if ((video as any).msRequestFullscreen) {
+          await (video as any).msRequestFullscreen()
+        } else {
+          console.warn('Fullscreen API not supported')
+          return
+        }
+        console.log('✅ Fullscreen activated')
       } else {
-        await document.exitFullscreen()
+        // Exit fullscreen with browser compatibility
+        if (document.exitFullscreen) {
+          await document.exitFullscreen()
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen()
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen()
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen()
+        }
+        console.log('✅ Fullscreen exited')
       }
     } catch (error) {
       console.error('Error toggling fullscreen:', error)
+      // Provide user feedback about the error
+      if (error instanceof Error && error.message.includes('not granted')) {
+        console.warn('Fullscreen request denied by browser. This may be due to browser security policies.')
+      }
     }
   }
 
@@ -209,7 +537,16 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
         break
       case 'Escape':
         if (isFullscreen) {
-          document.exitFullscreen()
+          // Exit fullscreen with browser compatibility
+          if (document.exitFullscreen) {
+            document.exitFullscreen()
+          } else if ((document as any).webkitExitFullscreen) {
+            (document as any).webkitExitFullscreen()
+          } else if ((document as any).mozCancelFullScreen) {
+            (document as any).mozCancelFullScreen()
+          } else if ((document as any).msExitFullscreen) {
+            (document as any).msExitFullscreen()
+          }
         } else {
           onClose()
         }
@@ -230,6 +567,397 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
     }
   }, [isPlaying, isFullscreen, currentTime, duration])
 
+  // Track handling functions
+  const discoverTracks = () => {
+    const video = videoRef.current
+    if (!video) return
+
+    console.log('🎵 Discovering audio and subtitle tracks...')
+
+    // Discover audio tracks
+    const audioTrackList: { id: string; label: string; language: string }[] = []
+    if (video.audioTracks && video.audioTracks.length > 0) {
+      console.log(`🎵 Found ${video.audioTracks.length} audio tracks`)
+      for (let i = 0; i < video.audioTracks.length; i++) {
+        const track = video.audioTracks[i]
+        audioTrackList.push({
+          id: i.toString(),
+          label: track.label || `Audio Track ${i + 1}`,
+          language: track.language || 'unknown'
+        })
+        console.log(`🎵 Audio Track ${i}: ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
+      }
+    } else {
+      console.log('🎵 No native audio tracks found, adding default streaming options')
+      // For streaming content, provide common audio language options
+      audioTrackList.push(
+        { id: 'default', label: 'English', language: 'en' },
+        { id: 'alt1', label: 'Original Audio', language: 'original' }
+      )
+    }
+
+    // Discover subtitle tracks
+    const subtitleTrackList: { id: string; label: string; language: string; src?: string }[] = [
+      { id: 'off', label: 'Off', language: 'none' }
+    ]
+
+    // Enhanced text track detection with multiple checks
+    const checkForTextTracks = () => {
+      console.log(`📝 🔍 COMPREHENSIVE TEXT TRACK ANALYSIS:`)
+      console.log(`📝 Video element:`, video)
+      console.log(`📝 Video src:`, video.src?.substring(0, 100) + '...')
+      console.log(`📝 Video readyState:`, video.readyState)
+      console.log(`📝 Video networkState:`, video.networkState)
+      console.log(`📝 TextTracks object:`, video.textTracks)
+      console.log(`📝 TextTracks length:`, video.textTracks?.length || 0)
+
+      if (video.textTracks && video.textTracks.length > 0) {
+        console.log(`📝 ✅ FOUND ${video.textTracks.length} NATIVE TEXT TRACKS IN VIDEO!`)
+        const updatedSubtitleTracks = [{ id: 'off', label: 'Off', language: 'none' }]
+
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i]
+          console.log(`📝 Native Track ${i}:`)
+          console.log(`📝   - Kind: ${track.kind}`)
+          console.log(`📝   - Label: "${track.label || 'Unlabeled'}"`)
+          console.log(`📝   - Language: ${track.language || 'unknown'}`)
+          console.log(`📝   - Mode: ${track.mode}`)
+          console.log(`📝   - ReadyState: ${track.readyState}`)
+          console.log(`📝   - Cues: ${track.cues?.length || 0}`)
+
+          if (track.kind === 'subtitles' || track.kind === 'captions') {
+            updatedSubtitleTracks.push({
+              id: i.toString(),
+              label: track.label || `${track.kind} ${i + 1}`,
+              language: track.language || 'unknown'
+            })
+          }
+        }
+
+        if (updatedSubtitleTracks.length > 1) {
+          setSubtitleTracks(updatedSubtitleTracks)
+          console.log(`📝 ✅ Updated subtitle tracks with ${updatedSubtitleTracks.length - 1} native tracks`)
+          return true
+        }
+      } else {
+        console.log(`📝 ❌ No native text tracks found in video`)
+
+        // Check if video has any tracks at all
+        if (video.audioTracks) {
+          console.log(`📝 Audio tracks available: ${video.audioTracks.length}`)
+        }
+        if (video.videoTracks) {
+          console.log(`📝 Video tracks available: ${video.videoTracks.length}`)
+        }
+      }
+      return false
+    }
+
+    // Check immediately
+    checkForTextTracks()
+
+    // Check after 1 second
+    setTimeout(() => {
+      console.log(`📝 🔄 Checking for text tracks after 1 second...`)
+      checkForTextTracks()
+    }, 1000)
+
+    // Check after 3 seconds
+    setTimeout(() => {
+      console.log(`📝 🔄 Checking for text tracks after 3 seconds...`)
+      checkForTextTracks()
+    }, 3000)
+
+    if (video.textTracks && video.textTracks.length > 0) {
+      console.log(`📝 Found ${video.textTracks.length} text tracks (immediate check)`)
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i]
+        console.log(`📝 Text Track ${i}: ${track.kind} - ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
+        if (track.kind === 'subtitles' || track.kind === 'captions') {
+          subtitleTrackList.push({
+            id: i.toString(),
+            label: track.label || `${track.kind} ${i + 1}`,
+            language: track.language || 'unknown'
+          })
+        }
+      }
+    } else {
+      console.log('📝 No native text tracks found, checking for real subtitles from SubDL API')
+
+      // Prioritize real subtitles from SubDL API
+      if (realSubtitles && realSubtitles.length > 0) {
+        console.log(`📝 ✅ FOUND ${realSubtitles.length} REAL SUBTITLE FILES FROM SUBDL API!`)
+
+        realSubtitles.forEach((subtitle, index) => {
+          console.log(`📝 Real Subtitle ${index}: ${subtitle.label} (${subtitle.language}) - URL: ${subtitle.url}`)
+
+          // Add real subtitle track to the list
+          subtitleTrackList.push({
+            id: `real_${subtitle.language}`,
+            label: subtitle.label,
+            language: subtitle.language,
+            src: subtitle.url
+          })
+
+          // Create and add HTML5 track element to video
+          const trackElement = document.createElement('track')
+          trackElement.kind = 'subtitles'
+          trackElement.src = subtitle.url
+          trackElement.srclang = subtitle.language
+          trackElement.label = subtitle.label
+          trackElement.default = false // Start with subtitles OFF
+
+          // Add to video element
+          video.appendChild(trackElement)
+          console.log(`📝 Added HTML5 track element for ${subtitle.label}`)
+        })
+
+        console.log(`📝 ✅ Successfully loaded ${realSubtitles.length} real subtitle tracks`)
+      } else if (availableSubtitles && availableSubtitles.length > 0) {
+        console.log(`📝 ⚠️ Falling back to fake subtitle metadata (${availableSubtitles.length} languages)`)
+        console.log(`📝 VideoPlayer: Stream title: ${title}`)
+        console.log(`📝 VideoPlayer: Video source: ${src?.substring(0, 50)}...`)
+
+        // Language code to name mapping
+        const languageNames: Record<string, string> = {
+          'en': 'English',
+          'es': 'Spanish',
+          'fr': 'French',
+          'de': 'German',
+          'it': 'Italian',
+          'pt': 'Portuguese',
+          'ru': 'Russian',
+          'ja': 'Japanese',
+          'ko': 'Korean',
+          'zh': 'Chinese',
+          'nl': 'Dutch',
+          'sv': 'Swedish',
+          'no': 'Norwegian',
+          'da': 'Danish',
+          'fi': 'Finnish',
+          'pl': 'Polish',
+          'cs': 'Czech',
+          'hu': 'Hungarian',
+          'tr': 'Turkish',
+          'ar': 'Arabic',
+          'he': 'Hebrew',
+          'hi': 'Hindi',
+          'th': 'Thai',
+          'vi': 'Vietnamese'
+        }
+
+        availableSubtitles.forEach(langCode => {
+          const trackLabel = languageNames[langCode] || langCode.toUpperCase()
+          subtitleTrackList.push({
+            id: langCode,
+            label: trackLabel,
+            language: langCode,
+            src: 'stream'
+          })
+          console.log(`📝 VideoPlayer: Added subtitle track: ${trackLabel} (${langCode})`)
+        })
+      } else {
+        console.log('📝 No subtitle information available from stream')
+        // Provide a basic set of common subtitle options as fallback
+        subtitleTrackList.push(
+          { id: 'en', label: 'English', language: 'en', src: 'external' }
+        )
+      }
+    }
+
+    setAudioTracks(audioTrackList)
+    setSubtitleTracks(subtitleTrackList)
+
+    console.log(`🎛️ Audio tracks available: ${audioTrackList.length}`)
+    console.log(`📝 VideoPlayer: Final subtitle track list:`, subtitleTrackList.map(t => `${t.label} (${t.id})`))
+    console.log(`📝 VideoPlayer: Total subtitle tracks available: ${subtitleTrackList.length}`)
+
+    // Set default selections
+    if (audioTrackList.length > 0) {
+      setSelectedAudioTrack('0')
+    }
+  }
+
+  const selectAudioTrack = (trackId: string) => {
+    const video = videoRef.current
+    if (!video) {
+      console.log('🎵 Cannot select audio track: video not available')
+      return
+    }
+
+    console.log(`🎵 Selecting audio track: ${trackId}`)
+
+    // For proxied streams, we don't have native audioTracks
+    // Instead, we'll ensure audio is properly enabled and configured
+    try {
+      // Ensure audio is enabled and not muted
+      video.muted = false
+      video.volume = volume > 0 ? volume : 0.8
+
+      // For proxied streams, we can't actually switch tracks
+      // but we can ensure audio is working properly
+      setSelectedAudioTrack(trackId)
+      console.log(`🎵 Audio track ${trackId} selected (proxied stream)`)
+      console.log(`🔊 Audio state: volume=${video.volume}, muted=${video.muted}`)
+
+      // Try to trigger audio context if needed (for autoplay policy)
+      if (video.paused) {
+        const playPromise = video.play()
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            console.log('🎵 Audio enabled through play action')
+          }).catch((error) => {
+            console.log('🎵 Play failed, but audio should still work on user interaction:', error)
+          })
+        }
+      }
+    } catch (error) {
+      console.error('🎵 Error configuring audio:', error)
+    }
+  }
+
+  // Function to parse SRT subtitle format
+  const parseSRT = (srtContent: string) => {
+    const subtitles: { text: string; startTime: number; endTime: number }[] = []
+    const blocks = srtContent.trim().split('\n\n')
+
+    for (const block of blocks) {
+      const lines = block.split('\n')
+      if (lines.length >= 3) {
+        const timeLine = lines[1]
+        const textLines = lines.slice(2)
+
+        const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/)
+        if (timeMatch) {
+          const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000
+          const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000
+
+          subtitles.push({
+            text: textLines.join('\n'),
+            startTime,
+            endTime
+          })
+        }
+      }
+    }
+
+    return subtitles
+  }
+
+  // Function to load external subtitles
+  const loadExternalSubtitles = async (language: string, source: string = 'external') => {
+    try {
+      console.log(`📝 Attempting to load subtitles for language: ${language} from ${source}`)
+
+      if (source === 'stream') {
+        // For stream-based subtitles, show a message that subtitles are embedded
+        console.log(`📝 Subtitles for ${language} are embedded in the stream`)
+
+        // Create a placeholder message for stream-based subtitles
+        const streamSubtitles = [
+          { text: `${language.toUpperCase()} subtitles are embedded in this stream`, startTime: 5, endTime: 10 },
+          { text: "If you don't see subtitles, they may not be available for this specific video file", startTime: 15, endTime: 20 }
+        ]
+
+        setCustomSubtitles(streamSubtitles)
+        console.log(`📝 Stream-based subtitles enabled for ${language}`)
+        return true
+      } else {
+        // For external subtitles, show a sample/placeholder
+        const sampleSubtitles = [
+          { text: "External subtitle loading not yet implemented", startTime: 10, endTime: 15 },
+          { text: "This stream may have embedded subtitles", startTime: 20, endTime: 25 }
+        ]
+
+        setCustomSubtitles(sampleSubtitles)
+        console.log(`📝 External subtitle placeholder loaded for ${language}`)
+        return true
+      }
+    } catch (error) {
+      console.error('📝 Error loading subtitles:', error)
+      return false
+    }
+  }
+
+  const selectSubtitleTrack = async (trackId: string) => {
+    const video = videoRef.current
+    if (!video) {
+      console.log('📝 Cannot select subtitle track: video not available')
+      return
+    }
+
+    console.log(`📝 Selecting subtitle track: ${trackId}`)
+
+    try {
+      // Clear custom subtitles first
+      setCustomSubtitles([])
+      setCurrentSubtitle('')
+
+      // Always disable all existing text tracks first
+      if (video.textTracks && video.textTracks.length > 0) {
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i]
+          if (track.kind === 'subtitles' || track.kind === 'captions') {
+            track.mode = 'disabled'
+            console.log(`📝 Disabled native track ${i}: ${track.label || 'Unlabeled'}`)
+          }
+        }
+      }
+
+      if (trackId === 'off') {
+        console.log('📝 All subtitles turned off')
+        setSelectedSubtitleTrack(trackId)
+        return
+      }
+
+      // Handle native text tracks (numeric IDs)
+      if (!isNaN(parseInt(trackId))) {
+        const trackIndex = parseInt(trackId)
+        if (video.textTracks && trackIndex >= 0 && trackIndex < video.textTracks.length) {
+          const track = video.textTracks[trackIndex]
+          if (track.kind === 'subtitles' || track.kind === 'captions') {
+            track.mode = 'showing'
+            console.log(`📝 ✅ ENABLED NATIVE SUBTITLE TRACK ${trackId}: ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
+            console.log(`📝 Track mode set to: ${track.mode}`)
+            console.log(`📝 Track readyState: ${track.readyState}`)
+
+            // Force video to refresh subtitle display
+            video.currentTime = video.currentTime + 0.001
+
+            // Set the selected track
+            setSelectedSubtitleTrack(trackId)
+            console.log(`📝 Native subtitles should now be visible on the video element`)
+            return
+          }
+        }
+      } else {
+        // Handle external/stream subtitle tracks (string IDs)
+        const selectedTrack = subtitleTracks.find(track => track.id === trackId)
+        if (selectedTrack) {
+          console.log(`📝 ⚠️ WARNING: Selected track "${selectedTrack.label}" (${trackId}) is not a native text track`)
+          console.log(`📝 This suggests the video file may not have embedded subtitles for this language`)
+          console.log(`📝 Stream source: ${selectedTrack.src || 'external'}`)
+
+          if (selectedTrack.src === 'stream') {
+            console.log(`📝 ❌ Stream-based subtitle track selected, but no native text tracks found`)
+            console.log(`📝 This means the video file doesn't actually contain embedded subtitles`)
+            console.log(`📝 The subtitle metadata may be incorrect or the file lacks subtitle streams`)
+
+            // Don't create custom overlays - just inform the user
+            setCurrentSubtitle('')
+            console.log(`📝 No custom subtitle overlay will be created - check if video has real embedded subtitles`)
+          } else {
+            await loadExternalSubtitles(selectedTrack.language, selectedTrack.src)
+          }
+        }
+      }
+
+      setSelectedSubtitleTrack(trackId)
+    } catch (error) {
+      console.error('📝 Error selecting subtitle track:', error)
+    }
+  }
+
   return (
     <div
       className={`relative w-full h-full bg-black flex items-center justify-center transition-all duration-300 ${
@@ -246,8 +974,31 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
         onDoubleClick={toggleFullscreen}
         controls={false}
         preload="metadata"
-        crossOrigin="anonymous"
+        crossOrigin={src?.includes('torrentio.strem.fun') ? undefined : "anonymous"}
       />
+
+      {/* Custom subtitle overlay positioned above controls */}
+      {currentSubtitle && selectedSubtitleTrack !== 'off' && (
+        <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-40 max-w-4xl px-4">
+          <div className="bg-black bg-opacity-75 text-white text-center px-4 py-2 rounded-lg shadow-lg">
+            <p className="text-lg leading-relaxed whitespace-pre-line">{currentSubtitle}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Debug overlay to show native subtitle state */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute top-4 left-4 z-50 bg-black bg-opacity-75 text-white p-2 text-xs rounded">
+          <div>Selected Track: {selectedSubtitleTrack}</div>
+          <div>Native Text Tracks: {videoRef.current?.textTracks?.length || 0}</div>
+          <div>Active Track Mode: {
+            videoRef.current?.textTracks && !isNaN(parseInt(selectedSubtitleTrack))
+              ? videoRef.current.textTracks[parseInt(selectedSubtitleTrack)]?.mode || 'N/A'
+              : 'N/A'
+          }</div>
+          <div>Video Time: {currentTime.toFixed(1)}s</div>
+        </div>
+      )}
 
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
@@ -374,6 +1125,62 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true }: VideoPlaye
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {/* Audio Track Selector */}
+              {audioTracks.length > 0 && (
+                <div className="relative group">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                    title={`Audio Language (${audioTracks.length} tracks available)`}
+                  >
+                    <Languages className="h-5 w-5" />
+                  </Button>
+                  <select
+                    value={selectedAudioTrack}
+                    onChange={(e) => selectAudioTrack(e.target.value)}
+                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
+                    title="Select audio language"
+                  >
+                    {audioTracks.map((track) => (
+                      <option key={track.id} value={track.id}>
+                        {track.label} {track.language !== 'unknown' && `(${track.language})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Subtitle Track Selector */}
+              {subtitleTracks.length > 1 && (
+                <div className="relative group">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                    title={`Subtitles (${subtitleTracks.length - 1} tracks available)`}
+                  >
+                    <Subtitles className="h-5 w-5" />
+                  </Button>
+                  <select
+                    value={selectedSubtitleTrack}
+                    onChange={(e) => {
+                      selectSubtitleTrack(e.target.value)
+                    }}
+                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
+                    title="Select subtitle language"
+                  >
+                    {subtitleTracks.map((track) => (
+                      <option key={track.id} value={track.id}>
+                        {track.label} {track.language !== 'none' && track.language !== 'unknown' && `(${track.language})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <Button

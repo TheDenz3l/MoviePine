@@ -148,7 +148,16 @@ export class TorboxAPI {
   // Streaming methods
   async getStreamingUrl(torrentId: number, fileId?: number): Promise<string> {
     const downloadLink = await this.getDownloadLink(torrentId, fileId)
-    return downloadLink.url
+    const directUrl = downloadLink.url
+
+    // Use stream proxy for Torbox URLs to handle CORS and streaming
+    if (directUrl.includes('torbox.app') || directUrl.includes('download.')) {
+      const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(directUrl)}`
+      console.log(`🔄 Using stream proxy for Torbox URL: ${proxiedUrl.substring(0, 100)}...`)
+      return proxiedUrl
+    }
+
+    return directUrl
   }
 
   // Helper methods

@@ -12,16 +12,34 @@ interface VideoPlayerModalProps {
   movieId: string | null
   movieTitle: string
   onGetStreamingUrl: (movieId: string) => Promise<string | null>
+  onGetStreamingResult?: (movieId: string) => Promise<{
+    url: string;
+    subtitles: string[];
+    realSubtitles?: Array<{
+      language: string
+      label: string
+      url: string
+      isExternal: boolean
+    }>
+  } | null>
 }
 
-export function VideoPlayerModal({ 
-  isOpen, 
-  onClose, 
-  movieId, 
-  movieTitle, 
-  onGetStreamingUrl 
+export function VideoPlayerModal({
+  isOpen,
+  onClose,
+  movieId,
+  movieTitle,
+  onGetStreamingUrl,
+  onGetStreamingResult
 }: VideoPlayerModalProps) {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null)
+  const [availableSubtitles, setAvailableSubtitles] = useState<string[]>([])
+  const [realSubtitles, setRealSubtitles] = useState<Array<{
+    language: string
+    label: string
+    url: string
+    isExternal: boolean
+  }>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingStatus, setLoadingStatus] = useState<string>('')
@@ -34,6 +52,8 @@ export function VideoPlayerModal({
     } else {
       // Reset state when modal closes
       setStreamingUrl(null)
+      setAvailableSubtitles([])
+      setRealSubtitles([])
       setError(null)
       setIsLoading(false)
       setLoadingStatus('')
@@ -42,12 +62,22 @@ export function VideoPlayerModal({
     }
   }, [isOpen, movieId])
 
+  // Cleanup effect to handle component unmounting
+  useEffect(() => {
+    return () => {
+      // Clear streaming URL on unmount to prevent video play interruption
+      setStreamingUrl(null)
+    }
+  }, [])
+
   const prepareStream = async () => {
     if (!movieId) return
 
     setIsLoading(true)
     setError(null)
     setStreamingUrl(null)
+    setAvailableSubtitles([])
+    setRealSubtitles([])
     setLoadingStatus('Discovering available streams...')
     setCurrentAttempt(0)
     setTotalAttempts(0)
@@ -55,34 +85,110 @@ export function VideoPlayerModal({
     try {
       console.log(`🎬 Preparing stream for movie: ${movieId}`)
 
-      // Enhanced stream preparation with progress tracking
-      const url = await onGetStreamingUrl(movieId)
-
-      if (url) {
-        // Handle both string URLs and streaming objects
-        const streamUrl = typeof url === 'string' ? url : url.url
-        console.log(`✅ Streaming URL obtained: ${streamUrl.substring(0, 50)}...`)
-        setLoadingStatus('Stream ready! Starting playback...')
-        setStreamingUrl(streamUrl)
+      // Try to get streaming result with subtitle information first
+      if (onGetStreamingResult) {
+        const result = await onGetStreamingResult(movieId)
+        if (result) {
+          console.log(`✅ Streaming result obtained: ${result.url.substring(0, 50)}...`)
+          console.log(`📝 VideoPlayerModal: Available subtitles from result: [${result.subtitles.join(', ') || 'None'}]`)
+          console.log(`📝 VideoPlayerModal: Real subtitles from SubDL: ${result.realSubtitles?.length || 0} tracks`)
+          if (result.realSubtitles && result.realSubtitles.length > 0) {
+            console.log(`📝 Real subtitle languages: [${result.realSubtitles.map(s => s.language).join(', ')}]`)
+          }
+          setLoadingStatus('Stream ready! Starting playback...')
+          setStreamingUrl(result.url)
+          setAvailableSubtitles(result.subtitles)
+          setRealSubtitles(result.realSubtitles || [])
+          console.log(`📝 VideoPlayerModal: Set availableSubtitles state to: [${result.subtitles.join(', ')}]`)
+          console.log(`📝 VideoPlayerModal: Set realSubtitles state to: ${result.realSubtitles?.length || 0} tracks`)
+        } else {
+          const errorMessage = categorizeStreamError(movieId)
+          setError(errorMessage)
+        }
       } else {
-        setError('No streaming sources available for this movie. This could be because the movie is very new or not available in torrent sources. Please try another movie.')
+        // Fallback to original method
+        const url = await onGetStreamingUrl(movieId)
+        if (url) {
+          const streamUrl = typeof url === 'string' ? url : url.url
+          console.log(`✅ Streaming URL obtained: ${streamUrl.substring(0, 50)}...`)
+          setLoadingStatus('Stream ready! Starting playback...')
+          setStreamingUrl(streamUrl)
+          setAvailableSubtitles([]) // No subtitle info available
+        } else {
+          const errorMessage = categorizeStreamError(movieId)
+          setError(errorMessage)
+        }
       }
     } catch (err) {
       console.error('Error preparing stream:', err)
-      setError(err instanceof Error ? err.message : 'Failed to prepare stream. Please try again or select a different movie.')
+      const errorMessage = getErrorMessage(err)
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }
   }
 
+  // Categorize streaming errors for better user feedback
+  const categorizeStreamError = (movieId: string): string => {
+    if (movieId.startsWith('tmdb_')) {
+      return `No streams found for this movie. This could be because:
+
+• The movie is very new and not yet available on torrent networks
+• The movie is not popular enough to have active streams
+• There may be temporary issues with stream providers
+• The movie might be region-restricted
+
+Try searching for a different movie or check back later.`
+    }
+
+    return 'No streams available for this movie. This might be a rare or very new release. Please try a different title.'
+  }
+
+  // Get user-friendly error messages
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase()
+
+      if (message.includes('timeout') || message.includes('aborted')) {
+        return 'Request timed out. Please check your internet connection and try again.'
+      }
+      if (message.includes('network') || message.includes('fetch')) {
+        return 'Network error. Please check your internet connection and try again.'
+      }
+      if (message.includes('api') || message.includes('service')) {
+        return 'Streaming service temporarily unavailable. Please try again in a few minutes.'
+      }
+      if (message.includes('rate limit') || message.includes('too many')) {
+        return 'Too many requests. Please wait a moment and try again.'
+      }
+      if (message.includes('not found') || message.includes('404')) {
+        return 'Movie not found in our database. Try searching for a different title.'
+      }
+      if (message.includes('unauthorized') || message.includes('401')) {
+        return 'Authentication error. Please check your API keys in settings.'
+      }
+      if (message.includes('forbidden') || message.includes('403')) {
+        return 'Access denied. This content may be restricted in your region.'
+      }
+    }
+
+    return 'Unable to load stream. Please try again or select a different movie.'
+  }
+
   const handleClose = () => {
+    // Clear streaming URL first to unmount VideoPlayer component cleanly
     setStreamingUrl(null)
+    setAvailableSubtitles([])
     setError(null)
     setIsLoading(false)
     setLoadingStatus('')
     setCurrentAttempt(0)
     setTotalAttempts(0)
-    onClose()
+
+    // Small delay to ensure video cleanup before closing modal
+    setTimeout(() => {
+      onClose()
+    }, 100)
   }
 
   const handleRetry = () => {
@@ -159,6 +265,16 @@ export function VideoPlayerModal({
             title={movieTitle}
             onClose={handleClose}
             autoPlay={true}
+            availableSubtitles={availableSubtitles}
+            realSubtitles={realSubtitles}
+            onError={(errorMessage) => {
+              console.error('Video player error:', errorMessage)
+              setError(errorMessage)
+              setStreamingUrl(null)
+              setAvailableSubtitles([])
+              setRealSubtitles([])
+              setIsLoading(false)
+            }}
           />
         )}
       </DialogContent>
