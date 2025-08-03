@@ -32,6 +32,7 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
   }
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.8) // Start at 80% volume
@@ -412,20 +413,20 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
   }
 
   const toggleFullscreen = async () => {
-    const video = videoRef.current
-    if (!video) return
+    const container = containerRef.current
+    if (!container) return
 
     try {
       if (!document.fullscreenElement) {
         // Try different fullscreen methods for better browser compatibility
-        if (video.requestFullscreen) {
-          await video.requestFullscreen()
-        } else if ((video as any).webkitRequestFullscreen) {
-          await (video as any).webkitRequestFullscreen()
-        } else if ((video as any).mozRequestFullScreen) {
-          await (video as any).mozRequestFullScreen()
-        } else if ((video as any).msRequestFullscreen) {
-          await (video as any).msRequestFullscreen()
+        if (container.requestFullscreen) {
+          await container.requestFullscreen()
+        } else if ((container as any).webkitRequestFullscreen) {
+          await (container as any).webkitRequestFullscreen()
+        } else if ((container as any).mozRequestFullScreen) {
+          await (container as any).mozRequestFullScreen()
+        } else if ((container as any).msRequestFullscreen) {
+          await (container as any).msRequestFullscreen()
         } else {
           console.warn('Fullscreen API not supported')
           return
@@ -960,6 +961,7 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
 
   return (
     <div
+      ref={containerRef}
       className={`relative w-full h-full bg-black flex items-center justify-center transition-all duration-300 ${
         showCursor ? 'cursor-default' : 'cursor-none'
       }`}
