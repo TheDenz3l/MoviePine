@@ -1,113 +1,120 @@
 "use client"
 
 import { useState } from "react"
-import { Search, Home, Calendar, Tv, TrendingUp, Plus, Shuffle } from "lucide-react"
+import { Search, Bell, User, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-interface NetflixFloatingNavProps {
+interface NetflixTopNavProps {
   onNavigate: (category: string) => void
   activeCategory: string
 }
 
 const navigationItems = [
-  {
-    icon: Search,
-    category: "search",
-    label: "Search"
-  },
-  {
-    icon: Home,
-    category: "home",
-    label: "Home"
-  },
-  {
-    icon: Calendar,
-    category: "new",
-    label: "New & Popular"
-  },
-  {
-    icon: Tv,
-    category: "tv",
-    label: "TV Shows"
-  },
-  {
-    icon: TrendingUp,
-    category: "trending",
-    label: "Trending"
-  },
-  {
-    icon: Plus,
-    category: "watchlist",
-    label: "My List"
-  },
-  {
-    icon: Shuffle,
-    category: "random",
-    label: "Browse by Languages"
-  }
+  { category: "home", label: "Home" },
+  { category: "tv", label: "TV Series" },
+  { category: "movies", label: "Films" },
+  { category: "new", label: "New & Popular" },
+  { category: "watchlist", label: "My List" },
+  { category: "random", label: "Browse by Languages" }
 ]
 
-export function NetflixFloatingNav({ onNavigate, activeCategory }: NetflixFloatingNavProps) {
-  const [isVisible, setIsVisible] = useState(false)
+export function NetflixFloatingNav({ onNavigate, activeCategory }: NetflixTopNavProps) {
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
 
   return (
-    <>
-      {/* Navigation Trigger - Always visible on left edge */}
-      <div
-        className={cn(
-          "fixed left-0 top-0 h-full w-12 z-40 flex items-center justify-center cursor-pointer transition-all duration-300",
-          isVisible && "pointer-events-none"
-        )}
-        onMouseEnter={() => setIsVisible(true)}
-      >
-        <div className="w-1 h-16 bg-white/20 rounded-r-full opacity-0 hover:opacity-100 transition-opacity duration-300" />
-      </div>
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 via-black/60 to-transparent backdrop-blur-sm">
+      <div className="flex items-center justify-between px-4 md:px-16 py-4">
+        {/* Left side - Logo and Navigation */}
+        <div className="flex items-center space-x-8">
+          {/* Netflix-style Logo */}
+          <div className="text-red-600 font-bold text-2xl tracking-tight">
+            MOVIEPINE
+          </div>
 
-      {/* Floating Navigation Overlay */}
-      <div
-        className={cn(
-          "fixed left-0 top-0 h-full w-16 bg-black/95 backdrop-blur-sm z-50 transition-all duration-300 ease-out",
-          isVisible ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0"
-        )}
-        onMouseEnter={() => setIsVisible(true)}
-        onMouseLeave={() => setIsVisible(false)}
-      >
-        <div className="flex flex-col items-center py-8 space-y-6">
-          {navigationItems.map((item) => {
-            const Icon = item.icon
-            const isActive = activeCategory === item.category
-            
-            return (
+          {/* Navigation Items */}
+          <div className="hidden md:flex items-center space-x-6">
+            {navigationItems.map((item) => (
               <button
                 key={item.category}
                 onClick={() => onNavigate(item.category)}
                 className={cn(
-                  "group relative p-3 rounded-lg transition-all duration-200",
-                  "hover:bg-white/10 hover:scale-110",
-                  isActive ? "bg-white/20 text-white" : "text-gray-400 hover:text-white"
+                  "text-sm font-medium transition-colors duration-200 hover:text-gray-300",
+                  activeCategory === item.category
+                    ? "text-white"
+                    : "text-gray-400"
                 )}
-                title={item.label}
               >
-                <Icon className="w-6 h-6" />
-                
-                {/* Tooltip */}
-                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-3 py-2 bg-white text-black text-sm font-medium rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
-                  {item.label}
-                  <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-white" />
-                </div>
+                {item.label}
               </button>
-            )
-          })}
+            ))}
+          </div>
+        </div>
+
+        {/* Right side - Search, Notifications, Profile */}
+        <div className="flex items-center space-x-4">
+          {/* Search Icon */}
+          <button
+            onClick={() => onNavigate('search')}
+            className="p-2 text-white hover:text-gray-300 transition-colors"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+
+          {/* Notifications */}
+          <button className="p-2 text-white hover:text-gray-300 transition-colors">
+            <Bell className="w-5 h-5" />
+          </button>
+
+          {/* Profile Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              className="flex items-center space-x-1 text-white hover:text-gray-300 transition-colors"
+            >
+              <div className="w-8 h-8 bg-red-600 rounded flex items-center justify-center">
+                <User className="w-4 h-4" />
+              </div>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {/* Profile Dropdown */}
+            {showProfileMenu && (
+              <div className="absolute right-0 top-full mt-2 w-48 bg-black/90 backdrop-blur-sm border border-gray-700 rounded-md py-2">
+                <button className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-800 transition-colors">
+                  Account
+                </button>
+                <button className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-800 transition-colors">
+                  Settings
+                </button>
+                <hr className="border-gray-700 my-2" />
+                <button className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-800 transition-colors">
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Backdrop for mobile */}
-      {isVisible && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setIsVisible(false)}
-        />
-      )}
-    </>
+      {/* Mobile Navigation Menu */}
+      <div className="md:hidden px-4 pb-4">
+        <div className="flex flex-wrap gap-4">
+          {navigationItems.map((item) => (
+            <button
+              key={item.category}
+              onClick={() => onNavigate(item.category)}
+              className={cn(
+                "text-sm font-medium transition-colors duration-200 hover:text-gray-300",
+                activeCategory === item.category
+                  ? "text-white"
+                  : "text-gray-400"
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </nav>
   )
 }

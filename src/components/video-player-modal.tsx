@@ -22,6 +22,14 @@ interface VideoPlayerModalProps {
       isExternal: boolean
     }>
   } | null>
+  movieData?: {
+    id: string
+    title: string
+    poster: string
+    year?: number
+    genre?: string[]
+  }
+  startTime?: number
 }
 
 export function VideoPlayerModal({
@@ -30,7 +38,9 @@ export function VideoPlayerModal({
   movieId,
   movieTitle,
   onGetStreamingUrl,
-  onGetStreamingResult
+  onGetStreamingResult,
+  movieData,
+  startTime = 0
 }: VideoPlayerModalProps) {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null)
   const [availableSubtitles, setAvailableSubtitles] = useState<string[]>([])
@@ -267,6 +277,9 @@ Try searching for a different movie or check back later.`
             autoPlay={true}
             availableSubtitles={availableSubtitles}
             realSubtitles={realSubtitles}
+            movieId={movieId || undefined}
+            movieData={movieData}
+            startTime={startTime}
             onError={(errorMessage) => {
               console.error('Video player error:', errorMessage)
               setError(errorMessage)

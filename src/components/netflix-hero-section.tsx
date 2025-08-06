@@ -3,7 +3,6 @@
 import { Play, Info, Volume2, VolumeX } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 
 interface Movie {
   id: string
@@ -21,6 +20,8 @@ interface NetflixHeroSectionProps {
   movie: Movie
   onPlay: (movieId: string) => void
   onMoreInfo: (movieId: string) => void
+  onSearchResultSelect?: (result: { id: string; title: string; year: number; poster: string; type: 'movie' | 'tv' }) => void
+  onNavigateToSearch?: (query: string) => void
 }
 
 export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSectionProps) {
@@ -35,102 +36,75 @@ export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSec
         backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
       }}
     >
-      {/* Gradient Overlays */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent" />
+      {/* Gradient Overlays - Netflix style */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/50 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20" />
+      <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black to-transparent" />
 
-      {/* Content */}
-      <div className="relative z-10 flex items-end h-full px-4 sm:px-8 lg:px-16 pt-20 pb-8 sm:pb-16">
+      {/* Content - Netflix positioning */}
+      <div className="relative z-10 flex items-center h-full px-4 sm:px-8 lg:px-16 pt-24">
         <div className="max-w-2xl">
-          {/* MoviePine Series Badge */}
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="flex items-center space-x-1">
+          {/* Netflix-style Film Badge */}
+          <div className="flex items-center space-x-2 mb-6">
+            <div className="flex items-center space-x-2">
               <div className="w-6 h-6 bg-red-600 flex items-center justify-center text-white font-bold text-xs">
-                M
+                N
               </div>
-              <span className="text-gray-300 text-sm font-medium">SERIES</span>
+              <span className="text-gray-300 text-sm font-medium tracking-wider">ФИЛЬМ</span>
             </div>
           </div>
 
-          {/* Movie Title */}
-          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-4 text-white leading-tight">
-            <span className="line-clamp-2">{movie.title}</span>
+          {/* Movie Title - Netflix style */}
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-6 text-white leading-none">
+            {movie.title}
           </h1>
 
-          {/* Movie Metadata */}
-          <div className="flex items-center space-x-4 mb-6 min-h-[2rem]">
-            <div className="flex items-center space-x-1">
-              <div className="bg-yellow-500 text-black px-2 py-1 rounded text-sm font-bold">
-                IMDb
-              </div>
-              <span className="text-white font-semibold">{movie.rating.toFixed(1)}</span>
-            </div>
-            <span className="text-gray-300">{movie.year}</span>
-            <span className="text-gray-300">
-              {movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : ''}
-            </span>
-            <div className="border border-gray-400 px-2 py-1 text-gray-300 text-xs">
-              HD
-            </div>
-          </div>
-
-          {/* Genres */}
-          <div className="flex flex-wrap gap-2 mb-6 min-h-[2.5rem]">
-            {movie.genre.slice(0, 3).map((genre) => (
-              <Badge key={genre} variant="outline" className="border-gray-400 text-gray-300 bg-transparent">
-                {genre}
-              </Badge>
-            ))}
-          </div>
-
-          {/* Description */}
-          <div className="mb-8 min-h-[4.5rem]">
-            <p className="text-lg text-gray-200 max-w-xl leading-relaxed line-clamp-3">
+          {/* Netflix-style description */}
+          <div className="mb-8 max-w-lg">
+            <p className="text-lg text-white leading-relaxed line-clamp-3">
               {movie.description}
             </p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center space-x-4 min-h-[3rem]">
+          {/* Action Buttons - Netflix style */}
+          <div className="flex items-center space-x-4">
             <Button
               onClick={() => onPlay(movie.id)}
-              className="bg-white text-black hover:bg-gray-200 px-6 sm:px-8 py-2 sm:py-3 text-base sm:text-lg font-semibold flex items-center space-x-2"
+              className="bg-white text-black hover:bg-gray-200 px-8 py-3 text-lg font-semibold flex items-center space-x-3 rounded-md"
               size="lg"
             >
-              <Play className="h-4 sm:h-5 w-4 sm:w-5 fill-current" />
-              <span>Play</span>
+              <Play className="h-6 w-6 fill-current" />
+              <span>Watch</span>
             </Button>
 
             <Button
               onClick={() => onMoreInfo(movie.id)}
               variant="outline"
-              className="border-gray-400 text-white hover:bg-white hover:text-black px-6 sm:px-8 py-2 sm:py-3 text-base sm:text-lg font-semibold flex items-center space-x-2"
+              className="bg-gray-600/70 border-0 text-white hover:bg-gray-500/70 px-8 py-3 text-lg font-semibold flex items-center space-x-3 rounded-md"
               size="lg"
             >
-              <Info className="h-4 sm:h-5 w-4 sm:w-5" />
-              <span>More Info</span>
+              <Info className="h-6 w-6" />
+              <span>More details</span>
             </Button>
           </div>
+        </div>
 
-          {/* Additional Info */}
-          <div className="mt-8 text-gray-400 text-sm">
-            <span className="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold mr-2">
-              2K+ Streams
-            </span>
-            <span>Trending now</span>
+        {/* Age Rating - Netflix style */}
+        <div className="absolute bottom-24 right-8 lg:right-16">
+          <div className="border-2 border-gray-400 px-3 py-1 text-gray-300 text-lg font-bold">
+            13+
           </div>
         </div>
 
         {/* Volume Control */}
-        <div className="absolute bottom-16 right-8 lg:right-16">
+        <div className="absolute bottom-24 right-24 lg:right-32">
           <Button
             variant="outline"
             size="icon"
-            className="border-gray-400 text-white hover:bg-white hover:text-black rounded-full"
+            className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-12 h-12"
             onClick={() => setIsMuted(!isMuted)}
           >
-            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </Button>
         </div>
       </div>

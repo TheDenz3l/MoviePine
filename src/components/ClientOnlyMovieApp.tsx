@@ -12,6 +12,9 @@ import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
 import { VideoPlayerModal } from '@/components/video-player-modal'
+import { RecentlyPlayedRow } from '@/components/recently-played-row'
+import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
+// import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
 const fallbackMovies: StreamingMovie[] = [
   {
@@ -37,24 +40,55 @@ export default function ClientOnlyMovieApp() {
   const [trendingSeries, setTrendingSeries] = useState<StreamingSeries[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [serviceStatus, setServiceStatus] = useState<any>(null)
+
   const [activeCategory, setActiveCategory] = useState('home')
   const [selectedMovie, setSelectedMovie] = useState<StreamingMovie | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false)
   const [playingMovieId, setPlayingMovieId] = useState<string | null>(null)
   const [playingMovieTitle, setPlayingMovieTitle] = useState<string>('')
+  const [showSearchResults, setShowSearchResults] = useState(false)
+  const [recentlyPlayedMovies, setRecentlyPlayedMovies] = useState<RecentlyPlayedMovie[]>([])
+  const [playingMovieData, setPlayingMovieData] = useState<{
+    id: string
+    title: string
+    poster: string
+    year?: number
+    genre?: string[]
+  } | null>(null)
+  const [resumeTime, setResumeTime] = useState<number>(0)
 
-  // Initialize category from URL params
+  // Initialize category and search from URL params
   useEffect(() => {
     const category = searchParams.get('category')
+    const searchQuery = searchParams.get('q')
+
     if (category) {
       setActiveCategory(category)
     }
+
+    if (searchQuery) {
+      setShowSearchResults(true)
+    }
   }, [searchParams])
+
+  // Load recently played movies
+  useEffect(() => {
+    loadRecentlyPlayedMovies()
+  }, [])
+
+  const loadRecentlyPlayedMovies = () => {
+    const movies = RecentlyPlayedService.getAll()
+    setRecentlyPlayedMovies(movies)
+  }
 
   // Navigation handler
   const handleNavigate = async (category: string) => {
+    if (category === 'search') {
+      setShowSearchResults(true)
+      return
+    }
+
     setActiveCategory(category)
     setIsLoading(true)
 
@@ -99,15 +133,26 @@ export default function ClientOnlyMovieApp() {
   }
 
   // Event handlers for movie interactions
-  const handlePlay = (movieId: string) => {
-    console.log('🎬 Playing movie:', movieId)
+  const handlePlay = (movieId: string, resumeFromTime?: number) => {
+    console.log('🎬 Playing movie:', movieId, resumeFromTime ? `(resume from ${resumeFromTime}s)` : '')
 
-    // Find the movie to get its title
+    // Find the movie to get its data
     const movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
     const title = movie?.title || 'Unknown Movie'
 
+    // Prepare movie data for recently played tracking
+    const movieData = movie ? {
+      id: movie.id,
+      title: movie.title,
+      poster: movie.poster || '',
+      year: movie.year,
+      genre: movie.genre
+    } : null
+
     setPlayingMovieId(movieId)
     setPlayingMovieTitle(title)
+    setPlayingMovieData(movieData)
+    setResumeTime(resumeFromTime || 0)
     setIsVideoPlayerOpen(true)
   }
 
@@ -146,6 +191,41 @@ export default function ClientOnlyMovieApp() {
     setIsVideoPlayerOpen(false)
     setPlayingMovieId(null)
     setPlayingMovieTitle('')
+    setPlayingMovieData(null)
+    setResumeTime(0)
+    // Refresh recently played list when video player closes
+    loadRecentlyPlayedMovies()
+  }
+
+  // Search handlers
+  const handleSearchResultSelect = (result: { id: string; title: string; year: number; poster: string; type: 'movie' | 'tv' }) => {
+    // Convert search result to movie format and select it
+    const searchMovie: StreamingMovie = {
+      id: result.id,
+      title: result.title,
+      poster: result.poster,
+      year: result.year,
+      rating: 0,
+      genre: [],
+      description: 'Loading...',
+      runtime: undefined,
+      imdbId: undefined,
+      tmdbId: result.id
+    }
+    setSelectedMovie(searchMovie)
+    setIsModalOpen(true)
+  }
+
+  const handleBackFromSearch = () => {
+    setShowSearchResults(false)
+  }
+
+  const handleNavigateToSearch = (query: string) => {
+    setShowSearchResults(true)
+    // Update URL to include search query
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('q', query)
+    router.push(`?${params.toString()}`)
   }
 
   const handleGetStreamingUrl = async (movieId: string): Promise<string | null> => {
@@ -245,7 +325,6 @@ export default function ClientOnlyMovieApp() {
         // Validate service configuration
         const status = await service.validateConfiguration()
         console.log('🔧 Service status:', status)
-        setServiceStatus(status)
 
         if (status.tmdb) {
           console.log('🎬 TMDB is working, fetching real movies and series...')
@@ -321,34 +400,49 @@ export default function ClientOnlyMovieApp() {
 
   const featuredMovie = selectedMovie || movies[0]
 
+  // Check if we should show search results page
+  if (showSearchResults) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-xl">Search functionality temporarily disabled</div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-black text-white relative">
-      {/* Netflix Floating Navigation */}
-      <NetflixFloatingNav onNavigate={handleNavigate} activeCategory={activeCategory} />
+      {/* Netflix Top Navigation */}
+      <NetflixFloatingNav
+        onNavigate={handleNavigate}
+        activeCategory={activeCategory}
+      />
 
       <div className="flex flex-col min-h-screen">
-        {/* MoviePine Logo Header - Always visible */}
-        <header className="absolute top-4 left-16 z-50">
-          <div className="flex items-center space-x-2">
-            <div className="text-red-600 font-bold text-2xl">MoviePine</div>
-          </div>
-        </header>
-
-            {/* Hero Section */}
+        {/* Hero Section */}
         {featuredMovie && (
           <NetflixHeroSection
             movie={transformMovie(featuredMovie)}
             onPlay={handlePlay}
             onMoreInfo={handleMoreInfo}
+            onSearchResultSelect={handleSearchResultSelect}
+            onNavigateToSearch={handleNavigateToSearch}
           />
         )}
 
-        {/* Movie Rows */}
-        <div className="flex-1 space-y-8 pb-8">
+        {/* Movie Rows - Netflix style with proper spacing */}
+        <div className="relative z-10 -mt-32 space-y-12 pb-16">
           {activeCategory === 'home' && (
             <>
+              {/* Recently Played Section */}
+              <RecentlyPlayedRow
+                movies={recentlyPlayedMovies}
+                onPlay={handlePlay}
+                onMovieSelect={handleMovieSelect}
+                onMoviesChange={loadRecentlyPlayedMovies}
+              />
+
               <NetflixMovieRow
-                title="New this week"
+                title="Popular Movies"
                 movies={movies.slice(0, 12).map(transformMovie)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
@@ -364,8 +458,58 @@ export default function ClientOnlyMovieApp() {
                 onMovieSelect={handleMovieSelect}
               />
               <NetflixMovieRow
-                title="Trending Series"
+                title="TV Series"
                 movies={trendingSeries.slice(0, 12).map(transformSeries)}
+                onPlay={handlePlay}
+                onAddToList={handleAddToList}
+                onMoreInfo={handleMoreInfo}
+                onMovieSelect={handleMovieSelect}
+              />
+              <NetflixMovieRow
+                title="Action Movies"
+                movies={movies.slice(24, 36).map(transformMovie)}
+                onPlay={handlePlay}
+                onAddToList={handleAddToList}
+                onMoreInfo={handleMoreInfo}
+                onMovieSelect={handleMovieSelect}
+              />
+            </>
+          )}
+
+          {activeCategory === 'tv' && (
+            <>
+              <NetflixMovieRow
+                title="TV Series"
+                movies={trendingSeries.slice(0, 12).map(transformSeries)}
+                onPlay={handlePlay}
+                onAddToList={handleAddToList}
+                onMoreInfo={handleMoreInfo}
+                onMovieSelect={handleMovieSelect}
+              />
+              <NetflixMovieRow
+                title="Popular TV Shows"
+                movies={trendingSeries.slice(12, 24).map(transformSeries)}
+                onPlay={handlePlay}
+                onAddToList={handleAddToList}
+                onMoreInfo={handleMoreInfo}
+                onMovieSelect={handleMovieSelect}
+              />
+            </>
+          )}
+
+          {activeCategory === 'movies' && (
+            <>
+              <NetflixMovieRow
+                title="Popular Movies"
+                movies={movies.slice(0, 12).map(transformMovie)}
+                onPlay={handlePlay}
+                onAddToList={handleAddToList}
+                onMoreInfo={handleMoreInfo}
+                onMovieSelect={handleMovieSelect}
+              />
+              <NetflixMovieRow
+                title="Action Movies"
+                movies={movies.slice(12, 24).map(transformMovie)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
@@ -385,9 +529,20 @@ export default function ClientOnlyMovieApp() {
             />
           )}
 
-          {activeCategory === 'popular' && (
+          {activeCategory === 'new' && (
             <NetflixMovieRow
-              title="Popular Movies"
+              title="New & Popular"
+              movies={movies.slice(0, 12).map(transformMovie)}
+              onPlay={handlePlay}
+              onAddToList={handleAddToList}
+              onMoreInfo={handleMoreInfo}
+              onMovieSelect={handleMovieSelect}
+            />
+          )}
+
+          {activeCategory === 'watchlist' && (
+            <NetflixMovieRow
+              title="My List"
               movies={movies.slice(10, 22).map(transformMovie)}
               onPlay={handlePlay}
               onAddToList={handleAddToList}
@@ -397,28 +552,7 @@ export default function ClientOnlyMovieApp() {
           )}
         </div>
 
-        {/* Service Status */}
-        {serviceStatus && (
-          <div className="px-12 py-8 border-t border-gray-800">
-            <div className="bg-gray-900 p-4 rounded">
-              <h3 className="text-lg font-bold mb-2">Service Status</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className={`p-2 rounded ${serviceStatus.tmdb ? 'bg-green-900' : 'bg-red-900'}`}>
-                  TMDB: {serviceStatus.tmdb ? '✅' : '❌'}
-                </div>
-                <div className={`p-2 rounded ${serviceStatus.torrentio ? 'bg-green-900' : 'bg-red-900'}`}>
-                  Torrentio: {serviceStatus.torrentio ? '✅' : '❌'}
-                </div>
-                <div className={`p-2 rounded ${serviceStatus.realdebrid ? 'bg-green-900' : 'bg-red-900'}`}>
-                  Real-Debrid: {serviceStatus.realdebrid ? '✅' : '❌'}
-                </div>
-                <div className={`p-2 rounded ${serviceStatus.torbox ? 'bg-green-900' : 'bg-red-900'}`}>
-                  Torbox: {serviceStatus.torbox ? '✅' : '❌'}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+
       </div>
 
       {/* Movie Detail Modal */}
@@ -438,6 +572,8 @@ export default function ClientOnlyMovieApp() {
         movieTitle={playingMovieTitle}
         onGetStreamingUrl={handleGetStreamingUrl}
         onGetStreamingResult={handleGetStreamingResult}
+        movieData={playingMovieData || undefined}
+        startTime={resumeTime}
       />
     </div>
   )

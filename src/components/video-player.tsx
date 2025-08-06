@@ -5,6 +5,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, X, Lang
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
+import { RecentlyPlayedService } from "@/lib/services/recently-played-service"
 
 interface VideoPlayerProps {
   src: string
@@ -19,9 +20,29 @@ interface VideoPlayerProps {
     url: string
     isExternal: boolean
   }> // Real subtitle files from SubDL API
+  movieId?: string // For recently played tracking
+  movieData?: {
+    id: string
+    title: string
+    poster: string
+    year?: number
+    genre?: string[]
+  } // Movie data for recently played
+  startTime?: number // Resume from specific time
 }
 
-export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, availableSubtitles = [], realSubtitles = [] }: VideoPlayerProps) {
+export function VideoPlayer({
+  src,
+  title,
+  onClose,
+  autoPlay = true,
+  onError,
+  availableSubtitles = [],
+  realSubtitles = [],
+  movieId,
+  movieData,
+  startTime = 0
+}: VideoPlayerProps) {
   // Validate source URL
   if (!src || typeof src !== 'string' || src.trim() === '') {
     console.error('❌ Invalid video source provided:', src)
@@ -143,6 +164,13 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
       // Discover available audio and subtitle tracks
       discoverTracks()
 
+      // Set start time if resuming playback
+      if (startTime > 0 && startTime < video.duration) {
+        video.currentTime = startTime
+        setCurrentTime(startTime)
+        console.log(`📺 Resuming playback from ${startTime}s`)
+      }
+
       if (autoPlay) {
         // Use a promise-based approach to handle play() properly
         const playPromise = video.play()
@@ -185,18 +213,27 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
     }
 
     const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime)
+      const currentVideoTime = video.currentTime
+      setCurrentTime(currentVideoTime)
+
+      // Update recently played progress every 10 seconds
+      if (movieId && movieData && duration > 0) {
+        const progressUpdateInterval = 10 // seconds
+        if (Math.floor(currentVideoTime) % progressUpdateInterval === 0 &&
+            Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
+          RecentlyPlayedService.updateProgress(movieId, currentVideoTime, duration)
+        }
+      }
 
       // Update custom subtitles with enhanced debugging
       if (customSubtitles.length > 0 && selectedSubtitleTrack !== 'off') {
-        const currentTime = video.currentTime
         const activeSubtitle = customSubtitles.find(
-          sub => currentTime >= sub.startTime && currentTime <= sub.endTime
+          sub => currentVideoTime >= sub.startTime && currentVideoTime <= sub.endTime
         )
 
         // Enhanced debug logging every 5 seconds
-        if (Math.floor(currentTime) % 5 === 0 && Math.floor(currentTime) !== Math.floor(currentTime - 0.1)) {
-          console.log(`📝 Subtitle check at ${currentTime.toFixed(1)}s:`)
+        if (Math.floor(currentVideoTime) % 5 === 0 && Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
+          console.log(`📝 Subtitle check at ${currentVideoTime.toFixed(1)}s:`)
           console.log(`📝 - Custom subtitles: ${customSubtitles.length}`)
           console.log(`📝 - Selected track: ${selectedSubtitleTrack}`)
           console.log(`📝 - Active subtitle: ${activeSubtitle ? `"${activeSubtitle.text.substring(0, 30)}..."` : 'None'}`)
@@ -211,8 +248,23 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
       }
     }
 
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => {
+      setIsPlaying(true)
+
+      // Add to recently played when playback starts
+      if (movieId && movieData) {
+        RecentlyPlayedService.add(movieData)
+      }
+    }
+
+    const handlePause = () => {
+      setIsPlaying(false)
+
+      // Update progress when paused
+      if (movieId && movieData && duration > 0) {
+        RecentlyPlayedService.updateProgress(movieId, currentTime, duration)
+      }
+    }
     const handleVolumeChange = () => {
       setVolume(video.volume)
       setIsMuted(video.muted)
@@ -988,19 +1040,7 @@ export function VideoPlayer({ src, title, onClose, autoPlay = true, onError, ava
         </div>
       )}
 
-      {/* Debug overlay to show native subtitle state */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="absolute top-4 left-4 z-50 bg-black bg-opacity-75 text-white p-2 text-xs rounded">
-          <div>Selected Track: {selectedSubtitleTrack}</div>
-          <div>Native Text Tracks: {videoRef.current?.textTracks?.length || 0}</div>
-          <div>Active Track Mode: {
-            videoRef.current?.textTracks && !isNaN(parseInt(selectedSubtitleTrack))
-              ? videoRef.current.textTracks[parseInt(selectedSubtitleTrack)]?.mode || 'N/A'
-              : 'N/A'
-          }</div>
-          <div>Video Time: {currentTime.toFixed(1)}s</div>
-        </div>
-      )}
+
 
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
