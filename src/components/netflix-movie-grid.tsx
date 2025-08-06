@@ -56,7 +56,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
               <div className="flex items-center space-x-2 mb-3">
                 <Button
                   size="icon"
-                  className="bg-white text-black hover:bg-gray-200 h-8 w-8"
+                  className="bg-white text-black hover:bg-gray-200 h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onPlay(movie.id)
@@ -67,7 +67,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
                 <Button
                   size="icon"
                   variant="outline"
-                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8"
+                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onAddToList(movie.id)
@@ -78,7 +78,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
                 <Button
                   size="icon"
                   variant="outline"
-                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8"
+                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onMoreInfo(movie.id)
@@ -89,7 +89,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
                 <Button
                   size="icon"
                   variant="outline"
-                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 ml-auto"
+                  className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 ml-auto rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onMoreInfo(movie.id)

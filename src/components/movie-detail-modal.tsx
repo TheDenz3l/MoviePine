@@ -38,28 +38,56 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="w-[85vw] max-w-[1000px] h-[85vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[8vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
+        className="w-[60vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
         showCloseButton={false}
+        style={{ width: '60vw', maxWidth: 'none' }}
       >
         <DialogTitle className="sr-only">{movie.title}</DialogTitle>
         <DialogDescription className="sr-only">Movie details for {movie.title}</DialogDescription>
 
         {/* Netflix-style Floating Modal */}
-        <div className="relative w-full h-full flex flex-col overflow-hidden">
-
-          {/* Hero Section - Compact backdrop with title overlay */}
-          <div className="relative h-[45vh] w-full overflow-hidden flex-shrink-0">
+        <div className="relative w-full h-full flex flex-col overflow-hidden" style={{ backgroundColor: 'rgb(18, 18, 18)' }}>
+          {/* Hero Section - Netflix-style backdrop with integrated gradient */}
+          <div className="relative h-[60vh] w-full overflow-visible flex-shrink-0">
             {/* Backdrop Image */}
             <div
-              className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+              className="absolute inset-0 bg-no-repeat"
               style={{
                 backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
+                backgroundSize: '120%',
+                backgroundPosition: 'center 20%',
               }}
             />
 
-            {/* Gradient Overlays */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-transparent to-transparent" />
+            {/* Subtle side gradient for depth */}
+            <div
+              className="absolute inset-0 z-10"
+              style={{
+                background: `linear-gradient(
+                  to right,
+                  rgba(0, 0, 0, 0.3) 0%,
+                  transparent 30%,
+                  transparent 70%,
+                  rgba(0, 0, 0, 0.1) 100%
+                )`
+              }}
+            />
+
+            {/* Netflix-style Bottom Gradient - Creates seamless transition */}
+            <div
+              className="absolute inset-x-0 bottom-0 h-[200px] pointer-events-none z-20"
+              style={{
+                background: `linear-gradient(
+                  to bottom,
+                  transparent 0%,
+                  rgba(18, 18, 18, 0.1) 20%,
+                  rgba(18, 18, 18, 0.3) 40%,
+                  rgba(18, 18, 18, 0.6) 60%,
+                  rgba(18, 18, 18, 0.8) 80%,
+                  rgb(18, 18, 18) 100%
+                )`
+              }}
+            />
 
             {/* Close Button */}
             <Button
@@ -71,55 +99,55 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
               <X className="h-5 w-5" />
             </Button>
 
-            {/* Title and Actions Overlay */}
-            <div className="absolute bottom-6 left-6 right-6">
-              <h1 className="text-3xl md:text-4xl font-bold mb-4 text-white leading-tight max-w-2xl">
+            {/* Title and Actions Overlay - Netflix style */}
+            <div className="absolute bottom-4 left-4 right-4 z-30">
+              <h1 className="text-2xl md:text-3xl font-bold mb-3 text-white leading-tight max-w-xl">
                 {movie.title}
               </h1>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
                 <Button
                   onClick={() => onPlay(movie.id)}
-                  className="bg-white text-black hover:bg-gray-200 font-semibold px-6 py-2 rounded flex items-center space-x-2"
+                  className="bg-white text-black hover:bg-gray-200 font-semibold px-4 py-1.5 rounded text-sm flex items-center space-x-1.5"
                 >
-                  <Play className="h-4 w-4 fill-current" />
+                  <Play className="h-3 w-3 fill-current" />
                   <span>Play</span>
                 </Button>
                 <Button
                   variant="outline"
                   size="icon"
-                  className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-10 h-10"
+                  className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-8 h-8"
                   onClick={() => onAddToList(movie.id)}
                 >
-                  <Plus className="h-5 w-5" />
+                  <Plus className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="icon"
-                  className={`border-2 border-gray-400 rounded-full w-10 h-10 ${
+                  className={`border-2 border-gray-400 rounded-full w-8 h-8 ${
                     isLiked === true ? 'bg-white text-black' : 'text-white hover:bg-white hover:text-black'
                   }`}
                   onClick={() => setIsLiked(isLiked === true ? null : true)}
                 >
-                  <ThumbsUp className="h-4 w-4" />
+                  <ThumbsUp className="h-3 w-3" />
                 </Button>
               </div>
             </div>
           </div>
 
-          {/* Content Section - Scrollable */}
-          <div className="bg-zinc-900 flex-1 overflow-y-auto">
-            <div className="px-8 py-6">
+          {/* Content Section - No background, relies on gradient transition */}
+          <div className="flex-1 overflow-y-auto relative">
+            <div className="px-6 py-4">
 
-              {/* Match percentage and metadata */}
-              <div className="flex items-center space-x-4 text-sm mb-6">
+              {/* Match percentage and metadata - Netflix style */}
+              <div className="flex items-center space-x-3 text-sm mb-4">
                 <span className="text-green-400 font-semibold">{matchPercentage}% Match</span>
                 <span className="text-white">{movie.year}</span>
                 <span className="text-gray-300">
                   {movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : '2h 8m'}
                 </span>
-                <div className="border border-gray-400 px-2 py-0.5 text-gray-300 text-xs">HD</div>
-                <div className="border border-gray-400 px-2 py-0.5 text-gray-300 text-xs">13+</div>
+                <div className="border border-gray-400 px-1.5 py-0.5 text-gray-300 text-xs">HD</div>
+                <div className="border border-gray-400 px-1.5 py-0.5 text-gray-300 text-xs">13+</div>
               </div>
 
               {/* Description */}
@@ -143,146 +171,38 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
                 </div>
               </div>
 
-              {/* More Like This Section */}
-              <div>
-                <h3 className="text-xl font-bold mb-6 text-white">More Like This</h3>
-                <div className="grid grid-cols-3 gap-6">
+              {/* Similar Section - Netflix horizontal scroll style */}
+              <div className="mt-8">
+                <h3 className="text-lg font-semibold mb-4 text-white">Similar</h3>
+                <div className="flex space-x-3 overflow-x-auto scrollbar-hide pb-2">
                   {[
-                    { title: "Good Will Hunting", year: "1997", duration: "2h 6m" },
-                    { title: "The Pursuit of Happyness", year: "2006", duration: "1h 57m" },
-                    { title: "A Beautiful Mind", year: "2001", duration: "2h 15m" }
+                    { title: "Good Will Hunting", year: "1997", duration: "2h 6m", description: "A janitor at MIT has a gift for mathematics but needs help from a psychologist to find direction in his life." },
+                    { title: "The Pursuit of Happyness", year: "2006", duration: "1h 57m", description: "A struggling salesman takes custody of his son as he's poised to begin a life-changing professional career." },
+                    { title: "A Beautiful Mind", year: "2001", duration: "2h 15m", description: "After John Nash, a brilliant but asocial mathematician, accepts secret work in cryptography, his life takes a turn for the nightmarish." },
+                    { title: "Dead Poets Society", year: "1989", duration: "2h 8m", description: "English teacher John Keating inspires his students to look at poetry with a different perspective of authentic knowledge and feelings." },
+                    { title: "The Social Network", year: "2010", duration: "2h", description: "The story of how one of the most popular websites in the world was founded and the lawsuits that followed." },
+                    { title: "Forrest Gump", year: "1994", duration: "2h 22m", description: "The presidencies of Kennedy and Johnson, the Vietnam War, the Watergate scandal and other historical events unfold from the perspective of an Alabama man." }
                   ].map((item, i) => (
-                    <div key={i} className="group cursor-pointer">
-                      <div className="relative aspect-video bg-gray-800 rounded-md overflow-hidden mb-2 group-hover:scale-105 transition-transform duration-200">
-                        <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                          <Play className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div key={i} className="flex-shrink-0 w-80 bg-zinc-800 rounded-lg overflow-hidden group cursor-pointer hover:bg-zinc-700 transition-colors">
+                      <div className="flex">
+                        <div className="w-28 h-20 bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                          <Play className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
-                        <div className="absolute bottom-1 right-1 bg-black/70 px-1 py-0.5 rounded text-white text-xs">
-                          {item.duration}
-                        </div>
-                      </div>
-                      <h4 className="text-white font-medium text-xs mb-1">{item.title}</h4>
-                      <p className="text-gray-400 text-xs">{item.year}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Trailers & More Section */}
-              <div className="mt-12">
-                <h3 className="text-xl font-semibold mb-4">Trailers & More</h3>
-                <div className="bg-zinc-800 rounded-lg p-4 flex items-center space-x-4">
-                  <div className="w-32 h-20 bg-zinc-700 rounded flex items-center justify-center">
-                    <Play className="h-8 w-8 text-white" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Trailer: {movie.title}</h4>
-                    <p className="text-gray-400 text-sm">Official Trailer</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* About Section */}
-              <div className="mt-12">
-                <h3 className="text-xl font-semibold mb-6">About <strong>{movie.title}</strong></h3>
-                <div className="space-y-4 text-sm">
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">Director:</span>
-                    <span>Christopher Nolan</span>
-                  </div>
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">Cast:</span>
-                    <span>{movie.cast || 'Leonardo DiCaprio, Marion Cotillard, Tom Hardy, Ellen Page'}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">Writer:</span>
-                    <span>Christopher Nolan</span>
-                  </div>
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">Genres:</span>
-                    <span>{movie.genres || 'Action, Sci-Fi, Thriller'}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">This movie is:</span>
-                    <span>Mind-bending, Suspenseful, Cerebral</span>
-                  </div>
-                  <div className="flex">
-                    <span className="text-gray-400 w-20 flex-shrink-0">Maturity Rating:</span>
-                    <div>
-                      <span className="bg-gray-600 px-2 py-1 rounded text-xs mr-2">PG-13</span>
-                      <span className="text-gray-400">violence, language</span>
-                      <p className="text-gray-500 text-xs mt-1">Recommended for ages 13 and up</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Content Sections to demonstrate scrolling */}
-              <div className="mt-12">
-                <h3 className="text-xl font-semibold mb-4">Episodes</h3>
-                <div className="space-y-4">
-                  {[1, 2, 3, 4, 5].map((episode) => (
-                    <div key={episode} className="bg-zinc-800 rounded-lg p-4 flex items-center space-x-4">
-                      <div className="w-32 h-20 bg-zinc-700 rounded flex items-center justify-center">
-                        <span className="text-white font-bold">{episode}</span>
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium">Episode {episode}</h4>
-                        <p className="text-gray-400 text-sm">45m</p>
-                        <p className="text-gray-300 text-sm mt-1">Episode description goes here...</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* More Like This - Extended */}
-              <div className="mt-12">
-                <h3 className="text-xl font-semibold mb-4">More Like This</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <div key={i} className="bg-zinc-800 rounded-lg overflow-hidden">
-                      <div className="aspect-video bg-zinc-700 flex items-center justify-center">
-                        <span className="text-white">Movie {i + 1}</span>
-                      </div>
-                      <div className="p-3">
-                        <h4 className="text-white font-medium text-sm mb-1">Similar Movie {i + 1}</h4>
-                        <p className="text-gray-400 text-xs">2023</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reviews Section */}
-              <div className="mt-12">
-                <h3 className="text-xl font-semibold mb-4">Reviews</h3>
-                <div className="space-y-6">
-                  {[1, 2, 3].map((review) => (
-                    <div key={review} className="bg-zinc-800 rounded-lg p-6">
-                      <div className="flex items-center mb-3">
-                        <div className="w-10 h-10 bg-zinc-600 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold">U{review}</span>
-                        </div>
-                        <div className="ml-3">
-                          <h4 className="font-medium">User {review}</h4>
-                          <div className="flex text-yellow-400">
-                            {'★'.repeat(5)}
+                        <div className="p-3 flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <h4 className="text-white font-medium text-sm">{item.title}</h4>
+                            <span className="text-gray-400 text-xs">{item.duration}</span>
                           </div>
+                          <p className="text-gray-400 text-xs mb-2">{item.year}</p>
+                          <p className="text-gray-300 text-xs line-clamp-2">{item.description}</p>
                         </div>
                       </div>
-                      <p className="text-gray-300">
-                        This is a sample review for the movie. It provides detailed feedback about the plot,
-                        acting, cinematography, and overall experience. The review helps other users decide
-                        whether they want to watch this movie.
-                      </p>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Add substantial bottom padding for Netflix-style scrolling */}
-              <div className="h-32"></div>
+
             </div>
           </div>
         </div>

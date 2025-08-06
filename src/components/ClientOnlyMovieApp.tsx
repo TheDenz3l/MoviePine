@@ -18,6 +18,7 @@ import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
 import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
 import { MoviepireFooter } from '@/components/moviepire-footer'
+import { MoviepireModal } from '@/components/moviepire-modal'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
@@ -63,6 +64,8 @@ export default function ClientOnlyMovieApp() {
   } | null>(null)
   const [resumeTime, setResumeTime] = useState<number>(0)
   const [isScrolled, setIsScrolled] = useState(false)
+  const [isMoviepireModalOpen, setIsMoviepireModalOpen] = useState(false)
+  const [selectedMoviepireMovie, setSelectedMoviepireMovie] = useState<StreamingMovie | null>(null)
 
   // Scroll detection for dynamic background transparency
   useEffect(() => {
@@ -221,6 +224,23 @@ export default function ClientOnlyMovieApp() {
     setIsModalOpen(false)
   }
 
+  const handleMoviepireMoreInfo = (movieId: string) => {
+    // Search in both movies and series arrays
+    const movie = movies.find(m => m.id === movieId)
+    const series = trendingSeries.find(s => s.id === movieId)
+    const selectedItem = movie || series
+
+    if (selectedItem) {
+      setSelectedMoviepireMovie(selectedItem)
+      setIsMoviepireModalOpen(true)
+    }
+  }
+
+  const handleCloseMoviepireModal = () => {
+    setIsMoviepireModalOpen(false)
+    setSelectedMoviepireMovie(null)
+  }
+
   const handleCloseVideoPlayer = () => {
     setIsVideoPlayerOpen(false)
     setPlayingMovieId(null)
@@ -320,6 +340,20 @@ export default function ClientOnlyMovieApp() {
     rating: movie.rating,
     genre: movie.genre || [],
     description: movie.description
+  })
+
+  // Transform StreamingMovie to MoviepireModal format
+  const transformMovieForModal = (movie: StreamingMovie) => ({
+    id: parseInt(movie.id) || 0,
+    title: movie.title,
+    overview: movie.description || 'No description available.',
+    poster_path: movie.poster?.replace('https://image.tmdb.org/t/p/w500', '') || '',
+    backdrop_path: movie.backdrop?.replace('https://image.tmdb.org/t/p/original', '') || '',
+    release_date: `${movie.year}-01-01`,
+    vote_average: movie.rating || 0,
+    runtime: movie.runtime,
+    genres: movie.genre?.map((g, index) => ({ id: index, name: g })) || [],
+    tagline: ''
   })
 
   // Transform StreamingSeries to MovieCard format (reusing the same interface)
@@ -582,6 +616,16 @@ export default function ClientOnlyMovieApp() {
         onGetStreamingResult={handleGetStreamingResult}
         movieData={playingMovieData || undefined}
         startTime={resumeTime}
+      />
+
+      {/* Moviepire Modal */}
+      <MoviepireModal
+        movie={selectedMoviepireMovie ? transformMovieForModal(selectedMoviepireMovie) : null}
+        isOpen={isMoviepireModalOpen}
+        onClose={handleCloseMoviepireModal}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
       />
     </div>
   )

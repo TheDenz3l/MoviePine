@@ -58,7 +58,7 @@ function NetflixPortraitCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSe
               <div className="flex items-center space-x-2 mb-2">
                 <Button
                   size="sm"
-                  className="bg-white text-black hover:bg-gray-200 h-8 w-8 p-0"
+                  className="bg-white text-black hover:bg-gray-200 h-8 w-8 p-0 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onPlay(movie.id)
@@ -69,7 +69,7 @@ function NetflixPortraitCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSe
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-white/60 text-white hover:bg-white hover:text-black h-8 w-8 p-0"
+                  className="border-white/60 text-white hover:bg-white hover:text-black h-8 w-8 p-0 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onAddToList(movie.id)
@@ -80,7 +80,7 @@ function NetflixPortraitCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSe
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-white/60 text-white hover:bg-white hover:text-black h-8 w-8 p-0"
+                  className="border-white/60 text-white hover:bg-white hover:text-black h-8 w-8 p-0 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
                     onMoreInfo(movie.id)

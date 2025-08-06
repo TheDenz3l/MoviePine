@@ -24,6 +24,15 @@
   -webkit-line-clamp: 3;
 }
 
+/* Hide scrollbars for Netflix-style horizontal scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
 /* Netflix-style animations */
 @keyframes fadeIn {
   from {
@@ -323,6 +332,19 @@
 
   .overlay-btn:hover {
     background: rgba(255, 255, 255, 0.4);
+  }
+
+  .overlay-btn-circular {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(10px);
+    border-radius: 50%;
+    transition: all 0.2s ease;
+  }
+
+  .overlay-btn-circular:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: scale(1.1);
   }
 
   .moviepire-btn-play {

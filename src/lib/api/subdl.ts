@@ -3,7 +3,7 @@
  * Provides actual .srt subtitle downloads instead of fake metadata
  */
 
-const SUBDL_API_KEY = process.env.NEXT_PUBLIC_SUBDL_API_KEY || 'gKhG_zajDPoxi1yMdgt3dLAVvtxtEWpe'
+const SUBDL_API_KEY = process.env.NEXT_PUBLIC_SUBDL_API_KEY || ''
 const SUBDL_BASE_URL = 'https://api.subdl.com/api/v1'
 
 export interface SubDLSubtitle {

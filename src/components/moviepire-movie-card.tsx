@@ -66,48 +66,53 @@ export function MoviepireMovieCard({
         </div>
         
         {/* Hover Overlay */}
-        <div className={`movie-overlay absolute inset-0 bg-black/70 flex items-center justify-center space-x-3 rounded-lg transition-opacity duration-300 ${
+        <div className={`movie-overlay absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent rounded-lg transition-opacity duration-300 ${
           isHovered ? 'opacity-100' : 'opacity-0'
         }`}>
-          {onPlay && (
-            <Button
-              size="icon"
-              variant="secondary"
-              className="overlay-btn"
-              onClick={(e) => {
-                e.stopPropagation()
-                onPlay(movie.id)
-              }}
-            >
-              <Play className="w-4 h-4 fill-current" />
-            </Button>
-          )}
-          {onAddToList && (
-            <Button
-              size="icon"
-              variant="secondary"
-              className="overlay-btn"
-              onClick={(e) => {
-                e.stopPropagation()
-                onAddToList(movie.id)
-              }}
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
-          )}
-          {onMoreInfo && (
-            <Button
-              size="icon"
-              variant="secondary"
-              className="overlay-btn"
-              onClick={(e) => {
-                e.stopPropagation()
-                onMoreInfo(movie.id)
-              }}
-            >
-              <Info className="w-4 h-4" />
-            </Button>
-          )}
+          {/* Buttons positioned at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 p-3">
+            <div className="flex items-center space-x-2">
+              {onPlay && (
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="overlay-btn-circular h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onPlay(movie.id)
+                  }}
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                </Button>
+              )}
+              {onAddToList && (
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="overlay-btn-circular h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAddToList(movie.id)
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              )}
+              {onMoreInfo && (
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="overlay-btn-circular h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onMoreInfo(movie.id)
+                  }}
+                >
+                  <Info className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
