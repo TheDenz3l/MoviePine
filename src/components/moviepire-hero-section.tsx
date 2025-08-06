@@ -32,7 +32,7 @@ export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHer
       <div className="absolute inset-0 bg-black/40" />
 
       {/* Bottom gradient fade for smooth transition to content sections - Netflix style */}
-      <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-[rgb(18,18,18)] via-[rgba(18,18,18,0.9)] via-[rgba(18,18,18,0.7)] via-[rgba(18,18,18,0.4)] to-transparent z-5" />
+      <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[rgb(18,18,18)] via-[rgba(18,18,18,0.85)] via-[rgba(18,18,18,0.6)] via-[rgba(18,18,18,0.3)] to-transparent z-5" />
 
       <div className="relative z-10 w-full px-8 md:px-16">
         <div className="hero-content space-y-6 max-w-2xl">

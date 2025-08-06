@@ -1,8 +1,8 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Film, Home, Tv, List, Search } from "lucide-react"
-import { useState } from "react"
+import { Search, Home, Film, Tv, Bookmark } from "lucide-react"
+import { useState, useEffect } from "react"
 
 interface MoviepireNavigationProps {
   onNavigate: (category: string) => void
@@ -13,6 +13,23 @@ interface MoviepireNavigationProps {
 export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: MoviepireNavigationProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
+  const [scrollOpacity, setScrollOpacity] = useState(0)
+
+  // Progressive scroll detection for smooth navigation background transition
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY
+      // Calculate progressive opacity from 0 to 1 over first 100px of scroll
+      const opacity = Math.min(scrollTop / 100, 1)
+      setScrollOpacity(opacity)
+    }
+
+    // Set initial state
+    handleScroll()
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,81 +44,77 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: Mo
     { id: 'home', label: 'Browse', icon: Home },
     { id: 'popular', label: 'Movies', icon: Film },
     { id: 'trending', label: 'Series', icon: Tv },
-    { id: 'recently-played', label: 'My List', icon: List },
+    { id: 'recently-played', label: 'My List', icon: Bookmark },
   ]
 
   return (
-    <nav className="flex items-center justify-between p-4 bg-rgb(18,18,18) border-b border-gray-800 relative z-50">
-      {/* Logo */}
+    <nav
+      className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4"
+      style={{
+        backgroundColor: `rgba(18, 18, 18, ${scrollOpacity})`,
+        borderBottom: `1px solid rgba(75, 85, 99, ${scrollOpacity * 0.5})`,
+        backdropFilter: scrollOpacity > 0 ? 'blur(8px)' : 'none',
+        transform: 'translate3d(0, 0, 0)', // Force hardware acceleration
+        transition: 'background-color 0.3s ease-out, border-color 0.3s ease-out, backdrop-filter 0.3s ease-out'
+      }}
+    >
+      {/* Logo - Moviepire style */}
       <div className="flex items-center">
-        <Film className="w-8 h-8 text-white mr-2" />
-        <span className="text-2xl font-bold text-white">Moviepire</span>
+        <span className="text-2xl font-bold">
+          <span className="text-white">MOVIE</span>
+          <span className="text-red-600">pire</span>
+        </span>
       </div>
 
-      {/* Navigation Menu */}
-      <div className="flex items-center space-x-6">
+      {/* Navigation Menu - Moviepire style */}
+      <div className="flex items-center space-x-8">
         {navItems.map((item) => {
-          const Icon = item.icon
+          const IconComponent = item.icon
           return (
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`nav-item ${
-                activeCategory === item.id ? 'text-white bg-white/10' : 'text-gray-300'
+              className={`flex items-center text-sm font-bold transition-colors duration-200 hover:text-white ${
+                activeCategory === item.id
+                  ? 'text-red-600'
+                  : 'text-gray-300'
               }`}
             >
-              <Icon className="w-5 h-5" />
-              <span>{item.label}</span>
+              <IconComponent className="w-4 h-4 mr-2" />
+              {item.label}
             </button>
           )
         })}
       </div>
 
-      {/* Search and Profile */}
-      <div className="flex items-center space-x-4">
-        {/* Search */}
-        <div className="relative">
-          {showSearch ? (
-            <form onSubmit={handleSearch} className="flex items-center">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search movies..."
-                className="bg-gray-800 text-white px-3 py-2 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-white/20"
-                autoFocus
-                onBlur={() => {
-                  if (!searchQuery.trim()) {
-                    setShowSearch(false)
-                  }
-                }}
-              />
-              <Button
-                type="submit"
-                variant="ghost"
-                size="icon"
-                className="ml-2"
-              >
-                <Search className="w-5 h-5" />
-              </Button>
-            </form>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSearch(true)}
-            >
-              <Search className="w-5 h-5" />
-            </Button>
-          )}
-        </div>
-
-        {/* Profile */}
-        <Button variant="ghost" size="icon">
-          <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center">
-            <span className="text-sm font-semibold">U</span>
-          </div>
-        </Button>
+      {/* Search - Moviepire style */}
+      <div className="flex items-center">
+        {showSearch ? (
+          <form onSubmit={handleSearch} className="flex items-center">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search movies..."
+              className="bg-gray-800/80 text-white px-4 py-2 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-red-600/50 border border-gray-700"
+              autoFocus
+              onBlur={() => {
+                if (!searchQuery.trim()) {
+                  setShowSearch(false)
+                }
+              }}
+            />
+          </form>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowSearch(true)}
+            className="text-gray-300 hover:text-white"
+          >
+            <Search className="w-5 h-5" />
+          </Button>
+        )}
       </div>
     </nav>
   )

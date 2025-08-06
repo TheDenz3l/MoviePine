@@ -62,6 +62,18 @@ export default function ClientOnlyMovieApp() {
     genre?: string[]
   } | null>(null)
   const [resumeTime, setResumeTime] = useState<number>(0)
+  const [isScrolled, setIsScrolled] = useState(false)
+
+  // Scroll detection for dynamic background transparency
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY
+      setIsScrolled(scrollTop > 50)
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   // Initialize category and search from URL params
   useEffect(() => {
@@ -427,7 +439,9 @@ export default function ClientOnlyMovieApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[rgb(18,18,18)] text-white relative">
+    <div className={`min-h-screen text-white relative transition-all duration-300 ${
+      isScrolled ? 'bg-[rgb(18,18,18)]' : 'bg-transparent'
+    }`}>
       {/* Moviepire Navigation */}
       <MoviepireNavigation
         onNavigate={handleNavigate}
@@ -436,13 +450,15 @@ export default function ClientOnlyMovieApp() {
       />
 
       <div className="flex flex-col min-h-screen">
-        {/* Hero Section */}
+        {/* Hero Section - MoviepireHeroSection handles its own spacing */}
         {featuredMovie && (
-          <MoviepireHeroSection
-            movie={transformMovie(featuredMovie)}
-            onPlay={handlePlay}
-            onMoreInfo={handleMoreInfo}
-          />
+          <div>
+            <MoviepireHeroSection
+              movie={transformMovie(featuredMovie)}
+              onPlay={handlePlay}
+              onMoreInfo={handleMoreInfo}
+            />
+          </div>
         )}
 
         {/* Movie Grids - Moviepire style with tighter spacing */}
