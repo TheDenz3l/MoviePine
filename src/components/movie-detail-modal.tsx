@@ -45,7 +45,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[1265px] max-w-[92vw] h-[95vh] max-h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg">
+      <DialogContent className="w-[1580px] max-w-[94vw] h-[95vh] max-h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg">
         <DialogTitle className="sr-only">{movie.title}</DialogTitle>
         <DialogDescription className="sr-only">Movie details for {movie.title}</DialogDescription>
 
