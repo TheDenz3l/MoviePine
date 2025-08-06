@@ -13,6 +13,11 @@ import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
 import { VideoPlayerModal } from '@/components/video-player-modal'
 import { RecentlyPlayedRow } from '@/components/recently-played-row'
+// Moviepire components
+import { MoviepireNavigation } from '@/components/moviepire-navigation'
+import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
+import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+import { MoviepireFooter } from '@/components/moviepire-footer'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
@@ -91,6 +96,7 @@ export default function ClientOnlyMovieApp() {
 
     setActiveCategory(category)
     setIsLoading(true)
+    setShowSearchResults(false)
 
     // Update URL
     const params = new URLSearchParams(searchParams.toString())
@@ -116,6 +122,10 @@ export default function ClientOnlyMovieApp() {
           case 'now playing':
             newMovies = await service.getNowPlayingMovies()
             break
+          case 'recently-played':
+            // For recently played, we don't need to fetch new movies
+            setIsLoading(false)
+            return
           case 'home':
           default:
             newMovies = await service.getPopularMovies()
@@ -130,6 +140,18 @@ export default function ClientOnlyMovieApp() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Search handler for moviepire navigation
+  const handleSearch = async (query: string) => {
+    console.log('🔍 Searching for:', query)
+    // For now, just show search results page
+    setShowSearchResults(true)
+
+    // Update URL with search query
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('q', query)
+    router.push(`?${params.toString()}`)
   }
 
   // Event handlers for movie interactions
@@ -281,6 +303,7 @@ export default function ClientOnlyMovieApp() {
     id: movie.id,
     title: movie.title,
     poster: movie.poster || 'https://images.unsplash.com/photo-1509347528160-9a9e33742cdb?w=300&h=450&fit=crop',
+    backdrop: movie.backdrop,
     year: movie.year,
     rating: movie.rating,
     genre: movie.genre || [],
@@ -339,21 +362,15 @@ export default function ClientOnlyMovieApp() {
           const testMovie: StreamingMovie = {
             id: 'tt0111161', // The Shawshank Redemption - definitely has torrents
             title: 'The Shawshank Redemption (Test)',
-            overview: 'Test movie with known torrent availability for streaming verification.',
-            posterPath: '/9cqNxx0GxF0bflyCy3FpPiy3BXI.jpg',
-            backdropPath: '/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg',
-            releaseDate: '1994-09-23',
-            voteAverage: 9.3,
-            voteCount: 2000000,
-            genres: ['Drama'],
+            description: 'Two imprisoned men bond over a number of years, finding solace and eventual redemption through acts of common decency.',
+            poster: 'https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflyCy3FpPiy3BXI.jpg',
+            backdrop: 'https://image.tmdb.org/t/p/original/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg',
+            year: 1994,
+            rating: 9.3,
+            genre: ['Drama'],
             runtime: 142,
-            adult: false,
-            originalLanguage: 'en',
-            originalTitle: 'The Shawshank Redemption',
-            popularity: 100.0,
-            video: false,
-            rating: 9.3, // Add the missing rating property
-            year: '1994' // Add the missing year property
+            imdbId: 'tt0111161',
+            tmdbId: 278
           }
 
           // Add test movie to the beginning of the list
@@ -410,149 +427,124 @@ export default function ClientOnlyMovieApp() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative">
-      {/* Netflix Top Navigation */}
-      <NetflixFloatingNav
+    <div className="min-h-screen bg-[rgb(18,18,18)] text-white relative">
+      {/* Moviepire Navigation */}
+      <MoviepireNavigation
         onNavigate={handleNavigate}
         activeCategory={activeCategory}
+        onSearch={handleSearch}
       />
 
       <div className="flex flex-col min-h-screen">
         {/* Hero Section */}
         {featuredMovie && (
-          <NetflixHeroSection
+          <MoviepireHeroSection
             movie={transformMovie(featuredMovie)}
             onPlay={handlePlay}
             onMoreInfo={handleMoreInfo}
-            onSearchResultSelect={handleSearchResultSelect}
-            onNavigateToSearch={handleNavigateToSearch}
           />
         )}
 
-        {/* Movie Rows - Netflix style with proper spacing */}
-        <div className="relative z-10 -mt-32 space-y-12 pb-16">
+        {/* Movie Grids - Moviepire style with tighter spacing */}
+        <div className="relative z-10 space-y-0 pb-16 bg-[rgb(18,18,18)]">
           {activeCategory === 'home' && (
             <>
               {/* Recently Played Section */}
-              <RecentlyPlayedRow
-                movies={recentlyPlayedMovies}
-                onPlay={handlePlay}
-                onMovieSelect={handleMovieSelect}
-                onMoviesChange={loadRecentlyPlayedMovies}
-              />
+              {recentlyPlayedMovies.length > 0 && (
+                <MoviepireMovieGrid
+                  title="Continue Watching"
+                  movies={recentlyPlayedMovies.map(movie => ({
+                    id: movie.id,
+                    title: movie.title,
+                    poster: movie.poster,
+                    year: movie.year,
+                    genre: movie.genre
+                  }))}
+                  onPlay={handlePlay}
+                  onAddToList={handleAddToList}
+                  onMoreInfo={handleMoreInfo}
+                />
+              )}
 
-              <NetflixMovieRow
-                title="Popular Movies"
+              <MoviepireMovieGrid
+                title="Trending movies this week"
                 movies={movies.slice(0, 12).map(transformMovie)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
               />
-              <NetflixMovieRow
-                title="Trending Now"
+              <MoviepireMovieGrid
+                title="Popular movies"
                 movies={movies.slice(12, 24).map(transformMovie)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
               />
-              <NetflixMovieRow
+              <MoviepireMovieGrid
                 title="TV Series"
                 movies={trendingSeries.slice(0, 12).map(transformSeries)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
               />
-              <NetflixMovieRow
-                title="Action Movies"
+              <MoviepireMovieGrid
+                title="Top Rated Movies"
                 movies={movies.slice(24, 36).map(transformMovie)}
                 onPlay={handlePlay}
                 onAddToList={handleAddToList}
                 onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
-              />
-            </>
-          )}
-
-          {activeCategory === 'tv' && (
-            <>
-              <NetflixMovieRow
-                title="TV Series"
-                movies={trendingSeries.slice(0, 12).map(transformSeries)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
-              />
-              <NetflixMovieRow
-                title="Popular TV Shows"
-                movies={trendingSeries.slice(12, 24).map(transformSeries)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
-              />
-            </>
-          )}
-
-          {activeCategory === 'movies' && (
-            <>
-              <NetflixMovieRow
-                title="Popular Movies"
-                movies={movies.slice(0, 12).map(transformMovie)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
-              />
-              <NetflixMovieRow
-                title="Action Movies"
-                movies={movies.slice(12, 24).map(transformMovie)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
-                onMovieSelect={handleMovieSelect}
               />
             </>
           )}
 
           {activeCategory === 'trending' && (
-            <NetflixMovieRow
-              title="Trending Now"
-              movies={movies.slice(5, 17).map(transformMovie)}
+            <MoviepireMovieGrid
+              title="Trending movies this week"
+              movies={movies.slice(0, 20).map(transformMovie)}
               onPlay={handlePlay}
               onAddToList={handleAddToList}
               onMoreInfo={handleMoreInfo}
-              onMovieSelect={handleMovieSelect}
             />
           )}
 
-          {activeCategory === 'new' && (
-            <NetflixMovieRow
-              title="New & Popular"
-              movies={movies.slice(0, 12).map(transformMovie)}
+          {activeCategory === 'popular' && (
+            <MoviepireMovieGrid
+              title="Popular movies"
+              movies={movies.slice(0, 20).map(transformMovie)}
               onPlay={handlePlay}
               onAddToList={handleAddToList}
               onMoreInfo={handleMoreInfo}
-              onMovieSelect={handleMovieSelect}
             />
           )}
 
-          {activeCategory === 'watchlist' && (
-            <NetflixMovieRow
-              title="My List"
-              movies={movies.slice(10, 22).map(transformMovie)}
+          {activeCategory === 'recently-played' && recentlyPlayedMovies.length > 0 && (
+            <MoviepireMovieGrid
+              title="Continue Watching"
+              movies={recentlyPlayedMovies.map(movie => ({
+                id: movie.id,
+                title: movie.title,
+                poster: movie.poster,
+                year: movie.year,
+                genre: movie.genre
+              }))}
               onPlay={handlePlay}
               onAddToList={handleAddToList}
               onMoreInfo={handleMoreInfo}
-              onMovieSelect={handleMovieSelect}
+              showMovieTitles={true}
             />
+          )}
+
+          {activeCategory === 'recently-played' && recentlyPlayedMovies.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Film className="w-16 h-16 text-gray-600 mb-4" />
+              <h2 className="text-2xl font-semibold text-gray-400 mb-2">No Recently Played Movies</h2>
+              <p className="text-gray-500">Movies you watch will appear here</p>
+            </div>
           )}
         </div>
 
-
+        {/* Footer */}
+        <MoviepireFooter />
       </div>
 
       {/* Movie Detail Modal */}
