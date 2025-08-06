@@ -28,16 +28,8 @@ interface MovieDetailModalProps {
 export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }: MovieDetailModalProps) {
   const [isLiked, setIsLiked] = useState<boolean | null>(null)
 
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = 'unset'
-    }
-    return () => {
-      document.body.style.overflow = 'unset'
-    }
-  }, [isOpen])
+  // Remove body overflow hidden to allow background scrolling
+  // Netflix modal allows background to remain visible and scrollable
 
   if (!movie) return null
 
@@ -45,15 +37,18 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[1580px] max-w-[94vw] h-[95vh] max-h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg">
+      <DialogContent
+        className="w-[85vw] max-w-[1000px] h-[85vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[8vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
+        showCloseButton={false}
+      >
         <DialogTitle className="sr-only">{movie.title}</DialogTitle>
         <DialogDescription className="sr-only">Movie details for {movie.title}</DialogDescription>
 
-        {/* Netflix-style Modal */}
-        <div className="relative h-full w-full">
+        {/* Netflix-style Floating Modal */}
+        <div className="relative w-full h-full flex flex-col overflow-hidden">
 
-          {/* Hero Section - Large backdrop with title overlay */}
-          <div className="relative h-[40%] w-full overflow-hidden">
+          {/* Hero Section - Compact backdrop with title overlay */}
+          <div className="relative h-[45vh] w-full overflow-hidden flex-shrink-0">
             {/* Backdrop Image */}
             <div
               className="absolute inset-0 bg-cover bg-center bg-no-repeat"
@@ -112,9 +107,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
             </div>
           </div>
 
-          {/* Content Section - Bottom 60% */}
-          <div className="h-[60%] bg-zinc-900 overflow-y-auto">
-            <div className="p-8">
+          {/* Content Section - Scrollable */}
+          <div className="bg-zinc-900 flex-1 overflow-y-auto">
+            <div className="px-8 py-6">
 
               {/* Match percentage and metadata */}
               <div className="flex items-center space-x-4 text-sm mb-6">
@@ -172,6 +167,122 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
                   ))}
                 </div>
               </div>
+
+              {/* Trailers & More Section */}
+              <div className="mt-12">
+                <h3 className="text-xl font-semibold mb-4">Trailers & More</h3>
+                <div className="bg-zinc-800 rounded-lg p-4 flex items-center space-x-4">
+                  <div className="w-32 h-20 bg-zinc-700 rounded flex items-center justify-center">
+                    <Play className="h-8 w-8 text-white" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium">Trailer: {movie.title}</h4>
+                    <p className="text-gray-400 text-sm">Official Trailer</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* About Section */}
+              <div className="mt-12">
+                <h3 className="text-xl font-semibold mb-6">About <strong>{movie.title}</strong></h3>
+                <div className="space-y-4 text-sm">
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">Director:</span>
+                    <span>Christopher Nolan</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">Cast:</span>
+                    <span>{movie.cast || 'Leonardo DiCaprio, Marion Cotillard, Tom Hardy, Ellen Page'}</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">Writer:</span>
+                    <span>Christopher Nolan</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">Genres:</span>
+                    <span>{movie.genres || 'Action, Sci-Fi, Thriller'}</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">This movie is:</span>
+                    <span>Mind-bending, Suspenseful, Cerebral</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-20 flex-shrink-0">Maturity Rating:</span>
+                    <div>
+                      <span className="bg-gray-600 px-2 py-1 rounded text-xs mr-2">PG-13</span>
+                      <span className="text-gray-400">violence, language</span>
+                      <p className="text-gray-500 text-xs mt-1">Recommended for ages 13 and up</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Content Sections to demonstrate scrolling */}
+              <div className="mt-12">
+                <h3 className="text-xl font-semibold mb-4">Episodes</h3>
+                <div className="space-y-4">
+                  {[1, 2, 3, 4, 5].map((episode) => (
+                    <div key={episode} className="bg-zinc-800 rounded-lg p-4 flex items-center space-x-4">
+                      <div className="w-32 h-20 bg-zinc-700 rounded flex items-center justify-center">
+                        <span className="text-white font-bold">{episode}</span>
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-medium">Episode {episode}</h4>
+                        <p className="text-gray-400 text-sm">45m</p>
+                        <p className="text-gray-300 text-sm mt-1">Episode description goes here...</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* More Like This - Extended */}
+              <div className="mt-12">
+                <h3 className="text-xl font-semibold mb-4">More Like This</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div key={i} className="bg-zinc-800 rounded-lg overflow-hidden">
+                      <div className="aspect-video bg-zinc-700 flex items-center justify-center">
+                        <span className="text-white">Movie {i + 1}</span>
+                      </div>
+                      <div className="p-3">
+                        <h4 className="text-white font-medium text-sm mb-1">Similar Movie {i + 1}</h4>
+                        <p className="text-gray-400 text-xs">2023</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reviews Section */}
+              <div className="mt-12">
+                <h3 className="text-xl font-semibold mb-4">Reviews</h3>
+                <div className="space-y-6">
+                  {[1, 2, 3].map((review) => (
+                    <div key={review} className="bg-zinc-800 rounded-lg p-6">
+                      <div className="flex items-center mb-3">
+                        <div className="w-10 h-10 bg-zinc-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold">U{review}</span>
+                        </div>
+                        <div className="ml-3">
+                          <h4 className="font-medium">User {review}</h4>
+                          <div className="flex text-yellow-400">
+                            {'★'.repeat(5)}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-gray-300">
+                        This is a sample review for the movie. It provides detailed feedback about the plot,
+                        acting, cinematography, and overall experience. The review helps other users decide
+                        whether they want to watch this movie.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Add substantial bottom padding for Netflix-style scrolling */}
+              <div className="h-32"></div>
             </div>
           </div>
         </div>

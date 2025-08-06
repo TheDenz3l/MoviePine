@@ -35,6 +35,8 @@
   }
 }
 
+/* Remove custom modal class - using inline styles instead */
+
 @keyframes slideInLeft {
   from {
     opacity: 0;
