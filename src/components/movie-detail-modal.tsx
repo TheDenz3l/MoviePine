@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { X, Play, Plus, ThumbsUp } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { TMDBAPI, TMDBCastMember } from "@/lib/api/tmdb"
 
 interface Movie {
   id: string
@@ -15,6 +16,7 @@ interface Movie {
   genre: string[]
   description: string
   runtime?: number
+  tmdbId?: string | number
 }
 
 interface MovieDetailModalProps {
@@ -23,10 +25,92 @@ interface MovieDetailModalProps {
   onClose: () => void
   onPlay: (movieId: string) => void
   onAddToList: (movieId: string) => void
+  onMovieSelect?: (movie: Movie) => void
 }
 
-export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }: MovieDetailModalProps) {
+export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, onMovieSelect }: MovieDetailModalProps) {
   const [isLiked, setIsLiked] = useState<boolean | null>(null)
+  const [cast, setCast] = useState<TMDBCastMember[]>([])
+  const [isLoadingCast, setIsLoadingCast] = useState(false)
+  const [similarMovies, setSimilarMovies] = useState<Movie[]>([])
+  const [isLoadingSimilar, setIsLoadingSimilar] = useState(false)
+
+  // Fetch cast and similar movies information when movie changes
+  useEffect(() => {
+    if (!movie || !isOpen) return
+
+    const fetchMovieDetails = async () => {
+      // Extract TMDB ID from movie data
+      let tmdbId: number | null = null
+
+      if (movie.tmdbId) {
+        tmdbId = typeof movie.tmdbId === 'string' ? parseInt(movie.tmdbId) : movie.tmdbId
+      } else if (movie.id.startsWith('tmdb_')) {
+        tmdbId = parseInt(movie.id.replace('tmdb_', ''))
+      }
+
+      if (!tmdbId) {
+        console.warn('No TMDB ID found for movie:', movie.title)
+        return
+      }
+
+      // Get TMDB API key from environment
+      const tmdbApiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY
+      if (!tmdbApiKey) {
+        console.warn('TMDB API key not configured')
+        return
+      }
+
+      const tmdbApi = new TMDBAPI(tmdbApiKey)
+
+      // Fetch cast information
+      setIsLoadingCast(true)
+      try {
+        const credits = await tmdbApi.getMovieCredits(tmdbId)
+        setCast(credits.cast.slice(0, 5)) // Get top 5 cast members
+      } catch (error) {
+        console.error('Error fetching cast information:', error)
+        setCast([])
+      } finally {
+        setIsLoadingCast(false)
+      }
+
+      // Fetch similar movies
+      setIsLoadingSimilar(true)
+      try {
+        // Try similar movies first, fallback to recommendations
+        let similarResponse
+        try {
+          similarResponse = await tmdbApi.getSimilarMovies(tmdbId)
+        } catch (error) {
+          console.warn('Similar movies not available, trying recommendations:', error)
+          similarResponse = await tmdbApi.getRecommendedMovies(tmdbId)
+        }
+
+        // Convert TMDB movies to our Movie format
+        const genres = await tmdbApi.getMovieGenres()
+        const convertedSimilarMovies = similarResponse.results
+          .slice(0, 6) // Get top 6 similar movies
+          .map(tmdbMovie => tmdbApi.convertToMovie(tmdbMovie, genres.genres))
+
+        setSimilarMovies(convertedSimilarMovies)
+      } catch (error) {
+        console.error('Error fetching similar movies:', error)
+        setSimilarMovies([])
+      } finally {
+        setIsLoadingSimilar(false)
+      }
+    }
+
+    fetchMovieDetails()
+  }, [movie, isOpen])
+
+  // Handle similar movie click
+  const handleSimilarMovieClick = (similarMovie: Movie) => {
+    if (onMovieSelect) {
+      onMovieSelect(similarMovie)
+    }
+  }
 
   // Remove body overflow hidden to allow background scrolling
   // Netflix modal allows background to remain visible and scrollable
@@ -159,46 +243,85 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList }
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm mb-8">
                 <div>
                   <span className="text-gray-400">Cast: </span>
-                  <span className="text-white">Robin Williams, Robert Sean Leonard, Ethan Hawke, <span className="text-gray-400">more</span></span>
+                  <span className="text-white">
+                    {isLoadingCast
+                      ? 'Loading cast information...'
+                      : cast.length > 0
+                        ? cast.map(actor => actor.name).join(', ') + (cast.length >= 5 ? ', more' : '')
+                        : 'Cast information not available'
+                    }
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-400">Genres: </span>
-                  <span className="text-white">Classic Movies, Drama</span>
+                  <span className="text-white">
+                    {movie.genre && movie.genre.length > 0
+                      ? movie.genre.slice(0, 3).join(', ')
+                      : 'No genres available'
+                    }
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-400">This movie is: </span>
-                  <span className="text-white">Nostalgic, Understated, Inspiring</span>
+                  <span className="text-white">
+                    {movie.genre && movie.genre.length > 0
+                      ? movie.genre.slice(0, 2).map(g => g.toLowerCase()).join(', ')
+                      : 'Information not available'
+                    }
+                  </span>
                 </div>
               </div>
 
-              {/* Similar Section - Netflix horizontal scroll style */}
+              {/* Similar Section - Compact vertical poster grid */}
               <div className="mt-8">
                 <h3 className="text-lg font-semibold mb-4 text-white">Similar</h3>
-                <div className="flex space-x-3 overflow-x-auto scrollbar-hide pb-2">
-                  {[
-                    { title: "Good Will Hunting", year: "1997", duration: "2h 6m", description: "A janitor at MIT has a gift for mathematics but needs help from a psychologist to find direction in his life." },
-                    { title: "The Pursuit of Happyness", year: "2006", duration: "1h 57m", description: "A struggling salesman takes custody of his son as he's poised to begin a life-changing professional career." },
-                    { title: "A Beautiful Mind", year: "2001", duration: "2h 15m", description: "After John Nash, a brilliant but asocial mathematician, accepts secret work in cryptography, his life takes a turn for the nightmarish." },
-                    { title: "Dead Poets Society", year: "1989", duration: "2h 8m", description: "English teacher John Keating inspires his students to look at poetry with a different perspective of authentic knowledge and feelings." },
-                    { title: "The Social Network", year: "2010", duration: "2h", description: "The story of how one of the most popular websites in the world was founded and the lawsuits that followed." },
-                    { title: "Forrest Gump", year: "1994", duration: "2h 22m", description: "The presidencies of Kennedy and Johnson, the Vietnam War, the Watergate scandal and other historical events unfold from the perspective of an Alabama man." }
-                  ].map((item, i) => (
-                    <div key={i} className="flex-shrink-0 w-80 bg-zinc-800 rounded-lg overflow-hidden group cursor-pointer hover:bg-zinc-700 transition-colors">
-                      <div className="flex">
-                        <div className="w-28 h-20 bg-zinc-700 flex items-center justify-center flex-shrink-0">
-                          <Play className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                        <div className="p-3 flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <h4 className="text-white font-medium text-sm">{item.title}</h4>
-                            <span className="text-gray-400 text-xs">{item.duration}</span>
+                <div className="grid grid-cols-6 gap-2">
+                  {isLoadingSimilar ? (
+                    // Loading state
+                    Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="aspect-[2/3] bg-zinc-800 rounded-md animate-pulse"></div>
+                    ))
+                  ) : similarMovies.length > 0 ? (
+                    // Dynamic similar movies
+                    similarMovies.map((similarMovie, i) => (
+                      <div
+                        key={similarMovie.id}
+                        className="aspect-[2/3] group cursor-pointer relative overflow-hidden rounded-md bg-zinc-800 hover:scale-105 transition-transform duration-200"
+                        onClick={() => handleSimilarMovieClick(similarMovie)}
+                      >
+                        {similarMovie.poster ? (
+                          <img
+                            src={similarMovie.poster}
+                            alt={similarMovie.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-zinc-700 flex items-center justify-center">
+                            <span className="text-gray-400 text-[10px] text-center px-1 leading-tight">{similarMovie.title}</span>
                           </div>
-                          <p className="text-gray-400 text-xs mb-2">{item.year}</p>
-                          <p className="text-gray-300 text-xs line-clamp-2">{item.description}</p>
+                        )}
+
+                        {/* Hover overlay with movie info */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-end p-2">
+                          <div className="text-white">
+                            <h4 className="font-semibold text-xs mb-1 line-clamp-2 leading-tight drop-shadow-lg">{similarMovie.title}</h4>
+                            <p className="text-gray-200 text-[10px] mb-1 drop-shadow">{similarMovie.year}</p>
+                            <div className="flex items-center justify-between">
+                              <span className="text-green-400 text-[10px] drop-shadow">
+                                ⭐ {similarMovie.rating ? similarMovie.rating.toFixed(1) : 'N/A'}
+                              </span>
+                              <Play className="h-3 w-3 text-white drop-shadow" />
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    // No similar movies found
+                    <div className="col-span-6 text-center py-8">
+                      <p className="text-gray-400 text-sm">No similar movies found.</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
 

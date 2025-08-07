@@ -108,6 +108,27 @@ export interface TMDBExternalIds {
   twitter_id?: string
 }
 
+export interface TMDBCastMember {
+  id: number
+  name: string
+  character: string
+  profile_path?: string
+  order: number
+}
+
+export interface TMDBCrewMember {
+  id: number
+  name: string
+  job: string
+  department: string
+  profile_path?: string
+}
+
+export interface TMDBCredits {
+  cast: TMDBCastMember[]
+  crew: TMDBCrewMember[]
+}
+
 export class TMDBAPI {
   private apiKey: string
   private baseUrl = 'https://api.themoviedb.org/3'
@@ -155,6 +176,18 @@ export class TMDBAPI {
     return this.makeRequest<TMDBExternalIds>(`/movie/${id}/external_ids`)
   }
 
+  async getMovieCredits(id: number): Promise<TMDBCredits> {
+    return this.makeRequest<TMDBCredits>(`/movie/${id}/credits`)
+  }
+
+  async getSimilarMovies(id: number): Promise<TMDBSearchResponse> {
+    return this.makeRequest<TMDBSearchResponse>(`/movie/${id}/similar`)
+  }
+
+  async getRecommendedMovies(id: number): Promise<TMDBSearchResponse> {
+    return this.makeRequest<TMDBSearchResponse>(`/movie/${id}/recommendations`)
+  }
+
   async getPopularMovies(page = 1): Promise<TMDBSearchResult> {
     return this.makeRequest<TMDBSearchResult>('/movie/popular', {
       page: page.toString(),
@@ -190,6 +223,10 @@ export class TMDBAPI {
 
   async getTVShowExternalIds(id: number): Promise<TMDBExternalIds> {
     return this.makeRequest<TMDBExternalIds>(`/tv/${id}/external_ids`)
+  }
+
+  async getTVShowCredits(id: number): Promise<TMDBCredits> {
+    return this.makeRequest<TMDBCredits>(`/tv/${id}/credits`)
   }
 
   async getPopularTVShows(page = 1): Promise<TMDBSearchResult> {
@@ -240,7 +277,7 @@ export class TMDBAPI {
       poster: tmdbMovie.poster_path ? this.getPosterUrl(tmdbMovie.poster_path) : undefined,
       backdrop: tmdbMovie.backdrop_path ? this.getBackdropUrl(tmdbMovie.backdrop_path, 'original') : undefined,
       year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : new Date().getFullYear(),
-      rating: Math.round(tmdbMovie.vote_average * 10),
+      rating: tmdbMovie.vote_average,
       genre: movieGenres.map(g => g.name),
       description: tmdbMovie.overview,
       runtime: tmdbMovie.runtime,
@@ -259,7 +296,7 @@ export class TMDBAPI {
       poster: tmdbSeries.poster_path ? this.getPosterUrl(tmdbSeries.poster_path) : undefined,
       backdrop: tmdbSeries.backdrop_path ? this.getBackdropUrl(tmdbSeries.backdrop_path, 'original') : undefined,
       year: tmdbSeries.first_air_date ? new Date(tmdbSeries.first_air_date).getFullYear() : new Date().getFullYear(),
-      rating: Math.round(tmdbSeries.vote_average * 10),
+      rating: tmdbSeries.vote_average,
       genre: seriesGenres.map(g => g.name),
       description: tmdbSeries.overview,
       seasons: tmdbSeries.number_of_seasons,

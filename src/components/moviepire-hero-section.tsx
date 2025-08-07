@@ -41,13 +41,13 @@ export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHer
           </h1>
 
           {movie.description && (
-            <p className="hero-description text-lg text-gray-300 line-clamp-3">
+            <p className="hero-description text-lg font-medium text-gray-200 line-clamp-3">
               {movie.description}
             </p>
           )}
 
           {/* Movie Info */}
-          <div className="flex items-center space-x-4 text-sm text-gray-400">
+          <div className="flex items-center space-x-4 text-base font-medium text-gray-300">
             {movie.year && <span>{movie.year}</span>}
             {movie.rating && (
               <span className="flex items-center">

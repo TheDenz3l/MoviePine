@@ -248,7 +248,7 @@ export class StreamingService {
       poster: tmdbSeries.poster_path ? this.tmdb.getPosterUrl(tmdbSeries.poster_path) : undefined,
       backdrop: tmdbSeries.backdrop_path ? this.tmdb.getBackdropUrl(tmdbSeries.backdrop_path, 'original') : undefined,
       year: tmdbSeries.first_air_date ? new Date(tmdbSeries.first_air_date).getFullYear() : new Date().getFullYear(),
-      rating: Math.round(tmdbSeries.vote_average * 10),
+      rating: tmdbSeries.vote_average,
       genre: seriesGenres.map(g => g.name),
       description: tmdbSeries.overview,
       seasons: tmdbSeries.number_of_seasons,

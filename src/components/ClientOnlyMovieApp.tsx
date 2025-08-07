@@ -224,6 +224,26 @@ export default function ClientOnlyMovieApp() {
     setIsModalOpen(false)
   }
 
+  const handleModalMovieSelect = (movie: any) => {
+    // Convert the movie format to StreamingMovie format
+    const streamingMovie: StreamingMovie = {
+      id: movie.id,
+      title: movie.title,
+      poster: movie.poster,
+      backdrop: movie.backdrop,
+      year: movie.year,
+      rating: movie.rating,
+      genre: movie.genre || [],
+      description: movie.description || '',
+      runtime: movie.runtime,
+      imdbId: movie.imdbId,
+      tmdbId: movie.tmdbId
+    }
+
+    // Update selected movie and keep modal open
+    setSelectedMovie(streamingMovie)
+  }
+
   const handleMoviepireMoreInfo = (movieId: string) => {
     // Search in both movies and series arrays
     const movie = movies.find(m => m.id === movieId)
@@ -339,7 +359,9 @@ export default function ClientOnlyMovieApp() {
     year: movie.year,
     rating: movie.rating,
     genre: movie.genre || [],
-    description: movie.description
+    description: movie.description,
+    runtime: movie.runtime,
+    tmdbId: movie.tmdbId
   })
 
   // Transform StreamingMovie to MoviepireModal format
@@ -604,6 +626,7 @@ export default function ClientOnlyMovieApp() {
         onClose={handleCloseModal}
         onPlay={handlePlay}
         onAddToList={handleAddToList}
+        onMovieSelect={handleModalMovieSelect}
       />
 
       {/* Video Player Modal */}
