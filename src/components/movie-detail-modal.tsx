@@ -368,24 +368,24 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
   <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         key={activeMovie.id}
-        className="pointer-events-auto w-[60vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
+        className="pointer-events-auto w-[62vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
         showCloseButton={false}
-        style={{ width: '60vw', maxWidth: 'none' }}
+        style={{ width: '62vw', maxWidth: 'none' }}
       >
   <DialogTitle className="sr-only">{activeMovie.title}</DialogTitle>
   <DialogDescription className="sr-only">Movie details for {activeMovie.title}</DialogDescription>
 
-        {/* Netflix-style Floating Modal */}
-        <div className="relative w-full h-full flex flex-col overflow-hidden" style={{ backgroundColor: 'rgb(18, 18, 18)' }}>
-          {/* Hero Section - Netflix-style backdrop with integrated gradient */}
-          <div className="relative h-[60vh] w-full overflow-visible flex-shrink-0">
+        {/* Redesigned modal: full scroll area */}
+        <div ref={scrollContainerRef} className="relative w-full h-full overflow-y-auto" style={{ backgroundColor: 'rgb(18, 18, 18)' }}>
+          {/* Hero Section */}
+          <div className="relative h-[58vh] w-full overflow-hidden">
             {/* Backdrop Image */}
             <div
               className="absolute inset-0 bg-no-repeat"
               style={{
                 backgroundImage: `url(${activeMovie.backdrop || activeMovie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
-                backgroundSize: '120%',
-                backgroundPosition: 'center 20%',
+                backgroundSize: '125%',
+                backgroundPosition: 'center 25%',
               }}
             />
 
@@ -430,15 +430,15 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
             </Button>
 
             {/* Title and Actions Overlay - Netflix style */}
-            <div className="absolute bottom-4 left-4 right-4 z-30">
-              <h1 className="text-2xl md:text-3xl font-bold mb-3 text-white leading-tight max-w-xl">
+            <div className="absolute bottom-6 left-8 right-8 z-30">
+              <h1 className="text-3xl md:text-4xl font-bold mb-4 text-white leading-tight max-w-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
                 {activeMovie.title}
               </h1>
 
               <div className="flex items-center space-x-2">
                 <Button
                   onClick={() => onPlay(activeMovie.id)}
-                  className="bg-white text-black hover:bg-gray-200 font-semibold px-4 py-1.5 rounded text-sm flex items-center space-x-1.5"
+                  className="bg-white text-black hover:bg-gray-200 font-semibold px-5 py-2 rounded text-sm flex items-center space-x-1.5 shadow"
                 >
                   <Play className="h-3 w-3 fill-current" />
                   <span>Play</span>
@@ -446,7 +446,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                 <Button
                   variant="outline"
                   size="icon"
-                  className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-8 h-8"
+                  className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-9 h-9"
                   onClick={() => onAddToList(activeMovie.id)}
                 >
                   <Plus className="h-4 w-4" />
@@ -454,9 +454,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                 <Button
                   variant="outline"
                   size="icon"
-                  className={`border-2 border-gray-400 rounded-full w-8 h-8 ${
-                    isLiked === true ? 'bg-white text-black' : 'text-white hover:bg-white hover:text-black'
-                  }`}
+                  className={`border-2 border-gray-400 rounded-full w-9 h-9 ${isLiked === true ? 'bg-white text-black' : 'text-white hover:bg-white hover:text-black'}`}
                   onClick={() => setIsLiked(isLiked === true ? null : true)}
                 >
                   <ThumbsUp className="h-3 w-3" />
@@ -464,10 +462,8 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
               </div>
             </div>
           </div>
-
-          {/* Content Section - No background, relies on gradient transition */}
-          <div className="flex-1 overflow-y-auto relative" ref={scrollContainerRef}>
-            <div className="px-6 py-4">
+          {/* Content Section */}
+          <div className="px-10 py-8">
 
               {/* Match percentage and metadata - Netflix style */}
               <div className="flex items-center space-x-3 text-sm mb-4">
@@ -486,15 +482,15 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
               </p>
 
               {isSeries && (
-                <div className="mb-10">
+                <div className="mb-14">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-4">
-                      <h3 className="text-lg font-semibold text-white">Episodes</h3>
+                      <h3 className="text-2xl font-semibold text-white">Episodes</h3>
             {lastWatched && lastWatched.season === selectedSeason && (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-gray-500 text-white hover:bg-white hover:text-black text-xs"
+                          className="border-gray-500 text-white hover:bg-white hover:text-black text-xs ml-4"
               onClick={() => onPlay(`${activeMovie.id}:S${lastWatched.season}E${lastWatched.episode}`)}
                         >
                           Resume S{lastWatched.season}E{lastWatched.episode}
@@ -506,7 +502,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                       <select
                         value={selectedSeason}
                         onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
-                        className="bg-zinc-800 text-white text-sm rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-white/20"
+                        className="bg-zinc-800/80 text-white text-sm rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-white/20 border border-white/10"
                       >
                         {availableSeasons.map(season => (
                           <option key={season} value={season}>S{season}</option>
@@ -514,9 +510,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-3">
                     {isLoadingEpisodes && (
-                      <div className="col-span-2 text-gray-400 text-sm">Loading episodes...</div>
+                      <div className="text-gray-400 text-sm">Loading episodes...</div>
                     )}
                     {!isLoadingEpisodes && episodesForSeason.map(ep => {
                       const progressKey = `S${selectedSeason}E${ep.episode_number}`
@@ -528,7 +524,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                       return (
                         <div
                           key={ep.episode_number}
-                          className={`group flex items-center justify-between transition rounded px-3 py-2 ${future ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${lastWatched && lastWatched.season === selectedSeason && lastWatched.episode === ep.episode_number ? 'bg-zinc-800 ring-1 ring-white/30' : 'bg-zinc-900/60 hover:bg-zinc-800'}`}
+                          className={`group flex items-center transition rounded-lg px-4 py-3 ${future ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${lastWatched && lastWatched.season === selectedSeason && lastWatched.episode === ep.episode_number ? 'bg-zinc-800 ring-1 ring-white/30' : 'bg-zinc-900/50 hover:bg-zinc-800/80'}`}
                           onClick={() => {
                             if (future) return
                             onPlay(`${activeMovie.id}:S${selectedSeason}E${ep.episode_number}`)
@@ -539,10 +535,10 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           }}
                         >
                           {ep.still && (
-                            <img src={ep.still} alt="Still" className="w-16 h-10 object-cover rounded mr-3 flex-shrink-0 hidden md:block" />
+                            <img src={ep.still} alt="Still" className="w-28 h-16 object-cover rounded-md mr-4 flex-shrink-0 hidden md:block" />
                           )}
                           <div className="flex-1 pr-3 min-w-0">
-                            <p className="text-white text-sm font-medium mb-0.5 flex items-center justify-between">
+                            <p className="text-white text-sm font-medium mb-1 flex items-center justify-between">
                               <span className="truncate">E{ep.episode_number} · {ep.name}</span>
                               {prog && <span className="text-[10px] text-gray-400 ml-2 shrink-0">{barWidth}%</span>}
                             </p>
@@ -556,17 +552,17 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                             )}
                           </div>
                           {!future && (
-                            <Button size="icon" variant="ghost" className="text-white opacity-80 group-hover:opacity-100">
-                              <Play className="h-4 w-4" />
+                            <Button size="icon" variant="ghost" className="text-white opacity-80 group-hover:opacity-100 hover:bg-white/10">
+                              <Play className="h-5 w-5" />
                             </Button>
                           )}
                         </div>
                       )})}
                     {!isLoadingEpisodes && episodesForSeason.length === 0 && (
-                      <div className="col-span-2 text-gray-400 text-sm">No episodes available.</div>
+                      <div className="text-gray-400 text-sm">No episodes available.</div>
                     )}
                   </div>
-                  <p className="mt-3 text-[11px] text-gray-500">Progress sync (local + cloud). Episode cache ~30m.</p>
+                  <p className="mt-4 text-[11px] text-gray-500">Progress sync (local + cloud). Episode cache ~30m.</p>
                 </div>
               )}
 
@@ -603,21 +599,21 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                 </div>
               </div>
 
-              {/* Similar Section - Compact vertical poster grid */}
-              <div className="mt-8">
-                <h3 className="text-lg font-semibold mb-4 text-white">Similar</h3>
-                <div className="grid grid-cols-6 gap-2">
+              {/* Similar Section - Redesigned */}
+              <div className="mt-14">
+                <h3 className="text-2xl font-semibold mb-5 text-white">More Like This</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                   {isLoadingSimilar ? (
                     // Loading state
-                    Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="aspect-[2/3] bg-zinc-800 rounded-md animate-pulse"></div>
+                    Array.from({ length: 12 }).map((_, i) => (
+                      <div key={i} className="aspect-[2/3] bg-zinc-800/60 rounded-md animate-pulse"></div>
                     ))
                   ) : similarMovies.length > 0 ? (
                     // Dynamic similar movies
                     similarMovies.map((similarMovie, i) => (
                       <div
                         key={similarMovie.id}
-                        className="aspect-[2/3] group cursor-pointer relative overflow-hidden rounded-md bg-zinc-800 hover:scale-105 transition-transform duration-200"
+                        className="aspect-[2/3] group cursor-pointer relative overflow-hidden rounded-lg bg-zinc-800/60 hover:scale-[1.04] transition-transform duration-300 shadow-md"
                         onClick={() => handleSimilarMovieClick(similarMovie)}
                       >
                         {similarMovie.poster ? (
@@ -627,31 +623,22 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full bg-zinc-700 flex items-center justify-center">
-                            <span className="text-gray-400 text-[10px] text-center px-1 leading-tight">{similarMovie.title}</span>
+                          <div className="w-full h-full bg-zinc-700 flex items-center justify-center p-2">
+                            <span className="text-gray-300 text-[11px] text-center leading-tight line-clamp-3">{similarMovie.title}</span>
                           </div>
                         )}
-
-                        {/* Hover overlay with movie info */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-end p-2">
-                          <div className="text-white">
-                            <h4 className="font-semibold text-xs mb-1 line-clamp-2 leading-tight drop-shadow-lg">{similarMovie.title}</h4>
-                            <p className="text-gray-200 text-[10px] mb-1 drop-shadow">{similarMovie.year}</p>
-                            <div className="flex items-center justify-between">
-                              <span className="flex items-center space-x-1 drop-shadow">
-                                <span className="bg-[#F5C518] text-black font-bold text-[9px] px-1 rounded-sm leading-tight">IMDb</span>
-                                <span className="text-[10px]">{similarMovie.rating ? similarMovie.rating.toFixed(1) : 'N/A'}</span>
-                              </span>
-                              <button
-                                aria-label="Play"
-                                className="p-1 rounded-full bg-white/20 hover:bg-white/30 transition"
-                                onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
-                              >
-                                <Play className="h-3 w-3 text-white drop-shadow" />
-                              </button>
-                            </div>
-                          </div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-70 group-hover:opacity-100 transition" />
+                        <div className="absolute bottom-0 left-0 right-0 p-2 pt-8 text-[11px] font-medium leading-snug text-white line-clamp-3">
+                          {similarMovie.title}
                         </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
+                          className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <div className="bg-white/90 text-black rounded-full p-2 shadow">
+                            <Play className="h-4 w-4 fill-black" />
+                          </div>
+                        </button>
                       </div>
                     ))
                   ) : (
@@ -662,11 +649,8 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                   )}
                 </div>
               </div>
-
-
-            </div>
-          </div>
-        </div>
+            </div>{/* end content section */}
+          </div>{/* end scroll wrapper */}
       </DialogContent>
     </Dialog>
   )
