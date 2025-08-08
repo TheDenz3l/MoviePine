@@ -127,9 +127,21 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
       setIsSeries(seriesDetected)
       if (seriesDetected) {
         // Populate seasons list (fallback to seasons count if detailed season list not yet fetched)
-        const seasonCount = activeMovie.seasons ||  (typeof (activeMovie as any).number_of_seasons === 'number' ? (activeMovie as any).number_of_seasons : undefined)
-        if (seasonCount && seasonCount > 0) {
+        let seasonCount = activeMovie.seasons || (typeof (activeMovie as any).number_of_seasons === 'number' ? (activeMovie as any).number_of_seasons : undefined)
+        // If we still don't have season count, fetch full show details
+        if (!seasonCount) {
+          try {
+            const details = await tmdbApi.getTVShow(tmdbId)
+            seasonCount = (details as any).number_of_seasons || 1
+          } catch (e) {
+            console.warn('Failed to fetch TV show details for seasons', e)
+            seasonCount = 1
+          }
+        }
+        if (!seasonCount || seasonCount < 1) seasonCount = 1
+        if (!abortRef.cancelled && fetchForId === (overrideMovie?.id || movie?.id || fetchForId)) {
           setAvailableSeasons(Array.from({ length: seasonCount }, (_, i) => i + 1))
+          if (selectedSeason > seasonCount) setSelectedSeason(1)
         }
         // Load resume info
         try {
