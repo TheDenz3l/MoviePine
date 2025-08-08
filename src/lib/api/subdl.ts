@@ -57,6 +57,17 @@ export interface SubtitleSearchParams {
  */
 export async function searchSubtitles(params: SubtitleSearchParams): Promise<SubDLSearchResult> {
   try {
+    // Check if API key is available
+    if (!SUBDL_API_KEY || SUBDL_API_KEY.trim() === '') {
+      console.warn('⚠️ SubDL API key not configured, skipping subtitle search')
+      return {
+        status: false,
+        results: [],
+        subtitles: [],
+        error: 'SubDL API key not configured'
+      }
+    }
+
     const searchParams = new URLSearchParams({
       api_key: SUBDL_API_KEY,
       subs_per_page: '10'
@@ -98,16 +109,28 @@ export async function searchSubtitles(params: SubtitleSearchParams): Promise<Sub
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'MoviePine/1.0'
-      }
+      },
+      // Add timeout to prevent hanging
+      signal: AbortSignal.timeout(10000) // 10 second timeout
     })
 
     if (!response.ok) {
-      throw new Error(`SubDL API error: ${response.status} ${response.statusText}`)
+      const errorText = await response.text().catch(() => 'Unknown error')
+      console.error(`❌ SubDL API HTTP error: ${response.status} ${response.statusText}`)
+      console.error(`❌ SubDL API response: ${errorText}`)
+
+      // Return graceful failure instead of throwing
+      return {
+        status: false,
+        results: [],
+        subtitles: [],
+        error: `SubDL API error: ${response.status} - ${response.statusText}`
+      }
     }
 
     const data: SubDLSearchResult = await response.json()
     console.log(`📡 SubDL response: ${data.status ? 'Success' : 'Error'}`)
-    
+
     if (!data.status) {
       console.error(`❌ SubDL API error: ${data.error}`)
       return { status: false, results: [], subtitles: [], error: data.error }
@@ -118,11 +141,22 @@ export async function searchSubtitles(params: SubtitleSearchParams): Promise<Sub
 
   } catch (error) {
     console.error('❌ SubDL API error:', error)
+
+    // Handle specific error types
+    let errorMessage = 'Unknown error'
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        errorMessage = 'SubDL API request timed out'
+      } else {
+        errorMessage = error.message
+      }
+    }
+
     return {
       status: false,
       results: [],
       subtitles: [],
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: errorMessage
     }
   }
 }

@@ -1,6 +1,6 @@
 // Streaming service that combines TMDB, Torrentio, and Torbox APIs
 
-import { TMDBAPI, TMDBMovie, TMDBTVShow } from '../api/tmdb'
+import { TMDBAPI, TMDBMovie, TMDBTVShow, TMDBGenre } from '../api/tmdb'
 import { TorrentioAPI, TorrentioStream } from '../api/torrentio'
 import { TorboxAPI, TorboxTorrent } from '../api/torbox'
 import RealDebridAPI, { RealDebridTorrent } from '../api/realdebrid'
@@ -224,7 +224,7 @@ export class StreamingService {
 
   async getMoviesByGenre(genreId: number): Promise<StreamingMovie[]> {
     try {
-      const discoverResult = await this.tmdb.makeRequest('/discover/movie', {
+      const discoverResult = await this.tmdb.makeRequest<{ results: TMDBMovie[] }>('/discover/movie', {
         with_genres: genreId.toString(),
       })
       const genres = await this.tmdb.getMovieGenres()
@@ -535,6 +535,73 @@ export class StreamingService {
     try {
       console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}`)
 
+      // Series episode composite ID pattern: baseId:S<season>E<episode>
+      const seriesMatch = movieId.match(/^(tmdb_tv_\d+|tt\d+|tmdb_\d+):S(\d+)E(\d+)(?:#([A-Za-z0-9]+))?$/i)
+      if (seriesMatch) {
+        const baseId = seriesMatch[1]
+        const seasonNum = parseInt(seriesMatch[2], 10)
+        const episodeNum = parseInt(seriesMatch[3], 10)
+        const forcedQuality = seriesMatch[4] // optional quality override
+        console.log(`📺 Detected series episode request ${baseId} S${seasonNum}E${episodeNum}`)
+
+        // Attempt to resolve IMDB id if TMDB TV id
+        let imdbId: string | undefined
+        if (baseId.startsWith('tmdb_tv_')) {
+          const tmdbNumeric = parseInt(baseId.replace('tmdb_tv_', ''), 10)
+            try {
+              const ext = await this.tmdb.getTVShowExternalIds(tmdbNumeric)
+              if (ext.imdb_id) imdbId = ext.imdb_id
+            } catch (e) {
+              console.warn('Could not fetch TV external IDs', e)
+            }
+        } else if (baseId.startsWith('tt')) {
+          imdbId = baseId
+        }
+        const searchId = imdbId || baseId.replace('tmdb_tv_', '').replace('tmdb_', '')
+        try {
+          const streams = await this.torrentio.getSeriesStreams(searchId, seasonNum, episodeNum)
+          if (!streams || streams.length === 0) {
+            console.log('❌ No series streams found')
+            return null
+          }
+          const sources = streams.map(s => ({
+            name: s.name,
+            quality: this.inferQuality(s.name),
+            size: '-',
+            infoHash: s.infoHash,
+            url: s.url,
+            isReady: true,
+            subtitles: s.subtitles
+          }))
+          let sorted = sources.sort((a, b) => this.getQualityScore(b.quality) - this.getQualityScore(a.quality))
+          if (forcedQuality) {
+            // Bring preferred quality to front while preserving relative order among equals
+            sorted = sorted.sort((a, b) => {
+              const aMatch = a.quality.toLowerCase() === forcedQuality.toLowerCase()
+              const bMatch = b.quality.toLowerCase() === forcedQuality.toLowerCase()
+              if (aMatch && !bMatch) return -1
+              if (!aMatch && bMatch) return 1
+              return 0
+            })
+          }
+          for (const source of sorted) {
+            const streamingUrl = await this.prepareStream(source)
+            if (streamingUrl) {
+              return {
+                url: streamingUrl,
+                subtitles: source.subtitles || [],
+                source,
+                movieTitle: `${baseId} S${seasonNum}E${episodeNum}${forcedQuality ? ' ' + forcedQuality : ''}`
+              }
+            }
+          }
+          return null
+        } catch (err) {
+          console.error('Series episode streaming failed', err)
+          return null
+        }
+      }
+
       // Get movie metadata for better subtitle searching
       let movieMetadata: { title?: string, year?: number, imdbId?: string, tmdbId?: string } = {}
       if (movieId.startsWith('tmdb_')) {
@@ -712,7 +779,7 @@ export class StreamingService {
 
           try {
             // Use a server-side proxy to resolve the URL and follow redirects
-            const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url)}`
+            const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url || '')}`
             const response = await fetch(proxyUrl)
 
             if (response.ok) {
@@ -832,8 +899,7 @@ export class StreamingService {
         const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
         console.log(`📊 TMDB External IDs:`, {
           imdb_id: externalIds.imdb_id,
-          wikidata_id: externalIds.wikidata_id,
-          facebook_id: externalIds.facebook_id
+          facebook_id: (externalIds as any).facebook_id
         })
 
         // Primary: Use IMDB ID if available
@@ -1096,6 +1162,15 @@ export class StreamingService {
     if (q.includes('720p')) return 3
     if (q.includes('480p')) return 2
     return 1
+  }
+
+  private inferQuality(name: string): string {
+    const lower = (name || '').toLowerCase()
+    if (/(2160|4k)/.test(lower)) return '2160p'
+    if (/1080/.test(lower)) return '1080p'
+    if (/720/.test(lower)) return '720p'
+    if (/480/.test(lower)) return '480p'
+    return 'SD'
   }
 
   private extractSeeders(streamName: string): number {

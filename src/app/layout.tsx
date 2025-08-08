@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MovieFlix - Stream Movies & TV Shows",
+  title: "Bmar Movies",
   description: "Your ultimate destination for streaming movies and TV shows with Torrentio and Torbox integration",
 };
 

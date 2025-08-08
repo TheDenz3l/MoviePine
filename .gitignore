@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# internal tooling / AI prompt artifacts
+.augment/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

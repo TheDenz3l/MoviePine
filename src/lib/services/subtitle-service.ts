@@ -91,10 +91,17 @@ export async function fetchMovieSubtitles(
   requestedLanguages: string[] = ['en', 'es', 'fr', 'de', 'it']
 ): Promise<ProcessedSubtitle[]> {
   try {
+    // Check if subtitle fetching is disabled
+    const disableSubtitles = process.env.NEXT_PUBLIC_DISABLE_SUBTITLES === 'true'
+    if (disableSubtitles) {
+      console.log(`⚠️ Subtitle fetching is disabled via environment variable`)
+      return []
+    }
+
     console.log(`🎬 Fetching real subtitles for: "${movieTitle}" (${year})`)
     console.log(`📋 Requested languages: [${requestedLanguages.join(', ')}]`)
 
-    // Search for subtitles using SubDL API
+    // Search for subtitles using SubDL API with error handling
     const subtitles = await searchMovieSubtitles(
       movieTitle,
       year,
@@ -104,7 +111,7 @@ export async function fetchMovieSubtitles(
     )
 
     if (subtitles.length === 0) {
-      console.log(`❌ No subtitles found for "${movieTitle}"`)
+      console.log(`⚠️ No subtitles found for "${movieTitle}" - continuing without subtitles`)
       return []
     }
 
@@ -142,7 +149,8 @@ export async function fetchMovieSubtitles(
     return processedSubtitles
 
   } catch (error) {
-    console.error('❌ Failed to fetch movie subtitles:', error)
+    console.warn('⚠️ Subtitle fetching failed, continuing without subtitles:', error)
+    // Return empty array to allow streaming to continue without subtitles
     return []
   }
 }

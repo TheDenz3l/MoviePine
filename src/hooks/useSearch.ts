@@ -8,6 +8,7 @@ interface SearchResult {
   title: string
   year: number
   poster: string
+  backdrop?: string
   type: 'movie' | 'tv'
 }
 
@@ -58,12 +59,15 @@ export function useSearch(): UseSearchReturn {
           .map((item: any) => ({
             id: item.id.toString(),
             title: item.media_type === 'movie' ? item.title : item.name,
-            year: item.media_type === 'movie' 
+            year: item.media_type === 'movie'
               ? new Date(item.release_date || '').getFullYear() || 0
               : new Date(item.first_air_date || '').getFullYear() || 0,
             poster: item.poster_path
-              ? tmdbApi.getPosterUrl(item.poster_path, 'w342')
+              ? tmdbApi.getPosterUrl(item.poster_path, 'w500')
               : '/placeholder-poster.svg',
+            backdrop: item.backdrop_path
+              ? tmdbApi.getBackdropUrl(item.backdrop_path, 'original')
+              : undefined,
             type: item.media_type as 'movie' | 'tv'
           }))
           .filter((item: SearchResult) => item.title && item.year) // Filter out items without title or year

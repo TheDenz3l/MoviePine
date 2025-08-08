@@ -6,6 +6,17 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
 import { RecentlyPlayedService } from "@/lib/services/recently-played-service"
+import { saveEpisodeProgress } from '@/lib/services/episode-progress'
+
+// Extend HTMLVideoElement with vendor specific / non-standard fields we probe defensively
+declare global {
+  interface HTMLVideoElement {
+    audioTracks?: any
+    mozHasAudio?: boolean
+    webkitAudioDecodedByteCount?: number
+    videoTracks?: any
+  }
+}
 
 interface VideoPlayerProps {
   src: string
@@ -70,8 +81,8 @@ export function VideoPlayer({
   const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<string>('off')
   const [customSubtitles, setCustomSubtitles] = useState<{ text: string; startTime: number; endTime: number }[]>([])
   const [currentSubtitle, setCurrentSubtitle] = useState<string>('')
-  const controlsTimeoutRef = useRef<NodeJS.Timeout>()
-  const cursorTimeoutRef = useRef<NodeJS.Timeout>()
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const cursorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Enhanced audio context activation function
   const activateAudioContext = () => {
@@ -173,7 +184,7 @@ export function VideoPlayer({
       console.log(`🔊 Audio configured: volume=${video.volume}, muted=${video.muted}, hasAudio=${!video.muted && video.volume > 0}`)
       console.log(`🔊 Video element audio properties: readyState=${video.readyState}, networkState=${video.networkState}`)
       console.log(`🔊 Audio detection: hasAudioTracks=${hasAudioTracks}, hasAudioData=${hasAudioData}, audioSupported=${audioSupported}`)
-      console.log(`🔊 Audio codec support check: ${video.canPlayType ? 'supported' : 'not supported'}`)
+  console.log(`🔊 Audio codec support check: ${video.canPlayType('video/mp4') ? 'supported' : 'not supported'}`)
 
       // Try to activate audio context immediately
       activateAudioContext()
@@ -199,7 +210,7 @@ export function VideoPlayer({
                 setIsPlaying(true)
                 console.log('🔊 Video and audio playback started successfully')
                 // Double-check audio after playback starts
-                setTimeout(() => checkAudioPlayback(), 1000)
+                // Internal audio playback check (scoped) will run after start
               }
             })
             .catch((error) => {
@@ -211,7 +222,7 @@ export function VideoPlayer({
       }
     }
 
-    const handleTimeUpdate = () => {
+  const handleTimeUpdate = () => {
       const currentVideoTime = video.currentTime
       setCurrentTime(currentVideoTime)
 
@@ -221,6 +232,24 @@ export function VideoPlayer({
         if (Math.floor(currentVideoTime) % progressUpdateInterval === 0 &&
             Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
           RecentlyPlayedService.updateProgress(movieId, currentVideoTime, duration)
+        }
+      }
+
+      // Persist per-episode progress locally if this is a series episode composite id
+  if (movieId && /:S\d+E\d+/.test(movieId) && duration > 0) {
+        const match = movieId.match(/^(.*):S(\d+)E(\d+)/)
+        if (match) {
+          const seriesBase = match[1]
+          const season = match[2]
+            const episode = match[3]
+            const fraction = currentVideoTime / duration
+            // Only write every 5s to reduce churn
+            if (Math.floor(currentVideoTime) % 5 === 0 && Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
+              try {
+                localStorage.setItem(`series-episode-progress:${seriesBase}:S${season}E${episode}`, JSON.stringify({ fraction, seconds: currentVideoTime }))
+        saveEpisodeProgress({ seriesId: seriesBase, season: parseInt(season, 10), episode: parseInt(episode, 10), seconds: currentVideoTime, duration })
+              } catch {}
+            }
         }
       }
 
@@ -419,7 +448,7 @@ export function VideoPlayer({
         playPromise.then(() => {
           console.log('🔊 Video and audio playback started successfully')
           // Check audio after a short delay
-          setTimeout(() => checkAudioPlayback(), 500)
+          // Removed external audio check (scoped helper)
           // Auto-hide controls after starting playback
           startAutoHideControls()
         }).catch((error) => {
@@ -450,7 +479,7 @@ export function VideoPlayer({
       console.log(`🔊 Unmuted: volume=${video.volume}, muted=${video.muted}`)
 
       // Check audio after unmuting
-      setTimeout(() => checkAudioPlayback(), 500)
+  // Removed external audio check (scoped helper)
     }
   }
 
@@ -702,7 +731,7 @@ export function VideoPlayer({
           console.log(`📝   - Label: "${track.label || 'Unlabeled'}"`)
           console.log(`📝   - Language: ${track.language || 'unknown'}`)
           console.log(`📝   - Mode: ${track.mode}`)
-          console.log(`📝   - ReadyState: ${track.readyState}`)
+          // readyState is non-standard on some browsers; skipped
           console.log(`📝   - Cues: ${track.cues?.length || 0}`)
 
           if (track.kind === 'subtitles' || track.kind === 'captions') {
@@ -999,7 +1028,7 @@ export function VideoPlayer({
             track.mode = 'showing'
             console.log(`📝 ✅ ENABLED NATIVE SUBTITLE TRACK ${trackId}: ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
             console.log(`📝 Track mode set to: ${track.mode}`)
-            console.log(`📝 Track readyState: ${track.readyState}`)
+            // Non-standard readyState omitted
 
             // Force video to refresh subtitle display
             video.currentTime = video.currentTime + 0.001

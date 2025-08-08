@@ -94,6 +94,17 @@ export interface TMDBSeason {
   air_date?: string
 }
 
+export interface TMDBEpisode {
+  id: number
+  name: string
+  overview: string
+  episode_number: number
+  season_number: number
+  still_path?: string
+  air_date?: string
+  runtime?: number
+}
+
 export interface TMDBSearchResult {
   page: number
   total_pages: number
@@ -180,12 +191,21 @@ export class TMDBAPI {
     return this.makeRequest<TMDBCredits>(`/movie/${id}/credits`)
   }
 
-  async getSimilarMovies(id: number): Promise<TMDBSearchResponse> {
-    return this.makeRequest<TMDBSearchResponse>(`/movie/${id}/similar`)
+  async getSimilarMovies(id: number): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>(`/movie/${id}/similar`)
   }
 
-  async getRecommendedMovies(id: number): Promise<TMDBSearchResponse> {
-    return this.makeRequest<TMDBSearchResponse>(`/movie/${id}/recommendations`)
+  async getRecommendedMovies(id: number): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>(`/movie/${id}/recommendations`)
+  }
+
+  // TV analogs for similar / recommendations
+  async getSimilarTVShows(id: number): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>(`/tv/${id}/similar`)
+  }
+
+  async getRecommendedTVShows(id: number): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>(`/tv/${id}/recommendations`)
   }
 
   async getPopularMovies(page = 1): Promise<TMDBSearchResult> {
@@ -235,6 +255,10 @@ export class TMDBAPI {
 
   async getTVShowCredits(id: number): Promise<TMDBCredits> {
     return this.makeRequest<TMDBCredits>(`/tv/${id}/credits`)
+  }
+
+  async getTVSeason(id: number, season: number): Promise<{ id: number; season_number: number; episodes: TMDBEpisode[] }> {
+    return this.makeRequest<{ id: number; season_number: number; episodes: TMDBEpisode[] }>(`/tv/${id}/season/${season}`)
   }
 
   async getPopularTVShows(page = 1): Promise<TMDBSearchResult> {
