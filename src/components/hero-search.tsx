@@ -11,6 +11,7 @@ interface SearchResult {
   title: string
   year: number
   poster: string
+  backdrop?: string
   type: 'movie' | 'tv'
 }
 

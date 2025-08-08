@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { X, Play, Plus, ThumbsUp } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { TMDBAPI, TMDBCastMember } from "@/lib/api/tmdb"
@@ -91,7 +92,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
         const genres = await tmdbApi.getMovieGenres()
         const convertedSimilarMovies = similarResponse.results
           .slice(0, 6) // Get top 6 similar movies
-          .map(tmdbMovie => tmdbApi.convertToMovie(tmdbMovie, genres.genres))
+          .map((tmdbMovie: any) => tmdbApi.convertToMovie(tmdbMovie, genres.genres))
 
         setSimilarMovies(convertedSimilarMovies)
       } catch (error) {
@@ -120,9 +121,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
   const matchPercentage = Math.floor(movie.rating * 10) + Math.floor(Math.random() * 20)
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
-        className="w-[60vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
+        className="pointer-events-auto w-[60vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
         showCloseButton={false}
         style={{ width: '60vw', maxWidth: 'none' }}
       >
@@ -226,9 +227,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
               {/* Match percentage and metadata - Netflix style */}
               <div className="flex items-center space-x-3 text-sm mb-4">
                 <span className="text-green-400 font-semibold">{matchPercentage}% Match</span>
-                <span className="text-white">{movie.year}</span>
-                <span className="text-gray-300">
-                  {movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : '2h 8m'}
+                  <ImdbRating rating={movie.rating} />
+                  <span className="text-white">{movie.year}</span>
+                  <span className="text-gray-300">{movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : '2h 8m'}
                 </span>
                 <div className="border border-gray-400 px-1.5 py-0.5 text-gray-300 text-xs">HD</div>
                 <div className="border border-gray-400 px-1.5 py-0.5 text-gray-300 text-xs">13+</div>

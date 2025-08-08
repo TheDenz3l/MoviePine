@@ -617,7 +617,9 @@ export class StreamingService {
                 )
                 console.log(`✅ Found ${realSubtitles.length} real subtitle tracks`)
               } catch (error) {
-                console.error(`❌ Failed to fetch real subtitles:`, error)
+                console.warn(`⚠️ Subtitle fetching failed, continuing without subtitles:`, error)
+                // Don't let subtitle errors break the streaming experience
+                realSubtitles = []
               }
 
               return {

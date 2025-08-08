@@ -1,6 +1,7 @@
 "use client"
 
 import { Play, Info, Volume2, VolumeX } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 
@@ -39,7 +40,8 @@ export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSec
       {/* Gradient Overlays - Netflix style */}
       <div className="absolute inset-0 bg-gradient-to-r from-black via-black/50 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20" />
-      <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black to-transparent" />
+  {/* Bottom gradient height reduced to reveal more backdrop while retaining legibility */}
+  <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-black via-black/70 via-black/40 to-transparent" />
 
       {/* Content - Netflix positioning */}
       <div className="relative z-10 flex items-center h-full px-4 sm:px-8 lg:px-16 pt-24">
@@ -60,10 +62,17 @@ export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSec
           </h1>
 
           {/* Netflix-style description */}
-          <div className="mb-8 max-w-lg">
-            <p className="text-lg text-white leading-relaxed line-clamp-3">
+          <div className="mb-6 max-w-lg">
+            <p className="text-lg text-white leading-relaxed line-clamp-3 mb-4">
               {movie.description}
             </p>
+            <div className="flex items-center space-x-4 text-white">
+              <ImdbRating rating={movie.rating} size="md" />
+              <span className="text-gray-300 text-sm">{movie.year}</span>
+              {movie.genre.slice(0, 3).map(g => (
+                <span key={g} className="text-gray-300 text-sm">{g}</span>
+              ))}
+            </div>
           </div>
 
           {/* Action Buttons - Netflix style */}

@@ -2,18 +2,34 @@
 
 import { Button } from "@/components/ui/button"
 import { Search, Home, Film, Tv, Bookmark } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { TMDBAPI } from '@/lib/api/tmdb'
+
+interface SearchResult {
+  id: string
+  title: string
+  poster: string
+  backdrop?: string
+  year?: number
+  type: 'movie' | 'tv'
+}
 
 interface MoviepireNavigationProps {
   onNavigate: (category: string) => void
   activeCategory: string
-  onSearch?: (query: string) => void
+  onSearchResults?: (results: SearchResult[], query: string, isSearching: boolean) => void
 }
 
-export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: MoviepireNavigationProps) {
+// Initialize TMDB API
+const tmdbApi = new TMDBAPI(process.env.NEXT_PUBLIC_TMDB_API_KEY || '')
+
+export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResults }: MoviepireNavigationProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
   const [scrollOpacity, setScrollOpacity] = useState(0)
+  const [isSearching, setIsSearching] = useState(false)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
 
   // Progressive scroll detection for smooth navigation background transition
   useEffect(() => {
@@ -31,19 +47,110 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: Mo
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchQuery.trim() && onSearch) {
-      onSearch(searchQuery.trim())
-      setSearchQuery("")
+  // Handle click outside to close search
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+
+      // Don't close if clicking on search container
+      if (searchContainerRef.current && searchContainerRef.current.contains(target)) {
+        return
+      }
+
+      // Don't close if clicking on the search overlay (seamless search results)
+      const searchOverlay = document.querySelector('[data-search-overlay]')
+      if (searchOverlay && searchOverlay.contains(target)) {
+        return
+      }
+
+      // Close search if clicking outside
       setShowSearch(false)
+      setSearchQuery("")
+      if (onSearchResults) {
+        onSearchResults([], "", false)
+      }
     }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, []) // Remove onSearchResults from dependencies
+
+  // Real-time search as user types
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+
+    if (searchQuery.trim().length > 0) {
+      setIsSearching(true)
+      if (onSearchResults) {
+        onSearchResults([], searchQuery, true)
+      }
+
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const results = await tmdbApi.searchMulti(searchQuery.trim(), 1)
+          const transformedResults: SearchResult[] = results.results
+            .filter((item: any) => item.media_type === 'movie' || item.media_type === 'tv')
+            .map((item: any) => ({
+              id: item.id.toString(),
+              title: item.media_type === 'movie' ? item.title : item.name,
+              poster: item.poster_path
+                ? tmdbApi.getPosterUrl(item.poster_path, 'w500')
+                : '/placeholder-poster.svg',
+              backdrop: item.backdrop_path
+                ? tmdbApi.getBackdropUrl(item.backdrop_path, 'original')
+                : undefined,
+              year: item.media_type === 'movie'
+                ? new Date(item.release_date || '').getFullYear() || undefined
+                : new Date(item.first_air_date || '').getFullYear() || undefined,
+              type: item.media_type as 'movie' | 'tv'
+            }))
+            .filter((item: SearchResult) => item.title)
+
+          if (onSearchResults) {
+            onSearchResults(transformedResults, searchQuery, false)
+          }
+        } catch (error) {
+          console.error('Search error:', error)
+          if (onSearchResults) {
+            onSearchResults([], searchQuery, false)
+          }
+        } finally {
+          setIsSearching(false)
+        }
+      }, 200) // Fast response for real-time feel
+    } else {
+      setIsSearching(false)
+      if (onSearchResults) {
+        onSearchResults([], "", false)
+      }
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [searchQuery]) // Remove onSearchResults from dependencies to prevent infinite loop
+
+  const handleSearchClick = () => {
+    setShowSearch(true)
+  }
+
+  const handleInputChange = (value: string) => {
+    setSearchQuery(value)
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Keep the search active, don't close it
   }
 
   const navItems = [
     { id: 'home', label: 'Browse', icon: Home },
-    { id: 'popular', label: 'Movies', icon: Film },
-    { id: 'trending', label: 'Series', icon: Tv },
+    { id: 'explore-movies', label: 'Movies', icon: Film },
+    { id: 'explore-series', label: 'Series', icon: Tv },
     { id: 'recently-played', label: 'My List', icon: Bookmark },
   ]
 
@@ -58,11 +165,11 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: Mo
         transition: 'background-color 0.3s ease-out, border-color 0.3s ease-out, backdrop-filter 0.3s ease-out'
       }}
     >
-      {/* Logo - Moviepire style */}
+      {/* Logo - Bmar Movies style */}
       <div className="flex items-center">
         <span className="text-2xl font-bold">
-          <span className="text-white">MOVIE</span>
-          <span className="text-red-600">pire</span>
+          <span className="text-white">Bmar</span>
+          <span className="text-red-600"> Movies</span>
         </span>
       </div>
 
@@ -87,33 +194,30 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearch }: Mo
         })}
       </div>
 
-      {/* Search - Moviepire style */}
-      <div className="flex items-center">
-        {showSearch ? (
-          <form onSubmit={handleSearch} className="flex items-center">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search movies..."
-              className="bg-gray-800/80 text-white px-4 py-2 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-red-600/50 border border-gray-700"
-              autoFocus
-              onBlur={() => {
-                if (!searchQuery.trim()) {
-                  setShowSearch(false)
-                }
-              }}
-            />
-          </form>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowSearch(true)}
-            className="text-gray-300 hover:text-white"
-          >
-            <Search className="w-5 h-5" />
-          </Button>
+      {/* Search - Fixed position search bar */}
+      <div className="flex items-center relative" ref={searchContainerRef}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleSearchClick}
+          className="text-gray-300 hover:text-white hover:bg-white/10"
+        >
+          <Search className="w-5 h-5" />
+        </Button>
+
+        {showSearch && (
+          <div className="absolute right-0 top-0 z-50">
+            <form onSubmit={handleSearchSubmit} className="flex items-center">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleInputChange(e.target.value)}
+                placeholder="Search for movies and TV shows..."
+                className="bg-[rgb(18,18,18)] text-white px-4 py-2 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-red-600/50 border border-gray-600/50 backdrop-blur-sm shadow-lg"
+                autoFocus
+              />
+            </form>
+          </div>
         )}
       </div>
     </nav>

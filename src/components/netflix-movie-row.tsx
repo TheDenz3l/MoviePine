@@ -36,11 +36,11 @@ function NetflixPortraitCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSe
   const [isHovered, setIsHovered] = useState(false)
 
   return (
-    <div 
+    <div
       className="group relative flex-none w-[150px] cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={() => onMovieSelect(movie)}
+      onClick={() => onPlay(movie.id)}
     >
       {/* Portrait Poster */}
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-gray-800">

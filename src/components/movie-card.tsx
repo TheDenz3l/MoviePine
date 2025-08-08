@@ -4,7 +4,8 @@ import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Play, Plus, ThumbsUp, Info } from "lucide-react"
+import { Play, Plus, Info } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 
 interface MovieCardProps {
   movie: {
@@ -25,10 +26,11 @@ export function MovieCard({ movie, onPlay, onAddToList, onMoreInfo }: MovieCardP
   const [isHovered, setIsHovered] = useState(false)
 
   return (
-    <Card 
+    <Card
       className="group relative bg-gray-900 border-gray-800 overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onPlay(movie.id)}
     >
       <CardContent className="p-0">
         {/* Movie Poster */}
@@ -90,10 +92,7 @@ export function MovieCard({ movie, onPlay, onAddToList, onMoreInfo }: MovieCardP
           </h3>
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-400 text-xs">{movie.year}</span>
-            <div className="flex items-center space-x-1">
-              <ThumbsUp className="h-3 w-3 text-green-500" />
-              <span className="text-green-500 text-xs">{movie.rating}%</span>
-            </div>
+            <ImdbRating rating={movie.rating} />
           </div>
           <div className="flex flex-wrap gap-1 mb-2">
             {movie.genre.slice(0, 2).map((g) => (

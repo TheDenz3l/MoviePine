@@ -216,6 +216,14 @@ export class TMDBAPI {
     })
   }
 
+  async getMoviesByGenre(genreId: number, page = 1): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>('/discover/movie', {
+      with_genres: genreId.toString(),
+      page: page.toString(),
+      sort_by: 'popularity.desc'
+    })
+  }
+
   // TV Show methods
   async getTVShow(id: number): Promise<TMDBTVShow> {
     return this.makeRequest<TMDBTVShow>(`/tv/${id}`)
@@ -243,6 +251,33 @@ export class TMDBAPI {
     return this.makeRequest<TMDBSearchResult>('/tv/top_rated', {
       page: page.toString(),
     })
+  }
+
+  async getOnTheAirTVShows(page = 1): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>('/tv/on_the_air', {
+      page: page.toString(),
+    })
+  }
+
+  async getTVByGenre(genreId: number, page = 1): Promise<TMDBSearchResult> {
+    return this.makeRequest<TMDBSearchResult>('/discover/tv', {
+      with_genres: genreId.toString(),
+      page: page.toString(),
+      sort_by: 'popularity.desc'
+    })
+  }
+
+  // Aliases for consistency with explore page
+  async getPopularTV(page = 1): Promise<TMDBSearchResult> {
+    return this.getPopularTVShows(page)
+  }
+
+  async getTopRatedTV(page = 1): Promise<TMDBSearchResult> {
+    return this.getTopRatedTVShows(page)
+  }
+
+  async getOnTheAirTV(page = 1): Promise<TMDBSearchResult> {
+    return this.getOnTheAirTVShows(page)
   }
 
   // Genre methods

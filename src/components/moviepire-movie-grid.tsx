@@ -10,6 +10,7 @@ interface Movie {
   id: string
   title: string
   poster?: string
+  backdrop?: string
   year?: number
   rating?: number
   genre?: string[]
@@ -18,9 +19,9 @@ interface Movie {
 interface MoviepireMovieGridProps {
   title: string
   movies: Movie[]
-  onPlay?: (movieId: string) => void
-  onAddToList?: (movieId: string) => void
-  onMoreInfo?: (movieId: string) => void
+  onPlay?: (movie: Movie) => void
+  onAddToList?: (movie: Movie) => void
+  onMoreInfo?: (movie: Movie) => void
   showMovieTitles?: boolean
 }
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Play, Plus, ThumbsUp, ChevronDown } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
@@ -38,7 +39,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
       className="group relative cursor-pointer transition-all duration-300 hover:scale-110 hover:z-20 animate-fade-in"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={() => onMovieSelect(movie)}
+      onClick={() => onPlay(movie.id)}
     >
       {/* Movie Poster */}
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-gray-800">
@@ -105,9 +106,7 @@ function NetflixMovieCard({ movie, onPlay, onAddToList, onMoreInfo, onMovieSelec
                   {movie.title}
                 </h3>
                 <div className="flex items-center space-x-2 mb-2">
-                  <span className="text-green-500 font-semibold text-xs">
-                    {Math.round(movie.rating * 10)}% Match
-                  </span>
+                  <ImdbRating rating={movie.rating} />
                   <span className="text-gray-300 text-xs">{movie.year}</span>
                 </div>
                 <div className="flex flex-wrap gap-1">

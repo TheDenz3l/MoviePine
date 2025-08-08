@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Play, Info, Volume2, VolumeX } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 import { useState } from "react"
 
 interface HeroSectionProps {
@@ -31,8 +32,10 @@ export function HeroSection({ featuredMovie, onPlay, onMoreInfo }: HeroSectionPr
           alt={featuredMovie.title}
           className="w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/50 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+  {/* Reduced overlay coverage to reveal more backdrop while keeping left edge readability */}
+  <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent" />
+  {/* Lowered top fade: only occupy lower 25% for bottom readability rather than full height */}
+  <div className="absolute inset-x-0 bottom-0 h-24 md:h-28 bg-gradient-to-t from-black/75 via-black/45 to-transparent" />
       </div>
 
       {/* Content */}
@@ -45,7 +48,7 @@ export function HeroSection({ featuredMovie, onPlay, onMoreInfo }: HeroSectionPr
 
           {/* Movie Info */}
           <div className="flex items-center space-x-4 text-white">
-            <span className="text-green-500 font-semibold">{featuredMovie.rating}% Match</span>
+            <ImdbRating rating={featuredMovie.rating} />
             <span>{featuredMovie.year}</span>
             <div className="flex space-x-2">
               {featuredMovie.genre.slice(0, 3).map((genre) => (

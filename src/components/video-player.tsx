@@ -118,6 +118,23 @@ export function VideoPlayer({
     const video = videoRef.current
     if (!video) return
 
+    // Function to check if audio is actually playing
+    const checkAudioPlayback = () => {
+      if (!videoRef.current?.isConnected) return
+      const video = videoRef.current
+
+      console.log(`🔊 Audio playback check: volume=${video.volume}, muted=${video.muted}, paused=${video.paused}`)
+      console.log(`🔊 Audio tracks: ${video.audioTracks ? video.audioTracks.length : 'not supported'}`)
+
+      // Check if we can detect audio activity
+      if (video.mozHasAudio !== undefined) {
+        console.log(`🔊 Mozilla audio detection: ${video.mozHasAudio}`)
+      }
+      if (video.webkitAudioDecodedByteCount !== undefined) {
+        console.log(`🔊 WebKit audio bytes: ${video.webkitAudioDecodedByteCount}`)
+      }
+    }
+
     // Set up a timeout to detect if video takes too long to load
     const loadTimeout = setTimeout(() => {
       if (isLoading && onError) {
@@ -194,24 +211,6 @@ export function VideoPlayer({
       }
     }
 
-
-
-    // Function to check if audio is actually playing
-    const checkAudioPlayback = () => {
-      if (!video.isConnected) return
-
-      console.log(`🔊 Audio playback check: volume=${video.volume}, muted=${video.muted}, paused=${video.paused}`)
-      console.log(`🔊 Audio tracks: ${video.audioTracks ? video.audioTracks.length : 'not supported'}`)
-
-      // Check if we can detect audio activity
-      if (video.mozHasAudio !== undefined) {
-        console.log(`🔊 Mozilla audio detection: ${video.mozHasAudio}`)
-      }
-      if (video.webkitAudioDecodedByteCount !== undefined) {
-        console.log(`🔊 WebKit audio bytes: ${video.webkitAudioDecodedByteCount}`)
-      }
-    }
-
     const handleTimeUpdate = () => {
       const currentVideoTime = video.currentTime
       setCurrentTime(currentVideoTime)
@@ -255,6 +254,9 @@ export function VideoPlayer({
       if (movieId && movieData) {
         RecentlyPlayedService.add(movieData)
       }
+
+      // Start auto-hide controls when playback begins
+      startAutoHideControls()
     }
 
     const handlePause = () => {
@@ -401,6 +403,8 @@ export function VideoPlayer({
 
     if (isPlaying) {
       video.pause()
+      // Show controls when paused
+      setShowControls(true)
     } else {
       // Ensure audio is enabled before playing
       video.muted = false
@@ -416,6 +420,8 @@ export function VideoPlayer({
           console.log('🔊 Video and audio playback started successfully')
           // Check audio after a short delay
           setTimeout(() => checkAudioPlayback(), 500)
+          // Auto-hide controls after starting playback
+          startAutoHideControls()
         }).catch((error) => {
           console.log('Video play was interrupted:', error)
           // Don't treat this as a fatal error, just update state
@@ -531,10 +537,21 @@ export function VideoPlayer({
       clearTimeout(controlsTimeoutRef.current)
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
+      // Only hide controls if video is playing and not paused
+      if (isPlaying && videoRef.current && !videoRef.current.paused) {
         setShowControls(false)
       }
     }, 3000)
+  }
+
+  // Auto-hide controls when playback starts
+  const startAutoHideControls = () => {
+    // Small delay to ensure playback has actually started
+    setTimeout(() => {
+      if (isPlaying && videoRef.current && !videoRef.current.paused) {
+        showControlsTemporarily()
+      }
+    }, 500)
   }
 
   const showCursorTemporarily = () => {
@@ -561,12 +578,22 @@ export function VideoPlayer({
     }
   }, [showControls])
 
+  // Auto-hide controls when playback starts
+  useEffect(() => {
+    if (isPlaying && videoRef.current && !videoRef.current.paused) {
+      startAutoHideControls()
+    }
+  }, [isPlaying])
+
   const handleMouseMove = () => {
     showControlsTemporarily()
     showCursorTemporarily()
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    // Show controls temporarily for any keyboard interaction
+    showControlsTemporarily()
+
     switch (e.code) {
       case 'Space':
         e.preventDefault()
@@ -1015,16 +1042,27 @@ export function VideoPlayer({
     <div
       ref={containerRef}
       className={`relative w-full h-full bg-black flex items-center justify-center transition-all duration-300 ${
-        showCursor ? 'cursor-default' : 'cursor-none'
+        showCursor ? 'cursor-pointer' : 'cursor-none'
       }`}
       onMouseMove={handleMouseMove}
-      onClick={showControlsTemporarily}
+      onClick={(e) => {
+        // Check if click is on video area (not on controls)
+        const target = e.target as HTMLElement
+        const isControlElement = target.closest('[data-video-controls]')
+
+        if (!isControlElement) {
+          e.stopPropagation()
+          togglePlay()
+          showControlsTemporarily()
+        }
+      }}
     >
       <video
         ref={videoRef}
         src={src}
-        className="w-full h-full object-contain"
-        onClick={togglePlay}
+        className={`w-full h-full object-contain ${
+          showCursor ? 'cursor-pointer' : 'cursor-none'
+        }`}
         onDoubleClick={toggleFullscreen}
         controls={false}
         preload="metadata"
@@ -1049,19 +1087,21 @@ export function VideoPlayer({
       )}
 
       {/* Controls Overlay */}
-      <div 
-        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/60 transition-opacity duration-300 ${
+      <div
+        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/60 transition-opacity duration-300 pointer-events-none ${
           showControls ? 'opacity-100' : 'opacity-0'
         }`}
+        data-video-controls
       >
         {/* Top Controls */}
-        <div className="absolute top-4 left-4 right-4 flex justify-between items-center">
+        <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-auto" data-video-controls>
           <h1 className="text-white text-xl font-semibold">{title}</h1>
           <Button
             variant="ghost"
             size="icon"
             onClick={onClose}
             className="text-white hover:bg-white/20"
+            data-video-controls
           >
             <X className="h-6 w-6" />
           </Button>
@@ -1069,12 +1109,13 @@ export function VideoPlayer({
 
         {/* Center Play Button */}
         {!isPlaying && !isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-auto" data-video-controls>
             <Button
               variant="ghost"
               size="icon"
               onClick={togglePlay}
               className="w-20 h-20 rounded-full bg-white/20 hover:bg-white/30 text-white"
+              data-video-controls
             >
               <Play className="h-10 w-10 fill-current" />
             </Button>
@@ -1082,9 +1123,9 @@ export function VideoPlayer({
         )}
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-4 left-4 right-4 space-y-4">
+        <div className="absolute bottom-4 left-4 right-4 space-y-4 pointer-events-auto" data-video-controls>
           {/* Progress Bar */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2" data-video-controls>
             <span className="text-white text-sm min-w-[50px]">{formatTime(currentTime)}</span>
             <div className="flex-1">
               <Progress
@@ -1095,6 +1136,7 @@ export function VideoPlayer({
                   const percent = (e.clientX - rect.left) / rect.width
                   handleSeek(percent * duration)
                 }}
+                data-video-controls
               />
             </div>
             <span className="text-white text-sm min-w-[50px]">{formatTime(duration)}</span>
@@ -1104,42 +1146,47 @@ export function VideoPlayer({
           <div
             className="flex items-center justify-between"
             onMouseLeave={() => setShowVolumeSlider(false)}
+            data-video-controls
           >
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2" data-video-controls>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => skipTime(-10)}
                 className="text-white hover:bg-white/20"
+                data-video-controls
               >
                 <SkipBack className="h-5 w-5" />
               </Button>
-              
+
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={togglePlay}
                 className="text-white hover:bg-white/20"
+                data-video-controls
               >
                 {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-current" />}
               </Button>
-              
+
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => skipTime(10)}
                 className="text-white hover:bg-white/20"
+                data-video-controls
               >
                 <SkipForward className="h-5 w-5" />
               </Button>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2" data-video-controls>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={toggleMute}
                   onMouseEnter={() => setShowVolumeSlider(true)}
                   className="text-white hover:bg-white/20"
+                  data-video-controls
                 >
                   {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                 </Button>
@@ -1151,6 +1198,7 @@ export function VideoPlayer({
                   }`}
                   onMouseEnter={() => setShowVolumeSlider(true)}
                   onMouseLeave={() => setShowVolumeSlider(false)}
+                  data-video-controls
                 >
                   <Slider
                     value={[isMuted ? 0 : volume * 100]}
@@ -1164,20 +1212,22 @@ export function VideoPlayer({
                     max={100}
                     step={1}
                     className="w-full"
+                    data-video-controls
                   />
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2" data-video-controls>
               {/* Audio Track Selector */}
               {audioTracks.length > 0 && (
-                <div className="relative group">
+                <div className="relative group" data-video-controls>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="text-white hover:bg-white/20"
                     title={`Audio Language (${audioTracks.length} tracks available)`}
+                    data-video-controls
                   >
                     <Languages className="h-5 w-5" />
                   </Button>
@@ -1186,6 +1236,7 @@ export function VideoPlayer({
                     onChange={(e) => selectAudioTrack(e.target.value)}
                     className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
                     title="Select audio language"
+                    data-video-controls
                   >
                     {audioTracks.map((track) => (
                       <option key={track.id} value={track.id}>
@@ -1198,12 +1249,13 @@ export function VideoPlayer({
 
               {/* Subtitle Track Selector */}
               {subtitleTracks.length > 1 && (
-                <div className="relative group">
+                <div className="relative group" data-video-controls>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="text-white hover:bg-white/20"
                     title={`Subtitles (${subtitleTracks.length - 1} tracks available)`}
+                    data-video-controls
                   >
                     <Subtitles className="h-5 w-5" />
                   </Button>
@@ -1214,6 +1266,7 @@ export function VideoPlayer({
                     }}
                     className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
                     title="Select subtitle language"
+                    data-video-controls
                   >
                     {subtitleTracks.map((track) => (
                       <option key={track.id} value={track.id}>
@@ -1230,6 +1283,7 @@ export function VideoPlayer({
               size="icon"
               onClick={toggleFullscreen}
               className="text-white hover:bg-white/20"
+              data-video-controls
             >
               <Maximize className="h-5 w-5" />
             </Button>

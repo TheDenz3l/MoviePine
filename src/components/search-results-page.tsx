@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { TMDBAPI } from '@/lib/api/tmdb'
-import { NetflixMovieGrid } from '@/components/netflix-movie-grid'
+import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+import { MoviepireNavigation } from '@/components/moviepire-navigation'
+import { MoviepireFooter } from '@/components/moviepire-footer'
 import { Search, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
 
 interface SearchMovie {
   id: string
@@ -25,13 +26,14 @@ interface SearchResultsPageProps {
   onMovieSelect: (movie: SearchMovie) => void
   onBack: () => void
   onNavigate?: (category: string) => void
+  onSearch?: (query: string) => void
   activeCategory?: string
 }
 
 // Initialize TMDB API
 const tmdbApi = new TMDBAPI(process.env.NEXT_PUBLIC_TMDB_API_KEY || '')
 
-export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, activeCategory = 'search' }: SearchResultsPageProps) {
+export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, onSearch, activeCategory = 'search' }: SearchResultsPageProps) {
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchMovie[]>([])
@@ -118,16 +120,17 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, activeCat
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Netflix Top Navigation */}
-      <NetflixFloatingNav
+    <div className="min-h-screen bg-[rgb(18,18,18)] text-white">
+      {/* Moviepire Navigation */}
+      <MoviepireNavigation
         onNavigate={onNavigate || (() => {})}
         activeCategory={activeCategory}
+        onSearch={onSearch}
       />
 
       {/* Search Header */}
-      <div className="pt-24 pb-8 px-4 sm:px-8 lg:px-16">
-        <div className="max-w-4xl mx-auto">
+      <div className="pt-24 pb-8 px-6">
+        <div className="max-w-7xl mx-auto">
           <form onSubmit={handleSearch} className="mb-8">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-6 w-6" />
@@ -150,7 +153,7 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, activeCat
       </div>
 
       {/* Content */}
-      <div className="px-4 sm:px-8 lg:px-16 pb-16">
+      <div className="px-6 pb-16">
         <div className="max-w-7xl mx-auto">
           {error && (
             <div className="text-red-500 text-center py-8">
@@ -164,9 +167,19 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, activeCat
             </div>
           ) : searchResults.length > 0 ? (
             <>
-              <NetflixMovieGrid
+              <MoviepireMovieGrid
+                title=""
                 movies={searchResults}
-                onMovieClick={onMovieSelect}
+                onPlay={(movie) => {
+                  onMovieSelect(movie)
+                }}
+                onAddToList={(movie) => {
+                  // Handle add to list if needed
+                }}
+                onMoreInfo={(movie) => {
+                  onMovieSelect(movie)
+                }}
+                showMovieTitles={true}
               />
 
               {/* Load More Button */}
@@ -194,5 +207,9 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, activeCat
           ) : null}
         </div>
       </div>
-    )
+
+      {/* Footer */}
+      <MoviepireFooter />
+    </div>
+  )
 }

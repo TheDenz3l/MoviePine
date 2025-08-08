@@ -1,10 +1,12 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Film } from 'lucide-react'
 import { StreamingService, createStreamingService } from '@/lib/services/streaming'
 import { StreamingMovie, StreamingSeries } from '@/lib/services/streaming'
+import { TMDBAPI } from '@/lib/api/tmdb'
 import { MovieCard } from '@/components/movie-card'
 import { NetflixMovieGrid } from '@/components/netflix-movie-grid'
 import { NetflixMovieRow } from '@/components/netflix-movie-row'
@@ -19,6 +21,9 @@ import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
 import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
+import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
+import { RealTimeSearchPage } from '@/components/real-time-search-page'
+import { SeamlessSearchOverlay } from '@/components/seamless-search-overlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
@@ -54,6 +59,10 @@ export default function ClientOnlyMovieApp() {
   const [playingMovieId, setPlayingMovieId] = useState<string | null>(null)
   const [playingMovieTitle, setPlayingMovieTitle] = useState<string>('')
   const [showSearchResults, setShowSearchResults] = useState(false)
+  const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
+  const [seamlessSearchResults, setSeamlessSearchResults] = useState<any[]>([])
+  const [seamlessSearchQuery, setSeamlessSearchQuery] = useState("")
+  const [isSeamlessSearching, setIsSeamlessSearching] = useState(false)
   const [recentlyPlayedMovies, setRecentlyPlayedMovies] = useState<RecentlyPlayedMovie[]>([])
   const [playingMovieData, setPlayingMovieData] = useState<{
     id: string
@@ -66,6 +75,10 @@ export default function ClientOnlyMovieApp() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMoviepireModalOpen, setIsMoviepireModalOpen] = useState(false)
   const [selectedMoviepireMovie, setSelectedMoviepireMovie] = useState<StreamingMovie | null>(null)
+
+  // Separate modal state for search results
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
+  const [selectedSearchMovie, setSelectedSearchMovie] = useState<StreamingMovie | null>(null)
 
   // Scroll detection for dynamic background transparency
   useEffect(() => {
@@ -170,12 +183,33 @@ export default function ClientOnlyMovieApp() {
   }
 
   // Event handlers for movie interactions
-  const handlePlay = (movieId: string, resumeFromTime?: number) => {
+  const handlePlay = (movieId: string, titleOverride?: string, resumeFromTime?: number) => {
     console.log('🎬 Playing movie:', movieId, resumeFromTime ? `(resume from ${resumeFromTime}s)` : '')
 
-    // Find the movie to get its data
-    const movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
-    const title = movie?.title || 'Unknown Movie'
+    // Find the movie to get its data - check main arrays first, then search results
+    let movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
+    let title = movie?.title || titleOverride || 'Unknown Movie'
+
+    // If not found in main arrays, check if we have search results
+    if (!movie && seamlessSearchResults.length > 0) {
+      const searchResult = seamlessSearchResults.find(r => r.id === movieId)
+      if (searchResult) {
+        // Create a movie-like object from search result
+        movie = {
+          id: searchResult.id,
+          title: searchResult.title,
+          poster: searchResult.poster,
+          year: searchResult.year,
+          genre: [searchResult.type === 'movie' ? 'Movie' : 'TV Show'],
+          rating: 0,
+          description: 'Loading...',
+          runtime: undefined,
+          imdbId: undefined,
+          tmdbId: searchResult.id
+        } as StreamingMovie
+        title = searchResult.title
+      }
+    }
 
     // Prepare movie data for recently played tracking
     const movieData = movie ? {
@@ -184,7 +218,13 @@ export default function ClientOnlyMovieApp() {
       poster: movie.poster || '',
       year: movie.year,
       genre: movie.genre
-    } : null
+    } : {
+      id: movieId,
+      title: title,
+      poster: '',
+      year: undefined,
+      genre: []
+    }
 
     setPlayingMovieId(movieId)
     setPlayingMovieTitle(title)
@@ -261,6 +301,12 @@ export default function ClientOnlyMovieApp() {
     setSelectedMoviepireMovie(null)
   }
 
+  // Search modal handlers - separate from main app modal
+  const handleSearchModalClose = () => {
+    setIsSearchModalOpen(false)
+    setSelectedSearchMovie(null)
+  }
+
   const handleCloseVideoPlayer = () => {
     setIsVideoPlayerOpen(false)
     setPlayingMovieId(null)
@@ -271,28 +317,102 @@ export default function ClientOnlyMovieApp() {
     loadRecentlyPlayedMovies()
   }
 
-  // Search handlers
-  const handleSearchResultSelect = (result: { id: string; title: string; year: number; poster: string; type: 'movie' | 'tv' }) => {
-    // Convert search result to movie format and select it
-    const searchMovie: StreamingMovie = {
+  // Search handlers - separate from main app to avoid affecting hero section
+  const handleSearchResultSelect = async (result: { id: string; title: string; year: number; poster: string; backdrop?: string; type: 'movie' | 'tv' }) => {
+    // Create initial movie object with better initial data
+    const initialMovie: StreamingMovie = {
       id: result.id,
       title: result.title,
       poster: result.poster,
+      backdrop: result.backdrop,
       year: result.year,
       rating: 0,
-      genre: [],
-      description: 'Loading...',
+      genre: [result.type === 'movie' ? 'Movie' : 'TV Show'],
+      description: 'Loading detailed information...',
       runtime: undefined,
       imdbId: undefined,
       tmdbId: result.id
     }
-    setSelectedMovie(searchMovie)
-    setIsModalOpen(true)
+
+    // Set initial movie and open SEARCH modal (not main modal)
+    setSelectedSearchMovie(initialMovie)
+    setIsSearchModalOpen(true)
+
+    // Fetch full movie details from TMDB
+    try {
+      // Get configuration to access TMDB API key
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+
+      if (!configData.success || !configData.config.tmdbApiKey) {
+        console.warn('TMDB API key not available')
+        return
+      }
+
+      const tmdbApi = new TMDBAPI(configData.config.tmdbApiKey)
+      const tmdbId = parseInt(result.id)
+
+      if (result.type === 'movie') {
+        // Fetch full movie details
+        const movieDetails = await tmdbApi.getMovieDetails(tmdbId)
+        const genres = await tmdbApi.getMovieGenres()
+
+        // Convert to full movie object using the same method as home page
+        const fullMovie = tmdbApi.convertToMovie(movieDetails, genres.genres)
+
+        // Update the SEARCH modal movie with full details, not main app movie
+        setSelectedSearchMovie(fullMovie)
+      } else if (result.type === 'tv') {
+        // Fetch full TV series details
+        const seriesDetails = await tmdbApi.getTVShow(tmdbId)
+        const genres = await tmdbApi.getTVGenres()
+
+        // Convert to series object and adapt to movie format for modal
+        const fullSeries = tmdbApi.convertToSeries(seriesDetails, genres.genres)
+
+        // Adapt series to movie format for the modal
+        const adaptedMovie: StreamingMovie = {
+          id: fullSeries.id,
+          title: fullSeries.title,
+          poster: fullSeries.poster,
+          backdrop: fullSeries.backdrop,
+          year: fullSeries.year,
+          rating: fullSeries.rating,
+          genre: fullSeries.genre,
+          description: fullSeries.description,
+          runtime: undefined, // TV series don't have runtime
+          imdbId: undefined,
+          tmdbId: fullSeries.tmdbId
+        }
+
+        // Update SEARCH modal, not main modal
+        setSelectedSearchMovie(adaptedMovie)
+      }
+    } catch (error) {
+      console.error('Error fetching full movie details:', error)
+      // Keep the initial movie object if fetch fails
+    }
   }
 
   const handleBackFromSearch = () => {
     setShowSearchResults(false)
   }
+
+  // Real-time search handlers
+  const handleOpenRealTimeSearch = () => {
+    setShowRealTimeSearch(true)
+  }
+
+  const handleCloseRealTimeSearch = () => {
+    setShowRealTimeSearch(false)
+  }
+
+  // Seamless search handlers
+  const handleSeamlessSearchResults = useCallback((results: any[], query: string, isSearching: boolean) => {
+    setSeamlessSearchResults(results)
+    setSeamlessSearchQuery(query)
+    setIsSeamlessSearching(isSearching)
+  }, [])
 
   const handleNavigateToSearch = (query: string) => {
     setShowSearchResults(true)
@@ -426,27 +546,10 @@ export default function ClientOnlyMovieApp() {
           console.log('📽️ Fetched movies:', popularMovies.length)
           console.log('📺 Fetched trending series:', trendingSeriesData.length)
           console.log('🔍 First few movies:', popularMovies.slice(0, 3))
-          // Add a test movie with known torrent availability for testing streaming
-          const testMovie: StreamingMovie = {
-            id: 'tt0111161', // The Shawshank Redemption - definitely has torrents
-            title: 'The Shawshank Redemption (Test)',
-            description: 'Two imprisoned men bond over a number of years, finding solace and eventual redemption through acts of common decency.',
-            poster: 'https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflyCy3FpPiy3BXI.jpg',
-            backdrop: 'https://image.tmdb.org/t/p/original/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg',
-            year: 1994,
-            rating: 9.3,
-            genre: ['Drama'],
-            runtime: 142,
-            imdbId: 'tt0111161',
-            tmdbId: 278
-          }
 
-          // Add test movie to the beginning of the list
-          const moviesWithTest = [testMovie, ...popularMovies]
-
-          setMovies(moviesWithTest)
+          setMovies(popularMovies)
           setTrendingSeries(trendingSeriesData)
-          setSelectedMovie(testMovie) // Set test movie as featured
+          setSelectedMovie(popularMovies[0] || null) // Set first movie as featured
         } else {
           console.log('⚠️ TMDB not working, using fallback movies')
           setMovies(fallbackMovies)
@@ -487,22 +590,77 @@ export default function ClientOnlyMovieApp() {
 
   // Check if we should show search results page
   if (showSearchResults) {
+    const SearchResultsPage = dynamic(() => import('@/components/search-results-page').then(mod => ({ default: mod.SearchResultsPage })), {
+      ssr: false,
+      loading: () => (
+        <div className="min-h-screen bg-black flex items-center justify-center">
+          <div className="text-white text-xl">Loading search...</div>
+        </div>
+      )
+    })
+
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-xl">Search functionality temporarily disabled</div>
-      </div>
+      <SearchResultsPage
+        onMovieSelect={handleSearchResultSelect}
+        onBack={handleBackFromSearch}
+        onNavigate={handleNavigate}
+        onSearch={handleSearch}
+        activeCategory="search"
+      />
+    )
+  }
+
+  // Check if we should show explore pages
+  if (activeCategory === 'explore-movies') {
+    return (
+      <MoviepireExplorePage
+        type="movies"
+        onMovieSelect={handleSearchResultSelect}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMoreInfo={handleMoreInfo}
+        onNavigate={handleNavigate}
+        onSearch={handleSearch}
+        activeCategory={activeCategory}
+      />
+    )
+  }
+
+  if (activeCategory === 'explore-series') {
+    return (
+      <MoviepireExplorePage
+        type="series"
+        onMovieSelect={handleSearchResultSelect}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMoreInfo={handleMoreInfo}
+        onNavigate={handleNavigate}
+        onSearch={handleSearch}
+        activeCategory={activeCategory}
+      />
+    )
+  }
+
+  // Show real-time search page
+  if (showRealTimeSearch) {
+    return (
+      <RealTimeSearchPage
+        onMovieSelect={handleSearchResultSelect}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMoreInfo={handleMoreInfo}
+        onClose={handleCloseRealTimeSearch}
+      />
     )
   }
 
   return (
-    <div className={`min-h-screen text-white relative transition-all duration-300 ${
-      isScrolled ? 'bg-[rgb(18,18,18)]' : 'bg-transparent'
-    }`}>
+  <div className="min-h-screen text-white relative bg-[rgb(18,18,18)] transition-colors duration-300">
       {/* Moviepire Navigation */}
       <MoviepireNavigation
         onNavigate={handleNavigate}
         activeCategory={activeCategory}
-        onSearch={handleSearch}
+        onSearchResults={handleSeamlessSearchResults}
       />
 
       <div className="flex flex-col min-h-screen">
@@ -518,7 +676,9 @@ export default function ClientOnlyMovieApp() {
         )}
 
         {/* Movie Grids - Moviepire style with tighter spacing */}
-        <div className="relative z-10 space-y-0 pb-16 bg-[rgb(18,18,18)]">
+        <div className="relative z-10 space-y-0 pb-16 bg-[rgb(18,18,18)] overflow-visible">
+          {/* Top blend gradient to smooth transition from hero backdrop (medium strength) */}
+          <div className="pointer-events-none absolute -top-24 left-0 right-0 h-24 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
           {activeCategory === 'home' && (
             <>
               {/* Recently Played Section */}
@@ -532,39 +692,39 @@ export default function ClientOnlyMovieApp() {
                     year: movie.year,
                     genre: movie.genre
                   }))}
-                  onPlay={handlePlay}
-                  onAddToList={handleAddToList}
-                  onMoreInfo={handleMoreInfo}
+                  onPlay={(movie) => handlePlay(movie.id, movie.title)}
+                  onAddToList={(movie) => handleAddToList(movie.id)}
+                  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                 />
               )}
 
               <MoviepireMovieGrid
                 title="Trending movies this week"
                 movies={movies.slice(0, 12).map(transformMovie)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
+                onPlay={(movie) => handlePlay(movie.id, movie.title)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
               <MoviepireMovieGrid
                 title="Popular movies"
                 movies={movies.slice(12, 24).map(transformMovie)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
+                onPlay={(movie) => handlePlay(movie.id, movie.title)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
               <MoviepireMovieGrid
                 title="TV Series"
                 movies={trendingSeries.slice(0, 12).map(transformSeries)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
+                onPlay={(movie) => handlePlay(movie.id, movie.title)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
               <MoviepireMovieGrid
                 title="Top Rated Movies"
                 movies={movies.slice(24, 36).map(transformMovie)}
-                onPlay={handlePlay}
-                onAddToList={handleAddToList}
-                onMoreInfo={handleMoreInfo}
+                onPlay={(movie) => handlePlay(movie.id, movie.title)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </>
           )}
@@ -573,9 +733,9 @@ export default function ClientOnlyMovieApp() {
             <MoviepireMovieGrid
               title="Trending movies this week"
               movies={movies.slice(0, 20).map(transformMovie)}
-              onPlay={handlePlay}
-              onAddToList={handleAddToList}
-              onMoreInfo={handleMoreInfo}
+              onPlay={(movie) => handlePlay(movie.id, movie.title)}
+              onAddToList={(movie) => handleAddToList(movie.id)}
+              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
             />
           )}
 
@@ -583,9 +743,9 @@ export default function ClientOnlyMovieApp() {
             <MoviepireMovieGrid
               title="Popular movies"
               movies={movies.slice(0, 20).map(transformMovie)}
-              onPlay={handlePlay}
-              onAddToList={handleAddToList}
-              onMoreInfo={handleMoreInfo}
+              onPlay={(movie) => handlePlay(movie.id, movie.title)}
+              onAddToList={(movie) => handleAddToList(movie.id)}
+              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
             />
           )}
 
@@ -599,9 +759,9 @@ export default function ClientOnlyMovieApp() {
                 year: movie.year,
                 genre: movie.genre
               }))}
-              onPlay={handlePlay}
-              onAddToList={handleAddToList}
-              onMoreInfo={handleMoreInfo}
+              onPlay={(movie) => handlePlay(movie.id, movie.title)}
+              onAddToList={(movie) => handleAddToList(movie.id)}
+              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               showMovieTitles={true}
             />
           )}
@@ -649,6 +809,55 @@ export default function ClientOnlyMovieApp() {
         onPlay={handlePlay}
         onAddToList={handleAddToList}
         relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
+      />
+
+      {/* Search Results Modal - Separate from main modal */}
+      <MovieDetailModal
+        movie={selectedSearchMovie ? transformMovie(selectedSearchMovie) : null}
+        isOpen={isSearchModalOpen}
+        onClose={handleSearchModalClose}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMovieSelect={(movie) => {
+          // Update search modal movie, not main app movie
+          const streamingMovie: StreamingMovie = {
+            id: movie.id,
+            title: movie.title,
+            poster: movie.poster,
+            backdrop: movie.backdrop,
+            year: movie.year,
+            rating: movie.rating,
+            genre: movie.genre || [],
+            description: movie.description || '',
+            runtime: movie.runtime,
+            imdbId: movie.imdbId,
+            tmdbId: movie.tmdbId
+          }
+          setSelectedSearchMovie(streamingMovie)
+        }}
+      />
+
+      {/* Seamless Search Overlay */}
+      <SeamlessSearchOverlay
+        searchResults={seamlessSearchResults}
+        searchQuery={seamlessSearchQuery}
+        isSearching={isSeamlessSearching}
+        onPlay={handlePlay}
+        onAddToList={(movie) => {
+          handleAddToList(movie.id)
+        }}
+        onMoreInfo={(movie) => {
+          // Convert search result to movie format and show SEARCH modal
+          const movieData = {
+            id: movie.id,
+            title: movie.title,
+            poster: movie.poster,
+            backdrop: movie.backdrop,
+            year: movie.year,
+            type: movie.type
+          }
+          handleSearchResultSelect(movieData)
+        }}
       />
     </div>
   )

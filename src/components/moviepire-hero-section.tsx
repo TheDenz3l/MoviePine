@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Play, Info } from "lucide-react"
+import { ImdbRating } from '@/components/imdb-rating'
 
 interface MoviepireHeroSectionProps {
   movie: {
@@ -20,7 +21,7 @@ interface MoviepireHeroSectionProps {
 export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHeroSectionProps) {
   return (
     <section
-      className="hero-section relative min-h-[70vh] flex items-start pt-20"
+  className="hero-section relative min-h-[82vh] flex items-start pt-20 pb-28 md:pb-36"
       style={{
         backgroundImage: movie.backdrop ? `url("${movie.backdrop}")` : 'none',
         backgroundSize: 'cover',
@@ -31,8 +32,10 @@ export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHer
       {/* Dark overlay for text readability - exactly like moviepire.net */}
       <div className="absolute inset-0 bg-black/40" />
 
-      {/* Bottom gradient fade for smooth transition to content sections - Netflix style */}
-      <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[rgb(18,18,18)] via-[rgba(18,18,18,0.85)] via-[rgba(18,18,18,0.6)] via-[rgba(18,18,18,0.3)] to-transparent z-5" />
+      {/* Bottom gradient fade (height reduced to show more backdrop while keeping readability) */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-16 md:h-20 bg-gradient-to-t from-[rgba(18,18,18,0.82)] via-[rgba(18,18,18,0.55)] via-[rgba(18,18,18,0.3)] to-transparent z-5 transition-colors"
+      />
 
       <div className="relative z-10 w-full px-8 md:px-16">
         <div className="hero-content space-y-6 max-w-2xl">
@@ -48,12 +51,8 @@ export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHer
 
           {/* Movie Info */}
           <div className="flex items-center space-x-4 text-base font-medium text-gray-300">
+            {movie.rating && <ImdbRating rating={movie.rating} size="md" />}
             {movie.year && <span>{movie.year}</span>}
-            {movie.rating && (
-              <span className="flex items-center">
-                ⭐ {movie.rating.toFixed(1)}
-              </span>
-            )}
             {movie.genre && movie.genre.length > 0 && (
               <span>{movie.genre.slice(0, 3).join(', ')}</span>
             )}

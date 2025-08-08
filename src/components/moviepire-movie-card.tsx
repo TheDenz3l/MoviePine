@@ -11,13 +11,14 @@ interface MoviepireMovieCardProps {
     id: string
     title: string
     poster?: string
+    backdrop?: string
     year?: number
     rating?: number
     genre?: string[]
   }
-  onPlay?: (movieId: string) => void
-  onAddToList?: (movieId: string) => void
-  onMoreInfo?: (movieId: string) => void
+  onPlay?: (movie: MoviepireMovieCardProps['movie']) => void
+  onAddToList?: (movie: MoviepireMovieCardProps['movie']) => void
+  onMoreInfo?: (movie: MoviepireMovieCardProps['movie']) => void
   showTitle?: boolean
 }
 
@@ -36,10 +37,11 @@ export function MoviepireMovieCard({
   }
 
   return (
-    <Card 
+    <Card
       className="moviepire-card relative flex-shrink-0 cursor-pointer transition-transform duration-300 hover:scale-105 group"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onPlay && onPlay(movie)}
     >
       <div className="relative">
         {/* Movie Poster */}
@@ -66,11 +68,11 @@ export function MoviepireMovieCard({
         </div>
         
         {/* Hover Overlay */}
-        <div className={`movie-overlay absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent rounded-lg transition-opacity duration-300 ${
+        <div className={`movie-overlay absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent rounded-lg transition-opacity duration-300 pointer-events-none ${
           isHovered ? 'opacity-100' : 'opacity-0'
         }`}>
           {/* Buttons positioned at bottom */}
-          <div className="absolute bottom-0 left-0 right-0 p-3">
+          <div className="absolute bottom-0 left-0 right-0 p-3 pointer-events-auto">
             <div className="flex items-center space-x-2">
               {onPlay && (
                 <Button
@@ -79,7 +81,7 @@ export function MoviepireMovieCard({
                   className="overlay-btn-circular h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onPlay(movie.id)
+                    onPlay(movie)
                   }}
                 >
                   <Play className="w-4 h-4 fill-current" />
@@ -92,7 +94,7 @@ export function MoviepireMovieCard({
                   className="overlay-btn-circular h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onAddToList(movie.id)
+                    onAddToList(movie)
                   }}
                 >
                   <Plus className="w-4 h-4" />
@@ -105,7 +107,7 @@ export function MoviepireMovieCard({
                   className="overlay-btn-circular h-8 w-8 rounded-full"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onMoreInfo(movie.id)
+                    onMoreInfo(movie)
                   }}
                 >
                   <Info className="w-4 h-4" />
