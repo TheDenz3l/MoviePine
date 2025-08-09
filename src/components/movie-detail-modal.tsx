@@ -632,9 +632,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           </div>
                         )}
                         {/* Overlay (hidden until hover) */}
-            <div className="absolute inset-0 flex flex-col bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out will-change-opacity pointer-events-none [transform:translateZ(0)]">
+            <div className="absolute inset-0 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out will-change-opacity pointer-events-none [transform:translateZ(0)] bg-[linear-gradient(to_top,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.7)_25%,rgba(0,0,0,0.35)_55%,rgba(0,0,0,0)_100%)] after:content-[''] after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-black/90">
                           {/* content block pinned to bottom with consistent inner padding */}
-                          <div className="mt-auto p-2.5 pt-3 select-none">
+              <div className="mt-auto px-2.5 pt-3 pb-2 select-none">
                             <div className="space-y-0.5 mb-1.5">
                               <h4 className="text-white font-semibold text-[12px] leading-snug line-clamp-2" title={similarMovie.title}>{similarMovie.title}</h4>
                               <span className="block text-[10px] text-gray-300 leading-tight">{similarMovie.year || ''}</span>
