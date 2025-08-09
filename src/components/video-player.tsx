@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
 import { RecentlyPlayedService } from "@/lib/services/recently-played-service"
+import { queueProgressUpdate, immediateProgressUpdate } from '@/lib/services/progress-sync'
 import { saveEpisodeProgress } from '@/lib/services/episode-progress'
 
 // Extend HTMLVideoElement with vendor specific / non-standard fields we probe defensively
@@ -227,11 +228,12 @@ export function VideoPlayer({
       setCurrentTime(currentVideoTime)
 
       // Update recently played progress every 10 seconds
-      if (movieId && movieData && duration > 0) {
+    if (movieId && movieData && duration > 0) {
         const progressUpdateInterval = 10 // seconds
         if (Math.floor(currentVideoTime) % progressUpdateInterval === 0 &&
             Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
           RecentlyPlayedService.updateProgress(movieId, currentVideoTime, duration)
+      queueProgressUpdate({ contentId: movieId, currentTime: currentVideoTime, duration })
         }
       }
 
@@ -294,6 +296,7 @@ export function VideoPlayer({
       // Update progress when paused
       if (movieId && movieData && duration > 0) {
         RecentlyPlayedService.updateProgress(movieId, currentTime, duration)
+        immediateProgressUpdate({ contentId: movieId, currentTime, duration })
       }
     }
     const handleVolumeChange = () => {
