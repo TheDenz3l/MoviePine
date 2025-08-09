@@ -604,45 +604,58 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                 <h3 className="text-2xl font-semibold mb-5 text-white">More Like This</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
                   {isLoadingSimilar ? (
-                    // Loading state
                     Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="aspect-[2/3] bg-zinc-800/60 rounded-md animate-pulse"></div>
+                      <div key={i} className="aspect-[2/3] bg-zinc-800/60 rounded-md animate-pulse" />
                     ))
                   ) : similarMovies.length > 0 ? (
-                    // Dynamic similar movies
-                    similarMovies.map((similarMovie, i) => (
+                    similarMovies.map(similarMovie => (
                       <div
                         key={similarMovie.id}
-                        className="aspect-[2/3] group cursor-pointer relative overflow-hidden rounded-lg bg-zinc-800/60 hover:scale-[1.04] transition-transform duration-300 shadow-md"
+                        className="group relative aspect-[2/3] cursor-pointer outline-none will-change-transform transform-gpu rounded-md overflow-hidden bg-zinc-800/40 shadow-md hover:shadow-xl transition-shadow duration-300"
+                        tabIndex={0}
+                        aria-label={`Open details for ${similarMovie.title}`}
+                        data-testid="more-like-tile"
                         onClick={() => handleSimilarMovieClick(similarMovie)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSimilarMovieClick(similarMovie) } }}
                       >
                         {similarMovie.poster ? (
                           <img
                             src={similarMovie.poster}
                             alt={similarMovie.title}
-                            className="w-full h-full object-cover"
+                            className="absolute inset-0 w-full h-full object-cover select-none group-hover:scale-[1.05] transition-transform duration-500 ease-out"
+                            draggable={false}
+                            loading="lazy"
                           />
                         ) : (
-                          <div className="w-full h-full bg-zinc-700 flex items-center justify-center p-2">
+                          <div className="absolute inset-0 w-full h-full bg-zinc-700 flex items-center justify-center p-2">
                             <span className="text-gray-300 text-[11px] text-center leading-tight line-clamp-3">{similarMovie.title}</span>
                           </div>
                         )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-70 group-hover:opacity-100 transition" />
-                        <div className="absolute bottom-0 left-0 right-0 p-2 pt-8 text-[11px] font-medium leading-snug text-white line-clamp-3">
-                          {similarMovie.title}
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
-                          className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <div className="bg-white/90 text-black rounded-full p-2 shadow">
-                            <Play className="h-4 w-4 fill-black" />
+                        {/* Overlay (hidden until hover) */}
+                        <div className="absolute inset-0 flex flex-col bg-gradient-to-t from-black/85 via-black/35 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          {/* content block pinned to bottom with consistent inner padding */}
+                          <div className="mt-auto p-2.5 pt-3">
+                            <div className="space-y-0.5 mb-1.5">
+                              <h4 className="text-white font-semibold text-[12px] leading-snug line-clamp-2" title={similarMovie.title}>{similarMovie.title}</h4>
+                              <span className="block text-[10px] text-gray-300 leading-tight">{similarMovie.year || ''}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <ImdbRating rating={similarMovie.rating} size="compact" showSlashTen={false} className="space-x-1" />
+                              <button
+                                type="button"
+                                aria-label={`Play ${similarMovie.title}`}
+                                onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
+                                className="bg-white text-black hover:bg-gray-200 h-5 w-5 rounded-full flex items-center justify-center shadow-md transition-colors"
+                                data-testid="tile-play"
+                              >
+                                <Play className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
                           </div>
-                        </button>
+                        </div>
                       </div>
                     ))
                   ) : (
-                    // No similar movies found
                     <div className="col-span-6 text-center py-8">
                       <p className="text-gray-400 text-sm">No similar movies found.</p>
                     </div>
