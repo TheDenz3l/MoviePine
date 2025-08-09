@@ -608,10 +608,10 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                       <div key={i} className="aspect-[2/3] bg-zinc-800/60 rounded-md animate-pulse" />
                     ))
                   ) : similarMovies.length > 0 ? (
-                    similarMovies.map(similarMovie => (
+          similarMovies.map(similarMovie => (
                       <div
                         key={similarMovie.id}
-                        className="group relative aspect-[2/3] cursor-pointer outline-none will-change-transform transform-gpu rounded-md overflow-hidden bg-zinc-800/40 shadow-md hover:shadow-xl transition-shadow duration-300"
+            className="group relative aspect-[2/3] cursor-pointer outline-none transform-gpu rounded-md overflow-hidden bg-zinc-800/40 shadow-md focus-visible:ring-2 focus-visible:ring-white/40 [contain:paint_layout_size]"
                         tabIndex={0}
                         aria-label={`Open details for ${similarMovie.title}`}
                         data-testid="more-like-tile"
@@ -622,7 +622,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           <img
                             src={similarMovie.poster}
                             alt={similarMovie.title}
-                            className="absolute inset-0 w-full h-full object-cover select-none group-hover:scale-[1.05] transition-transform duration-500 ease-out"
+              className="absolute inset-0 w-full h-full object-cover select-none will-change-opacity [backface-visibility:hidden]"
                             draggable={false}
                             loading="lazy"
                           />
@@ -632,20 +632,20 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           </div>
                         )}
                         {/* Overlay (hidden until hover) */}
-                        <div className="absolute inset-0 flex flex-col bg-gradient-to-t from-black/85 via-black/35 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <div className="absolute inset-0 flex flex-col bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out will-change-opacity pointer-events-none [transform:translateZ(0)]">
                           {/* content block pinned to bottom with consistent inner padding */}
-                          <div className="mt-auto p-2.5 pt-3">
+                          <div className="mt-auto p-2.5 pt-3 select-none">
                             <div className="space-y-0.5 mb-1.5">
                               <h4 className="text-white font-semibold text-[12px] leading-snug line-clamp-2" title={similarMovie.title}>{similarMovie.title}</h4>
                               <span className="block text-[10px] text-gray-300 leading-tight">{similarMovie.year || ''}</span>
                             </div>
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between pointer-events-auto">
                               <ImdbRating rating={similarMovie.rating} size="compact" showSlashTen={false} className="space-x-1" />
                               <button
                                 type="button"
                                 aria-label={`Play ${similarMovie.title}`}
                                 onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
-                                className="bg-white text-black hover:bg-gray-200 h-5 w-5 rounded-full flex items-center justify-center shadow-md transition-colors"
+                                className="bg-white/95 text-black hover:bg-white h-5 w-5 rounded-full flex items-center justify-center shadow-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                                 data-testid="tile-play"
                               >
                                 <Play className="h-2.5 w-2.5" />
