@@ -602,7 +602,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
               {/* Similar Section - Redesigned */}
               <div className="mt-14">
                 <h3 className="text-2xl font-semibold mb-5 text-white">More Like This</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-5">
                   {isLoadingSimilar ? (
                     Array.from({ length: 12 }).map((_, i) => (
                       <div key={i} className="aspect-[2/3] bg-zinc-800/60 rounded-md animate-pulse" />
