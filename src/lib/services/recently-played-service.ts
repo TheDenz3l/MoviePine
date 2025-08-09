@@ -14,6 +14,9 @@ export interface RecentlyPlayedMovie {
   duration: number // total duration in seconds
   currentTime: number // current playback position in seconds
   isCompleted: boolean // true if >90% watched
+  // New (optional) persisted stream selection data so we can resume with same stream
+  lastStreamUrl?: string
+  lastSubtitles?: string[]
 }
 
 const STORAGE_KEY = 'movieplayer_recently_played'
@@ -59,7 +62,9 @@ export class RecentlyPlayedService {
         progress: 0,
         duration: 0,
         currentTime: 0,
-        isCompleted: false
+  isCompleted: false,
+  lastStreamUrl: undefined,
+  lastSubtitles: undefined
       }
       
       // Add to beginning and limit to MAX_ITEMS
@@ -107,6 +112,39 @@ export class RecentlyPlayedService {
     } catch (error) {
       console.error('Error updating recently played progress:', error)
     }
+  }
+
+  /**
+   * Persist the stream information (chosen URL & subtitle list) used for a movie.
+   * This lets us reuse the exact same stream on resume instead of re-running selection
+   * which might pick a different file/quality and reset playback for some providers.
+   */
+  static setStreamInfo(movieId: string, streamUrl: string, subtitles: string[]): void {
+    try {
+      if (!streamUrl) return
+      const movies = this.getAll()
+      const idx = movies.findIndex(m => m.id === movieId)
+      if (idx === -1) return
+      movies[idx] = {
+        ...movies[idx],
+        lastStreamUrl: streamUrl,
+        lastSubtitles: subtitles
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(movies))
+    } catch (e) {
+      console.error('Error setting stream info:', e)
+    }
+  }
+
+  /**
+   * Retrieve previously chosen stream info if available.
+   */
+  static getStreamInfo(movieId: string): { url: string; subtitles: string[] } | null {
+    const movie = this.get(movieId)
+    if (movie?.lastStreamUrl) {
+      return { url: movie.lastStreamUrl, subtitles: movie.lastSubtitles || [] }
+    }
+    return null
   }
 
   /**

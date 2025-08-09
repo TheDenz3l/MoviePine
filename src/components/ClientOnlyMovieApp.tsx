@@ -228,6 +228,15 @@ export default function ClientOnlyMovieApp() {
 
   // Event handlers for movie interactions
   const handlePlay = (movieId: string, titleOverride?: string, resumeFromTime?: number) => {
+    // If no explicit resumeFromTime provided, try RecentlyPlayedService
+    if (resumeFromTime == null) {
+      try {
+        const storedResume = RecentlyPlayedService.getResumeTime(movieId)
+        if (storedResume > 0) {
+          resumeFromTime = storedResume
+        }
+      } catch {}
+    }
     console.log('🎬 Playing movie:', movieId, resumeFromTime ? `(resume from ${resumeFromTime}s)` : '')
 
     // Find the movie to get its data - check main arrays first, then search results
@@ -273,7 +282,7 @@ export default function ClientOnlyMovieApp() {
     setPlayingMovieId(movieId)
     setPlayingMovieTitle(title)
     setPlayingMovieData(movieData)
-    setResumeTime(resumeFromTime || 0)
+  setResumeTime(resumeFromTime || 0)
     setIsVideoPlayerOpen(true)
   }
 
@@ -507,17 +516,30 @@ export default function ClientOnlyMovieApp() {
     }>
   } | null> => {
     try {
+      // Try to reuse previous stream if available to ensure seamless resume
+      try {
+        const stored = RecentlyPlayedService.getStreamInfo(movieId)
+        if (stored) {
+          return { url: stored.url, subtitles: stored.subtitles }
+        }
+      } catch {}
+
       const configResponse = await fetch('/api/config')
       const configData = await configResponse.json()
 
       if (configData.success) {
         const service = createStreamingService(configData.config)
         const result = await service.getStreamingResult(movieId)
-        return result ? {
-          url: result.url,
-          subtitles: result.subtitles,
-          realSubtitles: result.realSubtitles
-        } : null
+        if (result) {
+          // Persist chosen stream for resume
+          try { RecentlyPlayedService.setStreamInfo(movieId, result.url, result.subtitles) } catch {}
+          return {
+            url: result.url,
+            subtitles: result.subtitles,
+            realSubtitles: result.realSubtitles
+          }
+        }
+        return null
       }
 
       throw new Error('Failed to load streaming configuration')

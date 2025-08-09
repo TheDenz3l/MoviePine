@@ -562,15 +562,10 @@ export function VideoPlayer({
 
   const showControlsTemporarily = () => {
     setShowControls(true)
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current)
-    }
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
     controlsTimeoutRef.current = setTimeout(() => {
-      // Only hide controls if video is playing and not paused
-      if (isPlaying && videoRef.current && !videoRef.current.paused) {
-        setShowControls(false)
-      }
-    }, 3000)
+      if (isPlaying && videoRef.current && !videoRef.current.paused) setShowControls(false)
+    }, 2500)
   }
 
   // Auto-hide controls when playback starts
@@ -617,6 +612,15 @@ export function VideoPlayer({
   const handleMouseMove = () => {
     showControlsTemporarily()
     showCursorTemporarily()
+  }
+
+  const handleContainerClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const isControlElement = target.closest('[data-video-controls]')
+    if (!isControlElement) {
+      togglePlay()
+    }
+    showControlsTemporarily()
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -1074,17 +1078,7 @@ export function VideoPlayer({
         showCursor ? 'cursor-pointer' : 'cursor-none'
       }`}
       onMouseMove={handleMouseMove}
-      onClick={(e) => {
-        // Check if click is on video area (not on controls)
-        const target = e.target as HTMLElement
-        const isControlElement = target.closest('[data-video-controls]')
-
-        if (!isControlElement) {
-          e.stopPropagation()
-          togglePlay()
-          showControlsTemporarily()
-        }
-      }}
+  onClick={handleContainerClick}
     >
       <video
         ref={videoRef}
