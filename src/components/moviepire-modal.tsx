@@ -1,6 +1,7 @@
 import React from 'react'
 import { X, Play, Plus, ThumbsUp, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ImdbRating } from '@/components/imdb-rating'
 
 interface Movie {
   id: number
@@ -22,6 +23,7 @@ interface MoviepireModalProps {
   onPlay: (movieId: number) => void
   onAddToList: (movieId: number) => void
   relatedMovies?: Movie[]
+  onMovieSelect?: (movieId: number) => void
 }
 
 export function MoviepireModal({ 
@@ -30,7 +32,8 @@ export function MoviepireModal({
   onClose, 
   onPlay, 
   onAddToList,
-  relatedMovies = []
+  relatedMovies = [],
+  onMovieSelect
 }: MoviepireModalProps) {
   if (!isOpen || !movie) return null
 
@@ -164,41 +167,45 @@ export function MoviepireModal({
                     {relatedMovies.slice(0, 8).map((relatedMovie) => (
                       <div
                         key={relatedMovie.id}
-                        className="group cursor-pointer transition-transform hover:scale-105"
+                        className="group relative cursor-pointer will-change-transform transform-gpu outline-none"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open details for ${relatedMovie.title}`}
+                        data-testid="more-like-tile"
+                        onClick={() => onMovieSelect?.(relatedMovie.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMovieSelect?.(relatedMovie.id) } }}
                       >
-                        <div className="relative">
-                          <img
-                            src={`https://image.tmdb.org/t/p/w300${relatedMovie.poster_path}`}
-                            alt={relatedMovie.title}
-                            className="w-full h-auto rounded-lg"
-                          />
-                          {/* Hover Overlay */}
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-center justify-center">
-                            <div className="flex space-x-2">
-                              <Button
-                                size="sm"
-                                className="bg-white text-black hover:bg-gray-200 h-8 w-8 p-0 rounded-full"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onPlay(relatedMovie.id)
-                                }}
-                              >
-                                <Play className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="border-white/60 text-white hover:bg-white hover:text-black h-8 w-8 p-0 rounded-full"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onAddToList(relatedMovie.id)
-                                }}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
+                        {/* Poster */}
+                        <img
+                          src={`https://image.tmdb.org/t/p/w300${relatedMovie.poster_path}`}
+                          alt={relatedMovie.title}
+                          className="w-full h-auto rounded-lg block"
+                          draggable={false}
+                        />
+
+                        {/* Hover gradient / darken layer (hidden until hover/focus) */}
+                        <div className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200" />
+
+                        {/* Bottom-left stack: title above IMDb rating (reserve space on right for play button) */}
+                        <div className="absolute left-2 bottom-2 right-10 flex flex-col gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200">
+                          <div className="text-white text-[11px] font-semibold leading-snug line-clamp-2 drop-shadow-md pr-1">
+                            {relatedMovie.title}
+                          </div>
+                          <div>
+                            <ImdbRating rating={relatedMovie.vote_average} size="compact" />
                           </div>
                         </div>
+
+                        {/* Small play button bottom-right */}
+                        <Button
+                          size="sm"
+                          className="absolute bottom-2 right-2 bg-white text-black hover:bg-gray-200 h-7 w-7 p-0 rounded-full opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-200 shadow-md"
+                          onClick={(e) => { e.stopPropagation(); onPlay(relatedMovie.id) }}
+                          aria-label={`Play ${relatedMovie.title}`}
+                          data-testid="tile-play"
+                        >
+                          <Play className="h-3 w-3" />
+                        </Button>
                       </div>
                     ))}
                   </div>

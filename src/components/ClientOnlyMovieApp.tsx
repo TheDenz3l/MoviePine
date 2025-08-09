@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Film } from 'lucide-react'
@@ -54,6 +54,8 @@ export default function ClientOnlyMovieApp() {
 
   const [activeCategory, setActiveCategory] = useState('home')
   const [selectedMovie, setSelectedMovie] = useState<StreamingMovie | null>(null)
+  // Separate modal movie so hero remains static when opening info / browsing similar
+  const [modalMovie, setModalMovie] = useState<StreamingMovie | StreamingSeries | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false)
   const [playingMovieId, setPlayingMovieId] = useState<string | null>(null)
@@ -75,6 +77,8 @@ export default function ClientOnlyMovieApp() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMoviepireModalOpen, setIsMoviepireModalOpen] = useState(false)
   const [selectedMoviepireMovie, setSelectedMoviepireMovie] = useState<StreamingMovie | null>(null)
+  // Guard to prevent double-opening modal when global events fire rapidly
+  const openingModalRef = useRef(false)
 
   // Separate modal state for search results
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
@@ -93,8 +97,8 @@ export default function ClientOnlyMovieApp() {
 
   // Initialize category and search from URL params
   useEffect(() => {
-    const category = searchParams.get('category')
-    const searchQuery = searchParams.get('q')
+  const category = searchParams?.get('category')
+  const searchQuery = searchParams?.get('q')
 
     if (category) {
       setActiveCategory(category)
@@ -104,6 +108,46 @@ export default function ClientOnlyMovieApp() {
       setShowSearchResults(true)
     }
   }, [searchParams])
+
+  // Global event listener (radically different approach) to decouple real-time search overlay from modal open
+  // Any component can dispatch window.dispatchEvent(new CustomEvent('app:openModal', { detail: { id: movieId } }))
+  useEffect(() => {
+    const handleGlobalOpenModal = (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      if (openingModalRef.current || isModalOpen) return
+      openingModalRef.current = true
+      // Close real-time search overlay first (state update flush)
+      if (showRealTimeSearch) setShowRealTimeSearch(false)
+      // Open modal if id provided
+      if (detail && typeof detail.id === 'string') {
+        try { handleMoreInfo(detail.id) } catch (err) { console.warn('Global openModal handler failed', err) }
+      }
+      // Release guard after a short delay to ignore burst events
+      setTimeout(() => { openingModalRef.current = false }, 400)
+    }
+    window.addEventListener('app:openModal', handleGlobalOpenModal)
+    // Global play listener for unified event-driven Play action
+    const handleGlobalPlayMovie = (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      const movieId: string | undefined = typeof detail.id === 'string' ? detail.id : undefined
+      const title: string | undefined = typeof detail.title === 'string' ? detail.title : undefined
+      if (!movieId) return
+      // Close overlays first
+      if (showRealTimeSearch) setShowRealTimeSearch(false)
+      // Slight debounce/guard: if a modal open sequence just started, delay play a bit to avoid overlap
+      const playDelay = openingModalRef.current ? 420 : 0
+      setTimeout(() => {
+        handlePlay(movieId, title)
+      }, playDelay)
+    }
+    window.addEventListener('app:playMovie', handleGlobalPlayMovie)
+    return () => {
+      window.removeEventListener('app:openModal', handleGlobalOpenModal)
+      window.removeEventListener('app:playMovie', handleGlobalPlayMovie)
+    }
+  }, [showRealTimeSearch, isModalOpen])
 
   // Load recently played movies
   useEffect(() => {
@@ -127,7 +171,7 @@ export default function ClientOnlyMovieApp() {
     setShowSearchResults(false)
 
     // Update URL
-    const params = new URLSearchParams(searchParams.toString())
+  const params = new URLSearchParams(searchParams?.toString() || '')
     params.set('category', category)
     router.push(`?${params.toString()}`)
 
@@ -177,7 +221,7 @@ export default function ClientOnlyMovieApp() {
     setShowSearchResults(true)
 
     // Update URL with search query
-    const params = new URLSearchParams(searchParams.toString())
+  const params = new URLSearchParams(searchParams?.toString() || '')
     params.set('q', query)
     router.push(`?${params.toString()}`)
   }
@@ -239,33 +283,26 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleMoreInfo = (movieId: string) => {
-    // Search in both movies and series arrays
-    const movie = movies.find(m => m.id === movieId)
-    const series = trendingSeries.find(s => s.id === movieId)
-    const selectedItem = movie || series
-
-    if (selectedItem) {
-      setSelectedMovie(selectedItem)
-      setIsModalOpen(true)
-    }
+    const movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
+    if (movie) setModalMovie(movie)
+    setIsModalOpen(true)
   }
 
-  const handleMovieSelect = (movie: StreamingMovie | StreamingSeries) => {
-    setSelectedMovie(movie as StreamingMovie) // Cast since modal expects StreamingMovie format
-    // Only update hero section, don't open modal
+  const handleMovieSelect = (_movie: StreamingMovie | StreamingSeries) => {
+    // Intentionally no-op to keep hero static per new requirement
   }
 
   const handleMovieSelectWithModal = (movie: StreamingMovie | StreamingSeries) => {
-    setSelectedMovie(movie as StreamingMovie) // Cast since modal expects StreamingMovie format
-    setIsModalOpen(true) // Open modal when movie/series is selected
+    setModalMovie(movie)
+    setIsModalOpen(true)
   }
 
   const handleCloseModal = () => {
     setIsModalOpen(false)
+    setModalMovie(null)
   }
 
   const handleModalMovieSelect = (movie: any) => {
-    // Convert the movie format to StreamingMovie format
     const streamingMovie: StreamingMovie = {
       id: movie.id,
       title: movie.title,
@@ -279,9 +316,7 @@ export default function ClientOnlyMovieApp() {
       imdbId: movie.imdbId,
       tmdbId: movie.tmdbId
     }
-
-    // Update selected movie and keep modal open
-    setSelectedMovie(streamingMovie)
+    setModalMovie(streamingMovie)
   }
 
   const handleMoviepireMoreInfo = (movieId: string) => {
@@ -318,80 +353,102 @@ export default function ClientOnlyMovieApp() {
   }
 
   // Search handlers - separate from main app to avoid affecting hero section
-  const handleSearchResultSelect = async (result: { id: string; title: string; year: number; poster: string; backdrop?: string; type: 'movie' | 'tv' }) => {
-    // Create initial movie object with better initial data
-    const initialMovie: StreamingMovie = {
-      id: result.id,
-      title: result.title,
-      poster: result.poster,
-      backdrop: result.backdrop,
-      year: result.year,
-      rating: 0,
-      genre: [result.type === 'movie' ? 'Movie' : 'TV Show'],
-      description: 'Loading detailed information...',
-      runtime: undefined,
-      imdbId: undefined,
-      tmdbId: result.id
-    }
-
-    // Set initial movie and open SEARCH modal (not main modal)
-    setSelectedSearchMovie(initialMovie)
-    setIsSearchModalOpen(true)
-
-    // Fetch full movie details from TMDB
-    try {
-      // Get configuration to access TMDB API key
-      const configResponse = await fetch('/api/config')
-      const configData = await configResponse.json()
-
-      if (!configData.success || !configData.config.tmdbApiKey) {
-        console.warn('TMDB API key not available')
-        return
+  const handleSearchResultSelect = (result: { id: string; title: string; year?: number; poster: string; backdrop?: string; type?: 'movie' | 'tv' }) => {
+    // Detach async work so the handler type is void
+    void (async () => {
+      // Create initial movie object with better initial data
+      const initialMovie: StreamingMovie = {
+        id: result.id,
+        title: result.title,
+        poster: result.poster,
+        backdrop: result.backdrop,
+        year: result.year ?? new Date().getFullYear(),
+        rating: 0,
+        genre: result.type ? [result.type === 'movie' ? 'Movie' : 'TV Show'] : [],
+        description: 'Loading detailed information...',
+        runtime: undefined,
+        imdbId: undefined,
+        tmdbId: parseInt(result.id)
       }
 
-      const tmdbApi = new TMDBAPI(configData.config.tmdbApiKey)
-      const tmdbId = parseInt(result.id)
+      // Set initial movie and open SEARCH modal (not main modal)
+      setSelectedSearchMovie(initialMovie)
+      setIsSearchModalOpen(true)
 
-      if (result.type === 'movie') {
-        // Fetch full movie details
-        const movieDetails = await tmdbApi.getMovieDetails(tmdbId)
-        const genres = await tmdbApi.getMovieGenres()
+      // Fetch full movie details from TMDB
+      try {
+        // Get configuration to access TMDB API key
+        const configResponse = await fetch('/api/config')
+        const configData = await configResponse.json()
 
-        // Convert to full movie object using the same method as home page
-        const fullMovie = tmdbApi.convertToMovie(movieDetails, genres.genres)
-
-        // Update the SEARCH modal movie with full details, not main app movie
-        setSelectedSearchMovie(fullMovie)
-      } else if (result.type === 'tv') {
-        // Fetch full TV series details
-        const seriesDetails = await tmdbApi.getTVShow(tmdbId)
-        const genres = await tmdbApi.getTVGenres()
-
-        // Convert to series object and adapt to movie format for modal
-        const fullSeries = tmdbApi.convertToSeries(seriesDetails, genres.genres)
-
-        // Adapt series to movie format for the modal
-        const adaptedMovie: StreamingMovie = {
-          id: fullSeries.id,
-          title: fullSeries.title,
-          poster: fullSeries.poster,
-          backdrop: fullSeries.backdrop,
-          year: fullSeries.year,
-          rating: fullSeries.rating,
-          genre: fullSeries.genre,
-          description: fullSeries.description,
-          runtime: undefined, // TV series don't have runtime
-          imdbId: undefined,
-          tmdbId: fullSeries.tmdbId
+        if (!configData.success || !configData.config.tmdbApiKey) {
+          console.warn('TMDB API key not available')
+          return
         }
 
-        // Update SEARCH modal, not main modal
-        setSelectedSearchMovie(adaptedMovie)
+        const tmdbApi = new TMDBAPI(configData.config.tmdbApiKey)
+        const tmdbNumericId = parseInt(result.id)
+
+        // If we know the type, use it. Otherwise, try movie then TV.
+        if (result.type === 'movie') {
+          const movieDetails = await tmdbApi.getMovieDetails(tmdbNumericId)
+          const genres = await tmdbApi.getMovieGenres()
+          const fullMovie = tmdbApi.convertToMovie(movieDetails, genres.genres)
+          setSelectedSearchMovie(fullMovie)
+        } else if (result.type === 'tv') {
+          const seriesDetails = await tmdbApi.getTVShow(tmdbNumericId)
+          const genres = await tmdbApi.getTVGenres()
+          const fullSeries = tmdbApi.convertToSeries(seriesDetails, genres.genres)
+          const adaptedMovie: StreamingMovie = {
+            id: fullSeries.id,
+            title: fullSeries.title,
+            poster: fullSeries.poster,
+            backdrop: fullSeries.backdrop,
+            year: fullSeries.year,
+            rating: fullSeries.rating,
+            genre: fullSeries.genre,
+            description: fullSeries.description,
+            runtime: undefined,
+            imdbId: undefined,
+            tmdbId: fullSeries.tmdbId
+          }
+          setSelectedSearchMovie(adaptedMovie)
+        } else {
+          // Unknown type: attempt movie first, then TV
+          try {
+            const movieDetails = await tmdbApi.getMovieDetails(tmdbNumericId)
+            const genres = await tmdbApi.getMovieGenres()
+            const fullMovie = tmdbApi.convertToMovie(movieDetails, genres.genres)
+            setSelectedSearchMovie(fullMovie)
+          } catch {
+            try {
+              const seriesDetails = await tmdbApi.getTVShow(tmdbNumericId)
+              const genres = await tmdbApi.getTVGenres()
+              const fullSeries = tmdbApi.convertToSeries(seriesDetails, genres.genres)
+              const adaptedMovie: StreamingMovie = {
+                id: fullSeries.id,
+                title: fullSeries.title,
+                poster: fullSeries.poster,
+                backdrop: fullSeries.backdrop,
+                year: fullSeries.year,
+                rating: fullSeries.rating,
+                genre: fullSeries.genre,
+                description: fullSeries.description,
+                runtime: undefined,
+                imdbId: undefined,
+                tmdbId: fullSeries.tmdbId
+              }
+              setSelectedSearchMovie(adaptedMovie)
+            } catch (e) {
+              console.warn('Failed to fetch details as movie or TV', e)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching full movie details:', error)
+        // Keep the initial movie object if fetch fails
       }
-    } catch (error) {
-      console.error('Error fetching full movie details:', error)
-      // Keep the initial movie object if fetch fails
-    }
+    })()
   }
 
   const handleBackFromSearch = () => {
@@ -417,7 +474,7 @@ export default function ClientOnlyMovieApp() {
   const handleNavigateToSearch = (query: string) => {
     setShowSearchResults(true)
     // Update URL to include search query
-    const params = new URLSearchParams(searchParams.toString())
+  const params = new URLSearchParams(searchParams?.toString() || '')
     params.set('q', query)
     router.push(`?${params.toString()}`)
   }
@@ -539,17 +596,24 @@ export default function ClientOnlyMovieApp() {
 
         if (status.tmdb) {
           console.log('🎬 TMDB is working, fetching real movies and series...')
-          const [popularMovies, trendingSeriesData] = await Promise.all([
+          // Fetch popular (main grids), trending weekly movies (for hero), and trending series in parallel
+          const [popularMovies, trendingMoviesData, trendingSeriesData] = await Promise.all([
             service.getPopularMovies(),
+            service.getTrendingMovies(), // weekly by default in wrapper
             service.getTrendingSeries()
           ])
           console.log('📽️ Fetched movies:', popularMovies.length)
-          console.log('📺 Fetched trending series:', trendingSeriesData.length)
+          console.log('� Fetched trending movies:', trendingMoviesData.length)
+          console.log('�📺 Fetched trending series:', trendingSeriesData.length)
           console.log('🔍 First few movies:', popularMovies.slice(0, 3))
-
           setMovies(popularMovies)
           setTrendingSeries(trendingSeriesData)
-          setSelectedMovie(popularMovies[0] || null) // Set first movie as featured
+          // Hero logic: always show the single most popular/highest vote trending movie (weekly) with a backdrop
+          const sortedTrending = [...trendingMoviesData].filter(m => !!m.backdrop).sort((a, b) => (b.rating || 0) - (a.rating || 0))
+          const hero = sortedTrending[0] || popularMovies.find(m => m.backdrop) || popularMovies[0]
+          setSelectedMovie(hero || null)
+
+          // Using TMDB vote_average directly as displayed rating (no external IMDb refresh)
         } else {
           console.log('⚠️ TMDB not working, using fallback movies')
           setMovies(fallbackMovies)
@@ -601,7 +665,7 @@ export default function ClientOnlyMovieApp() {
 
     return (
       <SearchResultsPage
-        onMovieSelect={handleSearchResultSelect}
+  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
         onBack={handleBackFromSearch}
         onNavigate={handleNavigate}
         onSearch={handleSearch}
@@ -615,10 +679,10 @@ export default function ClientOnlyMovieApp() {
     return (
       <MoviepireExplorePage
         type="movies"
-        onMovieSelect={handleSearchResultSelect}
+  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
-        onMoreInfo={handleMoreInfo}
+  onAddToList={(movie) => handleAddToList(movie.id)}
+  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
         onNavigate={handleNavigate}
         onSearch={handleSearch}
         activeCategory={activeCategory}
@@ -630,10 +694,10 @@ export default function ClientOnlyMovieApp() {
     return (
       <MoviepireExplorePage
         type="series"
-        onMovieSelect={handleSearchResultSelect}
+  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
-        onMoreInfo={handleMoreInfo}
+  onAddToList={(movie) => handleAddToList(movie.id)}
+  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
         onNavigate={handleNavigate}
         onSearch={handleSearch}
         activeCategory={activeCategory}
@@ -645,10 +709,10 @@ export default function ClientOnlyMovieApp() {
   if (showRealTimeSearch) {
     return (
       <RealTimeSearchPage
-        onMovieSelect={handleSearchResultSelect}
+  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
-        onMoreInfo={handleMoreInfo}
+  onAddToList={(movie) => handleAddToList(movie.id)}
+  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
         onClose={handleCloseRealTimeSearch}
       />
     )
@@ -781,7 +845,7 @@ export default function ClientOnlyMovieApp() {
 
       {/* Movie Detail Modal */}
       <MovieDetailModal
-        movie={selectedMovie ? transformMovie(selectedMovie) : null}
+        movie={modalMovie ? transformMovie(modalMovie as StreamingMovie) : null}
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         onPlay={handlePlay}
@@ -806,9 +870,16 @@ export default function ClientOnlyMovieApp() {
         movie={selectedMoviepireMovie ? transformMovieForModal(selectedMoviepireMovie) : null}
         isOpen={isMoviepireModalOpen}
         onClose={handleCloseMoviepireModal}
-        onPlay={handlePlay}
-        onAddToList={handleAddToList}
+  onPlay={(movieId) => handlePlay(movieId.toString())}
+  onAddToList={(movieId) => handleAddToList(movieId.toString())}
         relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
+        onMovieSelect={(movieId) => {
+          // Find the selected movie in our movies list and update the modal content without closing it
+          const next = movies.find(m => m.tmdbId === movieId || parseInt(m.id) === movieId)
+          if (next) {
+            setSelectedMoviepireMovie(next)
+          }
+        }}
       />
 
       {/* Search Results Modal - Separate from main modal */}
@@ -830,8 +901,7 @@ export default function ClientOnlyMovieApp() {
             genre: movie.genre || [],
             description: movie.description || '',
             runtime: movie.runtime,
-            imdbId: movie.imdbId,
-            tmdbId: movie.tmdbId
+            tmdbId: typeof movie.tmdbId === 'string' ? parseInt(movie.tmdbId) : movie.tmdbId
           }
           setSelectedSearchMovie(streamingMovie)
         }}
@@ -853,7 +923,7 @@ export default function ClientOnlyMovieApp() {
             title: movie.title,
             poster: movie.poster,
             backdrop: movie.backdrop,
-            year: movie.year,
+            year: movie.year ?? new Date().getFullYear(),
             type: movie.type
           }
           handleSearchResultSelect(movieData)

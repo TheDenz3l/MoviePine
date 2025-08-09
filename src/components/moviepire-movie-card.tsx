@@ -38,7 +38,7 @@ export function MoviepireMovieCard({
 
   return (
     <Card
-      className="moviepire-card relative flex-shrink-0 cursor-pointer transition-transform duration-300 hover:scale-105 group"
+      className="moviepire-card relative flex-shrink-0 cursor-pointer group will-change-transform transform-gpu"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => onPlay && onPlay(movie)}
@@ -105,6 +105,7 @@ export function MoviepireMovieCard({
                   size="icon"
                   variant="secondary"
                   className="overlay-btn-circular h-8 w-8 rounded-full"
+                  aria-label="More info"
                   onClick={(e) => {
                     e.stopPropagation()
                     onMoreInfo(movie)

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { TMDBAPI } from '@/lib/api/tmdb'
-import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
 import { Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -39,19 +38,6 @@ export function RealTimeSearchPage({
   const [searchResults, setSearchResults] = useState<SearchMovie[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedModalMovie, setSelectedModalMovie] = useState<{
-    id: string
-    title: string
-    poster: string
-    backdrop?: string
-    year: number
-    rating: number
-    genre: string[]
-    description: string
-    runtime?: number
-    tmdbId?: string | number
-  } | null>(null)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -62,24 +48,7 @@ export function RealTimeSearchPage({
     }
   }, [])
 
-  // When modal is open, prevent global document click handlers from closing the page
-  useEffect(() => {
-    if (!isModalOpen) return
-    const stopBubbling = (event: Event) => {
-      event.stopPropagation()
-      // @ts-ignore
-      if (typeof event.stopImmediatePropagation === 'function') {
-        // @ts-ignore
-        event.stopImmediatePropagation()
-      }
-    }
-    document.addEventListener('mousedown', stopBubbling, false)
-    document.addEventListener('click', stopBubbling, false)
-    return () => {
-      document.removeEventListener('mousedown', stopBubbling, false)
-      document.removeEventListener('click', stopBubbling, false)
-    }
-  }, [isModalOpen])
+  // (Removed local modal handling; now defers to parent modal logic)
 
   // Real-time search as user types
   useEffect(() => {
@@ -131,12 +100,8 @@ export function RealTimeSearchPage({
   }, [searchQuery])
 
   const handleClosePage = useCallback(() => {
-    if (isModalOpen) {
-      setIsModalOpen(false)
-      return
-    }
     onClose()
-  }, [isModalOpen, onClose])
+  }, [onClose])
 
   // Handle escape key: closes modal first, then page if no modal
   useEffect(() => {
@@ -156,25 +121,29 @@ export function RealTimeSearchPage({
   }
 
   const handleMoviePlay = (movieId: string, title: string) => {
-    onPlay(movieId, title)
-    // Keep the real-time search page open
+    // New unified flow: broadcast play intent so parent closes overlay & opens player centrally
+    try {
+      window.dispatchEvent(new CustomEvent('app:playMovie', { detail: { id: movieId, title } }))
+    } catch (e) {
+      console.warn('Failed dispatch app:playMovie', e)
+      // Fallback to direct invocation if dispatch fails
+      onClose()
+      onPlay(movieId, title)
+      return
+    }
+    // Still close immediately for perceived responsiveness (parent also sets state but this is idempotent)
+    onClose()
   }
 
   const handleMovieMoreInfo = (movie: SearchMovie) => {
-    // Adapt minimal data for modal. Modal will fetch more via tmdbId.
-    const adaptedMovie = {
-      id: movie.id,
-      title: movie.title,
-      poster: movie.poster,
-      backdrop: movie.poster,
-      year: movie.year || new Date().getFullYear(),
-      rating: 0,
-      genre: movie.genre || [],
-      description: '',
-      tmdbId: movie.id,
+    // Radically different: broadcast intent first so parent (global listener) closes & opens modal
+    try {
+      window.dispatchEvent(new CustomEvent('app:openModal', { detail: { id: movie.id } }))
+    } catch (e) {
+      console.warn('Failed dispatch app:openModal', e)
     }
-    setSelectedModalMovie(adaptedMovie)
-    setIsModalOpen(true)
+    // Still invoke local close as fallback
+    onClose()
   }
 
   const handleMovieAddToList = (movie: SearchMovie) => {
@@ -182,7 +151,7 @@ export function RealTimeSearchPage({
   }
 
   return (
-    <div className={`fixed inset-0 z-50 bg-[rgb(18,18,18)] text-white overflow-hidden ${isModalOpen ? 'pointer-events-none' : ''}`}>
+  <div className="fixed inset-0 z-50 bg-[rgb(18,18,18)] text-white overflow-hidden">
       {/* Search Header */}
       <div className="sticky top-0 z-10 bg-[rgb(18,18,18)]/95 backdrop-blur-sm border-b border-gray-800/50">
         <div className="flex items-center px-6 py-4">
@@ -235,10 +204,28 @@ export function RealTimeSearchPage({
           {searchResults.length > 0 ? (
             <MoviepireMovieGrid
               title=""
-              movies={searchResults}
-              onPlay={handleMoviePlay}
-              onAddToList={handleMovieAddToList}
-              onMoreInfo={handleMovieMoreInfo}
+              movies={searchResults.map(r => ({
+                id: r.id,
+                title: r.title,
+                poster: r.poster,
+                year: r.year,
+                genre: r.genre
+              }))}
+              onPlay={(m) => handleMoviePlay(m.id, m.title)}
+              onAddToList={(m) => handleMovieAddToList({
+                id: m.id,
+                title: m.title,
+                poster: m.poster || '/placeholder-poster.svg',
+                year: m.year,
+                genre: m.genre
+              })}
+              onMoreInfo={(m) => handleMovieMoreInfo({
+                id: m.id,
+                title: m.title,
+                poster: m.poster || '/placeholder-poster.svg',
+                year: m.year,
+                genre: m.genre
+              })}
               showMovieTitles={true}
             />
           ) : hasSearched && !isSearching && searchQuery.trim() ? (
@@ -257,32 +244,7 @@ export function RealTimeSearchPage({
         </div>
       </div>
 
-      {/* Modal shown on top of the real-time search page */}
-      <MovieDetailModal
-        movie={selectedModalMovie}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onPlay={(movieId) => {
-          onPlay(movieId, selectedModalMovie?.title || '')
-          setIsModalOpen(false)
-        }}
-        onAddToList={(movieId) => onAddToList({ id: movieId, title: selectedModalMovie?.title || '', poster: selectedModalMovie?.poster || '' })}
-        onMovieSelect={(m) => {
-          // When selecting a similar movie inside the modal, keep the modal open but update content
-          setSelectedModalMovie({
-            id: m.id,
-            title: m.title,
-            poster: m.poster,
-            backdrop: m.backdrop,
-            year: m.year,
-            rating: m.rating,
-            genre: m.genre,
-            description: m.description,
-            runtime: m.runtime,
-            tmdbId: m.tmdbId,
-          })
-        }}
-      />
+  {/* Local modal removed; parent handles modal display */}
     </div>
   )
 }

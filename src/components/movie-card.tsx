@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,66 +22,60 @@ interface MovieCardProps {
 }
 
 export function MovieCard({ movie, onPlay, onAddToList, onMoreInfo }: MovieCardProps) {
-  const [isHovered, setIsHovered] = useState(false)
-
   return (
     <Card
-      className="group relative bg-gray-900 border-gray-800 overflow-hidden cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      className="group relative bg-gray-900 border-gray-800 cursor-pointer will-change-transform transform-gpu"
       onClick={() => onPlay(movie.id)}
     >
       <CardContent className="p-0">
-        {/* Movie Poster */}
-        <div className="relative aspect-[2/3] overflow-hidden">
-          <img
-            src={movie.poster || "/placeholder-movie.jpg"}
-            alt={movie.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-          />
-          
-          {/* Hover Overlay */}
-          {isHovered && (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-              {/* Buttons positioned at bottom */}
-              <div className="absolute bottom-0 left-0 right-0 p-3">
-                <div className="flex space-x-2">
-                  <Button
-                    size="icon"
-                    className="bg-white text-black hover:bg-gray-200 h-8 w-8 rounded-full"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onPlay(movie.id)
-                    }}
-                  >
-                    <Play className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="border-white text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onAddToList(movie.id)
-                    }}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="border-white text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onMoreInfo(movie.id)
-                    }}
-                  >
-                    <Info className="h-4 w-4" />
-                  </Button>
-                </div>
+        {/* Poster & Hover content inside a scaling wrapper to avoid layout shift */}
+        <div className="relative aspect-[2/3] overflow-visible">
+          <div className="absolute inset-0 rounded-md bg-gray-800 overflow-hidden transition-transform duration-300 ease-out will-change-transform transform-gpu group-hover:scale-[1.08] group-hover:-translate-y-0.5 group-hover:z-20 shadow-none group-hover:shadow-2xl">
+            <img
+              src={movie.poster || "/placeholder-movie.jpg"}
+              alt={movie.title}
+              className="w-full h-full object-cover"
+              draggable={false}
+            />
+            {/* Persistent overlay; only fade opacity to prevent mount/unmount flicker */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+              <div className="flex space-x-2 pointer-events-auto">
+                <Button
+                  size="icon"
+                  className="bg-white text-black hover:bg-gray-200 h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onPlay(movie.id)
+                  }}
+                >
+                  <Play className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="border-white/70 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAddToList(movie.id)
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="border-white/70 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onMoreInfo(movie.id)
+                  }}
+                >
+                  <Info className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Movie Info */}

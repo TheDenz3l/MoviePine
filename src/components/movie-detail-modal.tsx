@@ -40,6 +40,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
   const [isLoadingCast, setIsLoadingCast] = useState(false)
   const [similarMovies, setSimilarMovies] = useState<Movie[]>([])
   const [isLoadingSimilar, setIsLoadingSimilar] = useState(false)
+  // (Alt backdrop logic removed – revert to using provided backdrop only)
   // Series / episodes state
   const [isSeries, setIsSeries] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState<number>(1)
@@ -244,7 +245,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
             similarResponse = await tmdbApi.getRecommendedTVShows(tmdbId)
           }
           const genres = await tmdbApi.getTVGenres()
-          const converted = similarResponse.results.slice(0, 12).map((tmdbShow: any) => tmdbApi.convertToSeries(tmdbShow, genres.genres))
+          const converted = similarResponse.results.slice(0, 15).map((tmdbShow: any) => tmdbApi.convertToSeries(tmdbShow, genres.genres))
           if (!abortRef.cancelled && fetchForId === (overrideMovie?.id || movie?.id || fetchForId)) {
             setSimilarMovies(converted)
           }
@@ -256,7 +257,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
             similarResponse = await tmdbApi.getRecommendedMovies(tmdbId)
           }
           const genres = await tmdbApi.getMovieGenres()
-          const converted = similarResponse.results.slice(0, 12).map((tmdbMovie: any) => tmdbApi.convertToMovie(tmdbMovie, genres.genres))
+          const converted = similarResponse.results.slice(0, 15).map((tmdbMovie: any) => tmdbApi.convertToMovie(tmdbMovie, genres.genres))
           if (!abortRef.cancelled && fetchForId === (overrideMovie?.id || movie?.id || fetchForId)) {
             setSimilarMovies(converted)
           }
@@ -267,6 +268,8 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
       } finally {
         setIsLoadingSimilar(false)
       }
+
+  // Alternate backdrop selection removed per latest requirements
     }
 
     fetchMovieDetails()

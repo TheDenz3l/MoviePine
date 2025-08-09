@@ -80,7 +80,7 @@ export function RecentlyPlayedCard({
 
   return (
     <div 
-      className="group relative flex-none w-[150px] cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10"
+      className="group relative flex-none w-[150px] cursor-pointer select-none"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
         setIsHovered(false)
@@ -88,42 +88,37 @@ export function RecentlyPlayedCard({
       }}
       onClick={handleCardClick}
     >
-      {/* Portrait Poster */}
-      <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-gray-800">
-        <img
-          src={movie.poster || "/placeholder-movie.jpg"}
-          alt={movie.title}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-        />
-        
-        {/* Progress Bar */}
-        {!isCompleted && progressPercentage > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
-            <div 
-              className="h-full bg-red-600 transition-all duration-300"
-              style={{ width: `${progressPercentage}%` }}
-            />
-          </div>
-        )}
-
-        {/* Completion Badge */}
-        {isCompleted && (
-          <div className="absolute top-2 left-2 bg-green-600 text-white text-xs px-2 py-1 rounded">
-            ✓ Watched
-          </div>
-        )}
-
-        {/* Resume Badge */}
-        {!isCompleted && progressPercentage > 5 && (
-          <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
-            <RotateCcw className="h-3 w-3" />
-            <span>{Math.round(progressPercentage)}%</span>
-          </div>
-        )}
-
-        {/* Hover Overlay */}
-        {isHovered && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+      {/* Portrait Poster with inner scaling wrapper */}
+      <div className="relative aspect-[2/3] overflow-visible">
+        <div className="absolute inset-0 rounded-md bg-gray-800 overflow-hidden transition-transform duration-300 ease-out will-change-transform transform-gpu group-hover:scale-[1.08]">
+          <img
+            src={movie.poster || "/placeholder-movie.jpg"}
+            alt={movie.title}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
+          {/* Badges & progress remain inside scaling wrapper */}
+          {!isCompleted && progressPercentage > 0 && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
+              <div 
+                className="h-full bg-red-600 transition-all duration-300"
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+          )}
+          {isCompleted && (
+            <div className="absolute top-2 left-2 bg-green-600 text-white text-xs px-2 py-1 rounded">
+              ✓ Watched
+            </div>
+          )}
+          {!isCompleted && progressPercentage > 5 && (
+            <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs px-2 py-1 rounded flex items-center space-x-1">
+              <RotateCcw className="h-3 w-3" />
+              <span>{Math.round(progressPercentage)}%</span>
+            </div>
+          )}
+          {/* Persistent overlay & action layer */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/60">
             <div className="flex flex-col items-center space-y-2">
               <Button
                 size="icon"
@@ -132,7 +127,6 @@ export function RecentlyPlayedCard({
               >
                 <Play className="h-4 w-4" />
               </Button>
-              
               {!isCompleted && resumeTime > 0 && (
                 <div className="text-white text-xs text-center">
                   Resume from<br />
@@ -140,43 +134,39 @@ export function RecentlyPlayedCard({
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Remove Button */}
-        {isHovered && (
-          <div className="absolute top-2 right-2">
-            {showRemoveConfirm ? (
-              <div className="flex space-x-1">
+            <div className="absolute top-2 right-2">
+              {showRemoveConfirm ? (
+                <div className="flex space-x-1">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="text-xs h-6 px-2"
+                    onClick={handleRemoveClick}
+                  >
+                    Remove
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-6 px-2 bg-white text-black"
+                    onClick={handleCancelRemove}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
                 <Button
-                  size="sm"
+                  size="icon"
                   variant="destructive"
-                  className="text-xs h-6 px-2"
+                  className="h-6 w-6 opacity-80 hover:opacity-100"
                   onClick={handleRemoveClick}
                 >
-                  Remove
+                  <X className="h-3 w-3" />
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs h-6 px-2 bg-white text-black"
-                  onClick={handleCancelRemove}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-6 w-6 opacity-80 hover:opacity-100"
-                onClick={handleRemoveClick}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Movie Info */}

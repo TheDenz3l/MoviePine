@@ -191,6 +191,10 @@ export class TMDBAPI {
     return this.makeRequest<TMDBCredits>(`/movie/${id}/credits`)
   }
 
+  async getMovieImages(id: number): Promise<{ backdrops: Array<{ file_path: string; width: number; height: number }>; posters: Array<{ file_path: string }> }> {
+    return this.makeRequest<{ backdrops: Array<{ file_path: string; width: number; height: number }>; posters: Array<{ file_path: string }> }>(`/movie/${id}/images`)
+  }
+
   async getSimilarMovies(id: number): Promise<TMDBSearchResult> {
     return this.makeRequest<TMDBSearchResult>(`/movie/${id}/similar`)
   }
@@ -255,6 +259,10 @@ export class TMDBAPI {
 
   async getTVShowCredits(id: number): Promise<TMDBCredits> {
     return this.makeRequest<TMDBCredits>(`/tv/${id}/credits`)
+  }
+
+  async getTVShowImages(id: number): Promise<{ backdrops: Array<{ file_path: string; width: number; height: number }>; posters: Array<{ file_path: string }> }> {
+    return this.makeRequest<{ backdrops: Array<{ file_path: string; width: number; height: number }>; posters: Array<{ file_path: string }> }>(`/tv/${id}/images`)
   }
 
   async getTVSeason(id: number, season: number): Promise<{ id: number; season_number: number; episodes: TMDBEpisode[] }> {
@@ -336,7 +344,7 @@ export class TMDBAPI {
       poster: tmdbMovie.poster_path ? this.getPosterUrl(tmdbMovie.poster_path) : undefined,
       backdrop: tmdbMovie.backdrop_path ? this.getBackdropUrl(tmdbMovie.backdrop_path, 'original') : undefined,
       year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : new Date().getFullYear(),
-      rating: tmdbMovie.vote_average,
+  rating: tmdbMovie.vote_average,
       genre: movieGenres.map(g => g.name),
       description: tmdbMovie.overview,
       runtime: tmdbMovie.runtime,
