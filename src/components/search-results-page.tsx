@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { TMDBAPI } from '@/lib/api/tmdb'
-import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+// Unified carousel style replaces CinematicRail
+import NetflixCarousel from '@/components/cinematic/NetflixCarousel'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { Search, ArrowLeft } from 'lucide-react'
@@ -44,7 +45,7 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, onSearch,
 
   // Get initial query from URL params
   useEffect(() => {
-    const query = searchParams.get('q')
+  const query = searchParams?.get('q')
     if (query) {
       setSearchQuery(query)
       performSearch(query, 1)
@@ -125,7 +126,6 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, onSearch,
       <MoviepireNavigation
         onNavigate={onNavigate || (() => {})}
         activeCategory={activeCategory}
-        onSearch={onSearch}
       />
 
       {/* Search Header */}
@@ -167,19 +167,23 @@ export function SearchResultsPage({ onMovieSelect, onBack, onNavigate, onSearch,
             </div>
           ) : searchResults.length > 0 ? (
             <>
-              <MoviepireMovieGrid
-                title=""
-                movies={searchResults}
-                onPlay={(movie) => {
-                  onMovieSelect(movie)
-                }}
-                onAddToList={(movie) => {
-                  // Handle add to list if needed
-                }}
-                onMoreInfo={(movie) => {
-                  onMovieSelect(movie)
-                }}
-                showMovieTitles={true}
+              <NetflixCarousel
+                id="search-results-rail-full"
+                title="Search Results"
+                items={searchResults.slice(0,72).map(r => ({ id: r.id, title: r.title, poster: r.poster, backdrop: r.backdrop || r.poster, year: r.year, genre: r.genre })) as any}
+                onPlay={(id) => { const mv = searchResults.find(x=>x.id===id); if(mv) onMovieSelect(mv) }}
+                onAdd={(id) => { /* no-op add list placeholder */ }}
+                onInfo={(id) => { const mv = searchResults.find(x=>x.id===id); if(mv) onMovieSelect(mv) }}
+                browseReplication
+                titlePopOut
+                intentDelayMs={70}
+                prefetchNeighbors
+                showMetadata={false}
+                showTitle={false}
+                actionButtonSize={40}
+                frameLift
+                frameLiftScale={1.045}
+                frameLiftTranslateY={-8}
               />
 
               {/* Load More Button */}
