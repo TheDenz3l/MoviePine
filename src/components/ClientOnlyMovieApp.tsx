@@ -17,7 +17,8 @@ import { RecentlyPlayedRow } from '@/components/recently-played-row'
 // Moviepire components
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
-import CinematicRail from '@/components/cinematic/CinematicRail'
+// Removed CinematicRail in favor of unified NetflixCarousel styling everywhere
+// import CinematicRail from '@/components/cinematic/CinematicRail'
 import NetflixPosterGrid from '@/components/cinematic/NetflixPosterGrid'
 import NetflixCarousel from '@/components/cinematic/NetflixCarousel'
 import ModernNetflixGrid from '@/components/cinematic/ModernNetflixGrid'
@@ -824,9 +825,14 @@ export default function ClientOnlyMovieApp() {
                     onInfo={id=>handleMoreInfo(id)}
                     browseReplication
                     titlePopOut
-                    intentDelayMs={90}
+                    intentDelayMs={70}
                     prefetchNeighbors
-                    showMetadata
+                    showMetadata={false}
+                    showTitle={false}
+                    actionButtonSize={40}
+                    frameLift
+                    frameLiftScale={1.045}
+                    frameLiftTranslateY={-8}
                   />
                 </section>
                 <section className="px-2 md:px-6" aria-label="Series Picks Carousel">
@@ -839,56 +845,97 @@ export default function ClientOnlyMovieApp() {
                     onInfo={id=>handleMoreInfo(id)}
                     browseReplication
                     titlePopOut
-                    intentDelayMs={90}
+                    intentDelayMs={70}
                     prefetchNeighbors
-                    showMetadata
+                    showMetadata={false}
+                    showTitle={false}
+                    actionButtonSize={40}
+                    frameLift
+                    frameLiftScale={1.045}
+                    frameLiftTranslateY={-8}
                   />
                 </section>
               </div>
             </>
           )}
-          {/* existing category-specific fallbacks remain below for other views */}
+          {/* Unified NetflixCarousel style for category pages */}
           {activeCategory === 'trending' && (
-            <CinematicRail
-              id="trending-category"
-              title="Trending movies this week"
-              items={movies.slice(0, 20).map(transformMovie)}
-              onPlay={(id) => handlePlay(id)}
-              onAdd={(id) => handleAddToList(id)}
-              onInfo={(id) => handleMoreInfo(id)}
-            />
+            <section className="px-2 md:px-6" aria-label="Trending Category Carousel">
+              <NetflixCarousel
+                id="category-trending"
+                title="Trending This Week"
+                items={effectiveTrending.slice(0,36).map(transformMovie)}
+                onPlay={id=>handlePlay(id)}
+                onAdd={id=>handleAddToList(id)}
+                onInfo={id=>handleMoreInfo(id)}
+                browseReplication
+                titlePopOut
+                intentDelayMs={70}
+                prefetchNeighbors
+                showMetadata={false}
+                showTitle={false}
+                actionButtonSize={40}
+                frameLift
+                frameLiftScale={1.045}
+                frameLiftTranslateY={-8}
+              />
+            </section>
           )}
           {activeCategory === 'popular' && (
-            <CinematicRail
-              id="popular-category"
-              title="Popular movies"
-              items={movies.slice(0, 20).map(transformMovie)}
-              onPlay={(id) => handlePlay(id)}
-              onAdd={(id) => handleAddToList(id)}
-              onInfo={(id) => handleMoreInfo(id)}
-            />
+            <section className="px-2 md:px-6" aria-label="Popular Category Carousel">
+              <NetflixCarousel
+                id="category-popular"
+                title="Popular Movies"
+                items={movies.slice(0,36).map(transformMovie)}
+                onPlay={id=>handlePlay(id)}
+                onAdd={id=>handleAddToList(id)}
+                onInfo={id=>handleMoreInfo(id)}
+                browseReplication
+                titlePopOut
+                intentDelayMs={70}
+                prefetchNeighbors
+                showMetadata={false}
+                showTitle={false}
+                actionButtonSize={40}
+                frameLift
+                frameLiftScale={1.045}
+                frameLiftTranslateY={-8}
+              />
+            </section>
           )}
           {activeCategory === 'recently-played' && recentlyPlayedMovies.length > 0 && (
-            <CinematicRail
-              id="recently-played-rail"
-              title="Continue Watching"
-              items={recentlyPlayedMovies.slice(0,30).map(r => transformMovie({
-                id: r.id,
-                title: r.title,
-                poster: r.poster,
-                backdrop: r.poster,
-                year: r.year,
-                rating: 0,
-                genre: r.genre,
-                description: '',
-                runtime: undefined,
-                imdbId: undefined,
-                tmdbId: undefined
-              } as StreamingMovie))}
-              onPlay={(id) => handlePlay(id)}
-              onAdd={(id) => handleAddToList(id)}
-              onInfo={(id) => handleMoreInfo(id)}
-            />
+            <section className="px-2 md:px-6" aria-label="Continue Watching Carousel">
+              <NetflixCarousel
+                id="category-recently-played"
+                title="Continue Watching"
+                items={recentlyPlayedMovies.slice(0,36).map(r => transformMovie({
+                  id: r.id,
+                  title: r.title,
+                  poster: r.poster,
+                  backdrop: r.poster,
+                  year: r.year,
+                  rating: 0,
+                  genre: r.genre,
+                  description: '',
+                  runtime: undefined,
+                  imdbId: undefined,
+                  tmdbId: undefined
+                } as StreamingMovie))}
+                onPlay={id=>handlePlay(id)}
+                onAdd={id=>handleAddToList(id)}
+                onInfo={id=>handleMoreInfo(id)}
+                browseReplication
+                titlePopOut
+                intentDelayMs={70}
+                prefetchNeighbors
+                showMetadata={false}
+                showTitle={false}
+                actionButtonSize={40}
+                frameLift
+                frameLiftScale={1.045}
+                frameLiftTranslateY={-8}
+              />
+            </section>
           )}
           {activeCategory === 'recently-played' && recentlyPlayedMovies.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
