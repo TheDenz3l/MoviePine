@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Film } from 'lucide-react'
@@ -8,7 +8,6 @@ import { StreamingService, createStreamingService } from '@/lib/services/streami
 import { StreamingMovie, StreamingSeries } from '@/lib/services/streaming'
 import { TMDBAPI } from '@/lib/api/tmdb'
 import { MovieCard } from '@/components/movie-card'
-import { NetflixMovieGrid } from '@/components/netflix-movie-grid'
 import { NetflixMovieRow } from '@/components/netflix-movie-row'
 import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MovieDetailModal } from '@/components/movie-detail-modal'
@@ -18,13 +17,18 @@ import { RecentlyPlayedRow } from '@/components/recently-played-row'
 // Moviepire components
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
-import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+import CinematicRail from '@/components/cinematic/CinematicRail'
+import NetflixPosterGrid from '@/components/cinematic/NetflixPosterGrid'
+import NetflixCarousel from '@/components/cinematic/NetflixCarousel'
+import ModernNetflixGrid from '@/components/cinematic/ModernNetflixGrid'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
 import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
 import { SeamlessSearchOverlay } from '@/components/seamless-search-overlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
+import MoviepireGrid from '@/components/moviepire-grid'
+// Removed MoviepireRails in favor of full NetflixPosterGrid replacement
 // import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
 const fallbackMovies: StreamingMovie[] = [
@@ -48,6 +52,7 @@ export default function ClientOnlyMovieApp() {
   const searchParams = useSearchParams()
 
   const [movies, setMovies] = useState<StreamingMovie[]>([])
+  const [trendingMovies, setTrendingMovies] = useState<StreamingMovie[]>([])
   const [trendingSeries, setTrendingSeries] = useState<StreamingSeries[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -629,6 +634,7 @@ export default function ClientOnlyMovieApp() {
           console.log('�📺 Fetched trending series:', trendingSeriesData.length)
           console.log('🔍 First few movies:', popularMovies.slice(0, 3))
           setMovies(popularMovies)
+          setTrendingMovies(trendingMoviesData)
           setTrendingSeries(trendingSeriesData)
           // Hero logic: always show the single most popular/highest vote trending movie (weekly) with a backdrop
           const sortedTrending = [...trendingMoviesData].filter(m => !!m.backdrop).sort((a, b) => (b.rating || 0) - (a.rating || 0))
@@ -673,6 +679,8 @@ export default function ClientOnlyMovieApp() {
   }
 
   const featuredMovie = selectedMovie || movies[0]
+  // Simple derived fallback (no hook) to avoid hook order changes when early returns occur.
+  const effectiveTrending = (trendingMovies && trendingMovies.length > 0) ? trendingMovies : movies.slice(0, 36)
 
   // Check if we should show search results page
   if (showSearchResults) {
@@ -761,97 +769,127 @@ export default function ClientOnlyMovieApp() {
           </div>
         )}
 
-        {/* Movie Grids - Moviepire style with tighter spacing */}
+        {/* Movie Grids / Rails */}
         <div className="relative z-10 space-y-0 pb-16 bg-[rgb(18,18,18)] overflow-visible">
-          {/* Top blend gradient to smooth transition from hero backdrop (medium strength) */}
           <div className="pointer-events-none absolute -top-24 left-0 right-0 h-24 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
           {activeCategory === 'home' && (
             <>
-              {/* Recently Played Section */}
-              {recentlyPlayedMovies.length > 0 && (
-                <MoviepireMovieGrid
-                  title="Continue Watching"
-                  movies={recentlyPlayedMovies.map(movie => ({
-                    id: movie.id,
-                    title: movie.title,
-                    poster: movie.poster,
-                    year: movie.year,
-                    genre: movie.genre
-                  }))}
-                  onPlay={(movie) => handlePlay(movie.id, movie.title)}
-                  onAddToList={(movie) => handleAddToList(movie.id)}
-                  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+              {/* Moviepire Browse Replication Grid */}
+              <section className="px-2 md:px-6 mb-16" aria-label="Browse Poster Wall">
+                <h2 className="text-xl font-semibold mb-4">Browse</h2>
+                <MoviepireGrid
+                  items={movies.map(transformMovie)}
+                  browseReplication
+                  intentDelayMs={90}
+                  enableKeyboardNav
+                  prefetchNeighbors
+                  showMetadata
+                  minCardWidth={150}
+                  gap={8}
+                  className="max-h-[70vh] rounded-lg ring-1 ring-white/5 bg-black/10 backdrop-blur-sm"
+                  onPlay={(id)=>handlePlay(id)}
+                  onAdd={(id)=>handleAddToList(id)}
+                  onInfo={(id)=>handleMoreInfo(id)}
                 />
-              )}
-
-              <MoviepireMovieGrid
-                title="Trending movies this week"
-                movies={movies.slice(0, 12).map(transformMovie)}
-                onPlay={(movie) => handlePlay(movie.id, movie.title)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
-                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              />
-              <MoviepireMovieGrid
-                title="Popular movies"
-                movies={movies.slice(12, 24).map(transformMovie)}
-                onPlay={(movie) => handlePlay(movie.id, movie.title)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
-                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              />
-              <MoviepireMovieGrid
-                title="TV Series"
-                movies={trendingSeries.slice(0, 12).map(transformSeries)}
-                onPlay={(movie) => handlePlay(movie.id, movie.title)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
-                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              />
-              <MoviepireMovieGrid
-                title="Top Rated Movies"
-                movies={movies.slice(24, 36).map(transformMovie)}
-                onPlay={(movie) => handlePlay(movie.id, movie.title)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
-                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              />
+              </section>
+              {/* Replacing all legacy rails with categorized poster grids */}
+              <div className="space-y-12">
+                <section className="px-2 md:px-6" aria-label="Trending This Week Carousel">
+                  <NetflixCarousel
+                    id="carousel-trending"
+                    title="Trending This Week"
+                    items={effectiveTrending.slice(0,36).map(transformMovie)}
+                    onPlay={id=>handlePlay(id)}
+                    onAdd={id=>handleAddToList(id)}
+                    onInfo={id=>handleMoreInfo(id)}
+                    browseReplication
+                    titlePopOut
+                    intentDelayMs={70}
+                    prefetchNeighbors
+                    showMetadata={false}
+                    showTitle={false}
+                    actionButtonSize={40}
+                    frameLift
+                    frameLiftScale={1.045}
+                    frameLiftTranslateY={-8}
+                  />
+                </section>
+                <section className="px-2 md:px-6" aria-label="Popular Movies Carousel">
+                  <NetflixCarousel
+                    id="carousel-popular"
+                    title="Popular Movies"
+                    items={movies.slice(0,36).map(transformMovie)}
+                    onPlay={id=>handlePlay(id)}
+                    onAdd={id=>handleAddToList(id)}
+                    onInfo={id=>handleMoreInfo(id)}
+                    browseReplication
+                    titlePopOut
+                    intentDelayMs={90}
+                    prefetchNeighbors
+                    showMetadata
+                  />
+                </section>
+                <section className="px-2 md:px-6" aria-label="Series Picks Carousel">
+                  <NetflixCarousel
+                    id="carousel-series"
+                    title="Series Picks"
+                    items={trendingSeries.slice(0,30).map(transformSeries)}
+                    onPlay={id=>handlePlay(id)}
+                    onAdd={id=>handleAddToList(id)}
+                    onInfo={id=>handleMoreInfo(id)}
+                    browseReplication
+                    titlePopOut
+                    intentDelayMs={90}
+                    prefetchNeighbors
+                    showMetadata
+                  />
+                </section>
+              </div>
             </>
           )}
-
+          {/* existing category-specific fallbacks remain below for other views */}
           {activeCategory === 'trending' && (
-            <MoviepireMovieGrid
+            <CinematicRail
+              id="trending-category"
               title="Trending movies this week"
-              movies={movies.slice(0, 20).map(transformMovie)}
-              onPlay={(movie) => handlePlay(movie.id, movie.title)}
-              onAddToList={(movie) => handleAddToList(movie.id)}
-              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+              items={movies.slice(0, 20).map(transformMovie)}
+              onPlay={(id) => handlePlay(id)}
+              onAdd={(id) => handleAddToList(id)}
+              onInfo={(id) => handleMoreInfo(id)}
             />
           )}
-
           {activeCategory === 'popular' && (
-            <MoviepireMovieGrid
+            <CinematicRail
+              id="popular-category"
               title="Popular movies"
-              movies={movies.slice(0, 20).map(transformMovie)}
-              onPlay={(movie) => handlePlay(movie.id, movie.title)}
-              onAddToList={(movie) => handleAddToList(movie.id)}
-              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+              items={movies.slice(0, 20).map(transformMovie)}
+              onPlay={(id) => handlePlay(id)}
+              onAdd={(id) => handleAddToList(id)}
+              onInfo={(id) => handleMoreInfo(id)}
             />
           )}
-
           {activeCategory === 'recently-played' && recentlyPlayedMovies.length > 0 && (
-            <MoviepireMovieGrid
+            <CinematicRail
+              id="recently-played-rail"
               title="Continue Watching"
-              movies={recentlyPlayedMovies.map(movie => ({
-                id: movie.id,
-                title: movie.title,
-                poster: movie.poster,
-                year: movie.year,
-                genre: movie.genre
-              }))}
-              onPlay={(movie) => handlePlay(movie.id, movie.title)}
-              onAddToList={(movie) => handleAddToList(movie.id)}
-              onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              showMovieTitles={true}
+              items={recentlyPlayedMovies.slice(0,30).map(r => transformMovie({
+                id: r.id,
+                title: r.title,
+                poster: r.poster,
+                backdrop: r.poster,
+                year: r.year,
+                rating: 0,
+                genre: r.genre,
+                description: '',
+                runtime: undefined,
+                imdbId: undefined,
+                tmdbId: undefined
+              } as StreamingMovie))}
+              onPlay={(id) => handlePlay(id)}
+              onAdd={(id) => handleAddToList(id)}
+              onInfo={(id) => handleMoreInfo(id)}
             />
           )}
-
           {activeCategory === 'recently-played' && recentlyPlayedMovies.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <Film className="w-16 h-16 text-gray-600 mb-4" />
@@ -860,8 +898,6 @@ export default function ClientOnlyMovieApp() {
             </div>
           )}
         </div>
-
-        {/* Footer */}
         <MoviepireFooter />
       </div>
 
