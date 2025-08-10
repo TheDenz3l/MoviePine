@@ -28,7 +28,7 @@ import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
 import { SeamlessSearchOverlay } from '@/components/seamless-search-overlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
-import MoviepireGrid from '@/components/moviepire-grid'
+// import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
 // import { SearchResultsPage } from '@/components/search-results-page'
 // Fallback movies data
@@ -776,21 +776,24 @@ export default function ClientOnlyMovieApp() {
           {activeCategory === 'home' && (
             <>
               {/* Moviepire Browse Replication Grid */}
-              <section className="px-2 md:px-6 mb-16" aria-label="Browse Poster Wall">
-                <h2 className="text-xl font-semibold mb-4">Browse</h2>
-                <MoviepireGrid
-                  items={movies.map(transformMovie)}
+              <section className="px-2 md:px-6 mb-16" aria-label="Browse Carousel">
+                <NetflixCarousel
+                  id="carousel-browse"
+                  title="Browse"
+                  items={movies.slice(0,36).map(transformMovie)}
+                  onPlay={id=>handlePlay(id)}
+                  onAdd={id=>handleAddToList(id)}
+                  onInfo={id=>handleMoreInfo(id)}
                   browseReplication
-                  intentDelayMs={90}
-                  enableKeyboardNav
+                  titlePopOut
+                  intentDelayMs={70}
                   prefetchNeighbors
-                  showMetadata
-                  minCardWidth={150}
-                  gap={8}
-                  className="max-h-[70vh] rounded-lg ring-1 ring-white/5 bg-black/10 backdrop-blur-sm"
-                  onPlay={(id)=>handlePlay(id)}
-                  onAdd={(id)=>handleAddToList(id)}
-                  onInfo={(id)=>handleMoreInfo(id)}
+                  showMetadata={false}
+                  showTitle={false}
+                  actionButtonSize={40}
+                  frameLift
+                  frameLiftScale={1.045}
+                  frameLiftTranslateY={-8}
                 />
               </section>
               {/* Replacing all legacy rails with categorized poster grids */}
