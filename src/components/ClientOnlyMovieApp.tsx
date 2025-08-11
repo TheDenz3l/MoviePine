@@ -177,11 +177,70 @@ export default function ClientOnlyMovieApp() {
     }
     window.addEventListener('app:navigate', handleGlobalNavigate)
     
+    // RADICAL NEW APPROACH: Direct event handlers for search overlay
+    // These bypass the traditional prop-based callback system for better reliability
+    const handleSearchPlayMovie = (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      console.log('🎬 [EVENT] Search play movie received:', detail)
+      
+      if (detail.id && detail.title) {
+        // Close search overlay first
+        setShowRealTimeSearch(false)
+        
+        // Create a complete movie object from search data
+        const movieData = {
+          id: detail.id,
+          title: detail.title,
+          poster: detail.poster || '',
+          year: detail.year || new Date().getFullYear(),
+          genre: detail.type ? [detail.type === 'movie' ? 'Movie' : 'TV Show'] : ['Unknown']
+        }
+        
+        console.log('🎬 [EVENT] Opening video player for search result:', detail.title)
+        setPlayingMovieId(detail.id)
+        setPlayingMovieTitle(detail.title)
+        setPlayingMovieData(movieData)
+        setResumeTime(0)
+        setIsVideoPlayerOpen(true)
+      }
+    }
+    window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie)
+    
+    const handleSearchAddToList = (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      console.log('➕ [EVENT] Search add to list received:', detail)
+      
+      if (detail.id && detail.title) {
+        alert(`➕ Added "${detail.title}" to your list!`)
+      }
+    }
+    window.addEventListener('app:searchAddToList', handleSearchAddToList)
+    
+    const handleSearchMoreInfo = async (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      console.log('ℹ️ [EVENT] Search more info received:', detail)
+      
+      if (detail.id) {
+        // Close search overlay first
+        setShowRealTimeSearch(false)
+        
+        // Use the enhanced handleMoreInfo which can fetch from TMDB
+        await handleMoreInfo(detail.id)
+      }
+    }
+    window.addEventListener('app:searchMoreInfo', handleSearchMoreInfo)
+    
     return () => {
       window.removeEventListener('app:openModal', handleGlobalOpenModal)
       window.removeEventListener('app:playMovie', handleGlobalPlayMovie)
       window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
       window.removeEventListener('app:navigate', handleGlobalNavigate)
+      window.removeEventListener('app:searchPlayMovie', handleSearchPlayMovie)
+      window.removeEventListener('app:searchAddToList', handleSearchAddToList)
+      window.removeEventListener('app:searchMoreInfo', handleSearchMoreInfo)
     }
   }, [showRealTimeSearch, isModalOpen])
 
@@ -275,29 +334,29 @@ export default function ClientOnlyMovieApp() {
     }
     console.log('🎬 Playing movie:', movieId, resumeFromTime ? `(resume from ${resumeFromTime}s)` : '')
 
-    // Find the movie to get its data - check main arrays first, then search results
-    let movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
+    // Find the movie to get its data - check main arrays first
+    let movie = movies.find(m => m.id === movieId) || 
+                trendingMovies.find(m => m.id === movieId) ||
+                trendingSeries.find(s => s.id === movieId)
     let title = movie?.title || titleOverride || 'Unknown Movie'
 
-    // If not found in main arrays, check if we have search results
-    if (!movie && seamlessSearchResults.length > 0) {
-      const searchResult = seamlessSearchResults.find(r => r.id === movieId)
-      if (searchResult) {
-        // Create a movie-like object from search result
-        movie = {
-          id: searchResult.id,
-          title: searchResult.title,
-          poster: searchResult.poster,
-          year: searchResult.year,
-          genre: [searchResult.type === 'movie' ? 'Movie' : 'TV Show'],
-          rating: 0,
-          description: 'Loading...',
-          runtime: undefined,
-          imdbId: undefined,
-          tmdbId: searchResult.id
-        } as StreamingMovie
-        title = searchResult.title
-      }
+    // If not found in main arrays, create a basic movie object for search results
+    if (!movie && titleOverride) {
+      console.log('🔍 Creating movie object for search result:', movieId, titleOverride)
+      // Create a basic movie-like object from the provided title
+      movie = {
+        id: movieId,
+        title: titleOverride,
+        poster: '', // Will be populated if needed
+        year: new Date().getFullYear(), // Default to current year
+        genre: ['Unknown'],
+        rating: 0,
+        description: 'Search result - details loading...',
+        runtime: undefined,
+        imdbId: undefined,
+        tmdbId: parseInt(movieId, 10) || undefined
+      } as StreamingMovie
+      title = titleOverride
     }
 
     // Prepare movie data for recently played tracking
@@ -311,14 +370,15 @@ export default function ClientOnlyMovieApp() {
       id: movieId,
       title: title,
       poster: '',
-      year: undefined,
-      genre: []
+      year: new Date().getFullYear(),
+      genre: ['Unknown']
     }
 
+    console.log('🎬 Opening video player for:', title)
     setPlayingMovieId(movieId)
     setPlayingMovieTitle(title)
     setPlayingMovieData(movieData)
-  setResumeTime(resumeFromTime || 0)
+    setResumeTime(resumeFromTime || 0)
     setIsVideoPlayerOpen(true)
   }
 
@@ -327,10 +387,101 @@ export default function ClientOnlyMovieApp() {
     alert(`➕ Added movie ${movieId} to your list!`)
   }
 
-  const handleMoreInfo = (movieId: string) => {
-    const movie = movies.find(m => m.id === movieId) || trendingSeries.find(s => s.id === movieId)
-    if (movie) setModalMovie(movie)
-    setIsModalOpen(true)
+  const handleMoreInfo = async (movieId: string) => {
+    console.log('ℹ️ [HANDLER] More info requested for:', movieId)
+    
+    // First, try to find the movie in existing arrays (current behavior)
+    const movie = movies.find(m => m.id === movieId) || 
+                  trendingMovies.find(m => m.id === movieId) || 
+                  trendingSeries.find(s => s.id === movieId)
+    
+    if (movie) {
+      console.log('✅ [HANDLER] Found movie in existing arrays:', movie.title)
+      setModalMovie(movie)
+      setIsModalOpen(true)
+      return
+    }
+
+    // If not found in existing arrays, fetch from TMDB API
+    console.log('🔍 [HANDLER] Fetching movie details from TMDB for ID:', movieId)
+    
+    try {
+      // Get configuration to access TMDB API key
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+
+      if (!configData.success || !configData.config.tmdbApiKey) {
+        console.error('❌ [HANDLER] TMDB API key not available')
+        setIsModalOpen(true) // Still open modal to prevent user confusion
+        return
+      }
+
+      const tmdbApi = new TMDBAPI(configData.config.tmdbApiKey)
+      const numericId = parseInt(movieId, 10)
+      
+      if (isNaN(numericId)) {
+        console.error('❌ [HANDLER] Invalid movie ID for TMDB fetch:', movieId)
+        return
+      }
+
+      // First try to get it as a movie
+      let tmdbData
+      let isMovie = true
+      
+      try {
+        tmdbData = await tmdbApi.getMovie(numericId)
+        console.log('✅ [HANDLER] Successfully fetched movie data from TMDB:', tmdbData.title)
+      } catch (movieError) {
+        // If movie fetch fails, try as TV show
+        try {
+          tmdbData = await tmdbApi.getTVShow(numericId)
+          isMovie = false
+          console.log('✅ [HANDLER] Successfully fetched TV show data from TMDB:', (tmdbData as any).name)
+        } catch (tvError) {
+          console.error('❌ [HANDLER] Failed to fetch from TMDB as both movie and TV:', movieError, tvError)
+          setIsModalOpen(true) // Still open modal to prevent user confusion
+          return
+        }
+      }
+
+      // Transform TMDB data to StreamingMovie/StreamingSeries format
+      const transformedMovie: StreamingMovie | StreamingSeries = isMovie ? {
+        // Movie format
+        id: movieId,
+        title: (tmdbData as any).title,
+        poster: tmdbData.poster_path ? tmdbApi.getPosterUrl(tmdbData.poster_path, 'w500') : '',
+        backdrop: tmdbData.backdrop_path ? tmdbApi.getBackdropUrl(tmdbData.backdrop_path, 'original') : '',
+        year: new Date((tmdbData as any).release_date || '').getFullYear() || new Date().getFullYear(),
+        rating: tmdbData.vote_average || 0,
+        genre: tmdbData.genres?.map((g: any) => g.name) || [],
+        description: tmdbData.overview || 'No description available.',
+        runtime: (tmdbData as any).runtime,
+        imdbId: (tmdbData as any).imdb_id,
+        tmdbId: tmdbData.id
+      } : {
+        // TV Series format
+        id: movieId,
+        title: (tmdbData as any).name,
+        poster: tmdbData.poster_path ? tmdbApi.getPosterUrl(tmdbData.poster_path, 'w500') : '',
+        backdrop: tmdbData.backdrop_path ? tmdbApi.getBackdropUrl(tmdbData.backdrop_path, 'original') : '',
+        year: new Date((tmdbData as any).first_air_date || '').getFullYear() || new Date().getFullYear(),
+        rating: tmdbData.vote_average || 0,
+        genre: tmdbData.genres?.map((g: any) => g.name) || [],
+        description: tmdbData.overview || 'No description available.',
+        seasons: (tmdbData as any).number_of_seasons,
+        episodes: (tmdbData as any).number_of_episodes,
+        imdbId: (tmdbData as any).imdb_id,
+        tmdbId: tmdbData.id
+      }
+
+      setModalMovie(transformedMovie)
+      setIsModalOpen(true)
+      console.log('🎬 [HANDLER] Modal opened with fetched movie data:', transformedMovie.title)
+    } catch (error) {
+      console.error('❌ [HANDLER] Error fetching movie details for modal:', error)
+      // Still open modal to prevent user confusion, but with minimal data
+      setIsModalOpen(true)
+    }
   }
 
   const handleMovieSelect = (_movie: StreamingMovie | StreamingSeries) => {
@@ -365,10 +516,11 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleMoviepireMoreInfo = (movieId: string) => {
-    // Search in both movies and series arrays
+    // Search in all movie and series arrays
     const movie = movies.find(m => m.id === movieId)
+    const trendingMovie = trendingMovies.find(m => m.id === movieId)
     const series = trendingSeries.find(s => s.id === movieId)
-    const selectedItem = movie || series
+    const selectedItem = movie || trendingMovie || series
 
     if (selectedItem) {
       setSelectedMoviepireMovie(selectedItem)
@@ -662,9 +814,8 @@ export default function ClientOnlyMovieApp() {
             service.getTrendingSeries()
           ])
           console.log('📽️ Fetched movies:', popularMovies.length)
-          console.log('� Fetched trending movies:', trendingMoviesData.length)
-          console.log('�📺 Fetched trending series:', trendingSeriesData.length)
-          console.log('🔍 First few movies:', popularMovies.slice(0, 3))
+          console.log('🔥 Fetched trending movies:', trendingMoviesData.length)
+          console.log('📺 Fetched trending series:', trendingSeriesData.length)
           setMovies(popularMovies)
           setTrendingMovies(trendingMoviesData)
           setTrendingSeries(trendingSeriesData)

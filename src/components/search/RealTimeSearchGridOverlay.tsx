@@ -334,7 +334,22 @@ export function RealTimeSearchGridOverlay({
               <div
                 key={result.id}
                 className="group relative aspect-[2/3] cursor-pointer rounded-md overflow-hidden bg-zinc-900/60 ring-1 ring-zinc-800 shadow-sm transform-gpu transition-transform duration-300 hover:scale-[1.045] hover:-translate-y-2"
-                onClick={() => onMoreInfo(result.id)}
+                onClick={() => {
+                  console.log('🖱️ [SEARCH] Card clicked for:', result.id, result.title);
+                  // RADICAL NEW APPROACH: Direct event dispatch instead of callback
+                  window.dispatchEvent(new CustomEvent('app:searchMoreInfo', { 
+                    detail: { 
+                      id: result.id, 
+                      title: result.title,
+                      poster: result.poster,
+                      backdrop: result.backdrop,
+                      year: result.year,
+                      rating: result.rating,
+                      type: result.type
+                    } 
+                  }));
+                  onClose(); // Close search overlay
+                }}
               >
                 {result.poster ? (
                   <img
@@ -355,7 +370,20 @@ export function RealTimeSearchGridOverlay({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        onPlay(result.id, result.title);
+                        console.log('🔴 [SEARCH] Play button clicked for:', result.id, result.title);
+                        // RADICAL NEW APPROACH: Direct event dispatch with complete movie data
+                        window.dispatchEvent(new CustomEvent('app:searchPlayMovie', { 
+                          detail: { 
+                            id: result.id, 
+                            title: result.title,
+                            poster: result.poster,
+                            backdrop: result.backdrop,
+                            year: result.year,
+                            rating: result.rating,
+                            type: result.type
+                          } 
+                        }));
+                        onClose(); // Close search overlay
                       }} 
                       className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
                       title="Play"
@@ -365,7 +393,16 @@ export function RealTimeSearchGridOverlay({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        onAddToList(result.id);
+                        console.log('➕ [SEARCH] Add to list button clicked for:', result.id, result.title);
+                        // Direct event dispatch with complete data
+                        window.dispatchEvent(new CustomEvent('app:searchAddToList', { 
+                          detail: { 
+                            id: result.id, 
+                            title: result.title,
+                            poster: result.poster,
+                            type: result.type
+                          } 
+                        }));
                       }} 
                       className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
                       title="Add to List"
@@ -375,7 +412,20 @@ export function RealTimeSearchGridOverlay({
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        onMoreInfo(result.id);
+                        console.log('ℹ️ [SEARCH] Info button clicked for:', result.id, result.title);
+                        // Direct event dispatch with complete data
+                        window.dispatchEvent(new CustomEvent('app:searchMoreInfo', { 
+                          detail: { 
+                            id: result.id, 
+                            title: result.title,
+                            poster: result.poster,
+                            backdrop: result.backdrop,
+                            year: result.year,
+                            rating: result.rating,
+                            type: result.type
+                          } 
+                        }));
+                        onClose(); // Close search overlay
                       }} 
                       className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
                       title="More Info"
