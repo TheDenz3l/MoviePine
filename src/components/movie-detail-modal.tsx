@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { SeasonSelect } from "./season-select"
-import { X, Play, Plus, ThumbsUp } from "lucide-react"
+import { X, Play, Plus, ThumbsUp, Info } from "lucide-react"
 import { ImdbRating } from '@/components/imdb-rating'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -652,8 +652,8 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                         <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2">
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden="true">
                             <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }} className="pointer-events-auto h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
-                            <button type="button" onClick={(e)=>{ e.stopPropagation(); onAddToList(similarMovie.id) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">+</button>
-                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">i</button>
+                            <button type="button" onClick={(e)=>{ e.stopPropagation(); onAddToList(similarMovie.id) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white" aria-label="Add to list"><Plus className="h-5 w-5" /></button>
+                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white" aria-label="More info"><Info className="h-5 w-5" /></button>
                           </div>
                         </div>
                       </div>

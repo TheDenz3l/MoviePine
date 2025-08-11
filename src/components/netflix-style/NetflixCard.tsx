@@ -1,6 +1,6 @@
 "use client"
 
-import { Play, Plus } from 'lucide-react'
+import { Play, Plus, Info } from 'lucide-react'
 import { NetflixCardProps } from './types'
 
 export function NetflixCard({ 
@@ -76,8 +76,9 @@ export function NetflixCard({
               type="button" 
               onClick={handleMoreInfo} 
               className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
+              aria-label="More info"
             >
-              i
+              <Info className="h-4 w-4" />
             </button>
           </div>
         </div>

@@ -12,10 +12,7 @@
     "test:e2e": "playwright test",
     "test:headed": "PW_HEADED=1 playwright test --project=chrome",
     "test:debug": "PWDEBUG=1 playwright test --project=chrome-debug",
-    "test:ui": "playwright test --ui",
-    "mcp:list": "node scripts/mcp-list.js",
-    "mcp:context7:stdio": "npx -y @upstash/context7-mcp",
-    "mcp:context7:http": "npx -y @upstash/context7-mcp --transport http --port 3407",
+    "test:ui": "playwright test --ui"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.10",
@@ -41,13 +38,11 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@modelcontextprotocol/sdk": "^1.17.2",
     "@playwright/test": "^1.54.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@upstash/context7-mcp": "^1.0.14",
     "eslint": "^9",
     "eslint-config-next": "15.4.5",
     "tailwindcss": "^4",

@@ -1,15 +1,8 @@
 # MCP (Model Context Protocol) Setup
 
-This directory contains configuration and documentation for MCP tools used in the MoviePine project.
+This directory contains configuration and documentation for Serena MCP used in the MoviePine project.
 
 ## Installed Tools
-
-### Reasoning Tools
-- **Atom of Thought (AoT)**: Structured problem decomposition with premise → reasoning → hypothesis → verification → conclusion workflow
-- **Sequential Thinking**: Lightweight iterative chain-of-thought with revision and branching support
-
-### Documentation Tools  
-- **Context7**: Fetch focused, up-to-date library documentation for Next.js, React, Tailwind, etc.
 
 ### Coding Agent
 - **Serena**: Semantic code analysis and planning toolkit (ANALYSIS ONLY - NO CODE WRITING)
@@ -21,18 +14,13 @@ This directory contains configuration and documentation for MCP tools used in th
 
 ## Configuration Files
 
-- `mcp.config.json` - Main MCP tools registry
 - `.vscode/settings.json` - VS Code workspace settings for Serena MCP
-- `GITHUB_COPILOT_SETUP.md` - Detailed setup guide for GitHub Copilot integration
 - `SERENA_SETUP.md` - General Serena documentation and setup options
 
 ## Setup Scripts
 
-- `setup-github-copilot.sh` - Automated setup for GitHub Copilot integration ✅
 - `setup-serena.sh` - General Serena setup script
 - `verify-serena.sh` - Verification script for Serena installation
-
-## Usage
 
 ## Usage
 
@@ -56,13 +44,6 @@ Refactor this component to use the hook pattern I found
 
 ### GitHub Copilot Integration
 Serena is configured to work with GitHub Copilot through the Copilot MCP extension in analysis-only mode.
-
-### Legacy Tool Usage (AoT, Sequential Thinking, Context7)
-| Tool | Purpose | When to Use | Skip When |
-|------|---------|------------|-----------|
-| atom-of-thought | Deep structured reasoning (premises → reasoning → hypotheses → verification → conclusions) | Large refactors, architecture choices, risk analysis | Simple cosmetic changes |
-| sequential-thinking | Fast iterative reasoning with ability to revise earlier steps | Medium complexity feature design, exploratory ideation | Ultra-trivial tasks |
-| context7 | Pull authoritative, version-aware library docs snippets | Need precise Next.js/React/Tailwind feature details | Knowledge already certain |
 
 ### Available Commands (Command Palette)
 - `Copilot MCP: List Servers`
