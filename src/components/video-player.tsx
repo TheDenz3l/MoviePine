@@ -1,1321 +1,668 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, X, Languages, Subtitles } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
-import { Slider } from "@/components/ui/slider"
-import { RecentlyPlayedService } from "@/lib/services/recently-played-service"
+// Netflix-style video player component (reconstructed)
+
+import { useState, useRef, useEffect, useCallback } from 'react'
+import Hls from 'hls.js'
+import { Play, Pause, Volume2, VolumeX, Maximize, X, Languages, Subtitles, Settings as SettingsIcon, PictureInPicture2, FastForward, Rewind } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { RecentlyPlayedService } from '@/lib/services/recently-played-service'
 import { queueProgressUpdate, immediateProgressUpdate } from '@/lib/services/progress-sync'
 import { saveEpisodeProgress } from '@/lib/services/episode-progress'
+import { emitPlayerError } from '@/lib/utils/player-error'
 
-// Extend HTMLVideoElement with vendor specific / non-standard fields we probe defensively
-declare global {
-  interface HTMLVideoElement {
-    audioTracks?: any
-    mozHasAudio?: boolean
-    webkitAudioDecodedByteCount?: number
-    videoTracks?: any
-  }
-}
+declare global { interface HTMLVideoElement { audioTracks?: any; videoTracks?: any } }
 
+const INTRO_SKIP_HEURISTIC_SECONDS = 85
+const INTRO_VISIBLE_WINDOW = 120
+const NEXT_EPISODE_THRESHOLD = 90
+const AUTO_PLAY_NEXT_COUNTDOWN = 10
+const AUTO_HIDE_DELAY = 1800 // ms until controls fade
+
+interface RealSubtitle { language: string; label: string; url: string }
 interface VideoPlayerProps {
   src: string
   title: string
   onClose: () => void
+  movieId?: string
+  movieData?: any
+  startTime?: number
+  onError?: (msg: string) => void
   autoPlay?: boolean
-  onError?: (error: string) => void
-  availableSubtitles?: string[] // Subtitle languages available from the stream (fake metadata)
-  realSubtitles?: Array<{
-    language: string
-    label: string
-    url: string
-    isExternal: boolean
-  }> // Real subtitle files from SubDL API
-  movieId?: string // For recently played tracking
-  movieData?: {
-    id: string
-    title: string
-    poster: string
-    year?: number
-    genre?: string[]
-  } // Movie data for recently played
-  startTime?: number // Resume from specific time
+  availableSubtitles?: string[]
+  realSubtitles?: RealSubtitle[]
+  hasNextEpisode?: boolean
+  onNextEpisode?: () => void
 }
 
-export function VideoPlayer({
-  src,
-  title,
-  onClose,
-  autoPlay = true,
-  onError,
-  availableSubtitles = [],
-  realSubtitles = [],
-  movieId,
-  movieData,
-  startTime = 0
-}: VideoPlayerProps) {
-  // Validate source URL
-  if (!src || typeof src !== 'string' || src.trim() === '') {
-    console.error('❌ Invalid video source provided:', src)
-    if (onError) {
-      onError('Invalid video source. Please try a different stream.')
-    }
-    return null
-  }
+export default function VideoPlayer({ src, title, onClose, movieId, movieData, startTime = 0, onError, autoPlay = true, availableSubtitles = [], realSubtitles = [], hasNextEpisode = false, onNextEpisode }: VideoPlayerProps) {
+  // refs
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const hlsRef = useRef<Hls | null>(null)
+  // legacy timeout refs (unused after refactor, kept to avoid broad removals)
+  const controlsTimeoutRef = useRef<any>(null)
+  const cursorTimeoutRef = useRef<any>(null)
+  const nextIntervalRef = useRef<any>(null)
 
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  // core playback state
   const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(0.8) // Start at 80% volume
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [showControls, setShowControls] = useState(true)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [volume, setVolume] = useState(0.8)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
+
+  // UI visibility
+  const [showControls, setShowControls] = useState(true)
   const [showCursor, setShowCursor] = useState(true)
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false)
+
+  // Menus
+  const [showAudioMenu, setShowAudioMenu] = useState(false)
+  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+
+  // Tracks / subtitles
   const [audioTracks, setAudioTracks] = useState<{ id: string; label: string; language: string }[]>([])
-  const [subtitleTracks, setSubtitleTracks] = useState<{ id: string; label: string; language: string; src?: string }[]>([])
-  const [selectedAudioTrack, setSelectedAudioTrack] = useState<string>('')
+  const [subtitleTracks, setSubtitleTracks] = useState<{ id: string; label: string; language: string; src?: string }[]>([{ id: 'off', label: 'Off', language: 'none' }])
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState<string>('0')
   const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<string>('off')
   const [customSubtitles, setCustomSubtitles] = useState<{ text: string; startTime: number; endTime: number }[]>([])
-  const [currentSubtitle, setCurrentSubtitle] = useState<string>('')
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const cursorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [currentSubtitle, setCurrentSubtitle] = useState('')
+  const subtitleIndexRef = useRef(0)
+  const subtitleIntervalRef = useRef<any>(null)
+  const [subtitleDebug, setSubtitleDebug] = useState<{count:number;active:number;track:string}>({count:0,active:-1,track:'off'})
+  const [subtitleStatus, setSubtitleStatus] = useState('')
 
-  // Enhanced audio context activation function
-  const activateAudioContext = () => {
-    try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext
-      if (!AudioContext) {
-        console.log('🔊 AudioContext not supported')
-        return
-      }
+  // Advanced overlays
+  const [showSkipIntro, setShowSkipIntro] = useState(false)
+  const [showNextEpisode, setShowNextEpisode] = useState(false)
+  const [nextCountdown, setNextCountdown] = useState(AUTO_PLAY_NEXT_COUNTDOWN)
 
-      const audioContext = new AudioContext()
-      console.log(`🔊 AudioContext state: ${audioContext.state}`)
+  // Timeline hover & buffering
+  const [hoverTime, setHoverTime] = useState<number | null>(null)
+  const [hoverPercent, setHoverPercent] = useState<number | null>(null)
+  const [bufferedRanges, setBufferedRanges] = useState<Array<{ startPct: number; endPct: number }>>([])
+  // Autoplay handling
+  const [requiresClickForSound, setRequiresClickForSound] = useState(false)
+  const lastMousePos = useRef<{x:number;y:number}|null>(null)
+  const lastActivityRef = useRef<number>(Date.now())
+  // Error / recovery state
+  const [playbackError, setPlaybackError] = useState<{ code: string; message: string } | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+  const lastStrategyRef = useRef<'hlsjs' | 'native' | 'direct'>('direct')
 
-      if (audioContext.state === 'suspended') {
-        audioContext.resume().then(() => {
-          console.log('🔊 AudioContext activated successfully')
-        }).catch((error) => {
-          console.log('🔊 AudioContext activation failed:', error)
-        })
-      }
+  const isValidSrc = !!src
 
-      // Create a brief audio buffer to ensure audio is working
-      const buffer = audioContext.createBuffer(1, 1, 22050)
-      const source = audioContext.createBufferSource()
-      source.buffer = buffer
-      source.connect(audioContext.destination)
-      source.start(0)
+  const log = (...args: any[]) => { if (process.env.NODE_ENV !== 'production') console.log('[VideoPlayer]', ...args) }
+  const isSafari = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
+  const attemptedH264FallbackRef = useRef(false)
 
-      console.log('🔊 Audio test buffer created and played')
-    } catch (error) {
-      console.log('🔊 Audio context setup failed:', error)
-    }
-  }
-
-  // Reset loading state when src changes
-  useEffect(() => {
+  // Source (re)initialization logic encapsulated for retries
+  const initializeSource = useCallback((reason: string) => {
+    const video = videoRef.current
+    if (!video) return
     setIsLoading(true)
-    setIsPlaying(false)
-    setCurrentTime(0)
-    setDuration(0)
-  }, [src])
+    setPlaybackError(null)
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    const isHls = src.endsWith('.m3u8')
+    if (isHls) {
+      // Choose strategy: alternate between hls.js and native when retrying
+  let useHlsJs = Hls.isSupported() && !isSafari
+      if (retryCount > 0) {
+        // Flip strategy each retry if possible
+        if (lastStrategyRef.current === 'hlsjs') useHlsJs = false
+        else if (lastStrategyRef.current === 'native') useHlsJs = true
+      }
+      if (useHlsJs) {
+        lastStrategyRef.current = 'hlsjs'
+        const h = new Hls({ enableWorker: true, startLevel: 0, progressive: true })
+        hlsRef.current = h
+        h.on(Hls.Events.ERROR, (_, data) => {
+          const detail = data.details || 'Unknown HLS error'
+          emitPlayerError('HLS_ERROR', detail, { fatal: data.fatal, type: data.type })
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              try { h.recoverMediaError() } catch { setPlaybackError({ code: 'HLS_FATAL', message: detail }) }
+            } else {
+              setPlaybackError({ code: 'HLS_FATAL', message: detail })
+            }
+          }
+        })
+        h.loadSource(src + (retryCount ? `?r=${retryCount}` : ''))
+        h.attachMedia(video)
+      } else {
+        lastStrategyRef.current = 'native'
+        video.src = src + (retryCount ? `?r=${retryCount}` : '')
+      }
+    } else {
+      lastStrategyRef.current = 'direct'
+      video.src = src + (retryCount ? (src.includes('?') ? `&r=${retryCount}` : `?r=${retryCount}`) : '')
+    }
+  }, [src, retryCount])
 
+  // Initialize on src or retry change
+  useEffect(() => { initializeSource('initial') }, [src, retryCount, initializeSource])
+
+  // Metadata & events
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-
-    // Function to check if audio is actually playing
-    const checkAudioPlayback = () => {
-      if (!videoRef.current?.isConnected) return
-      const video = videoRef.current
-
-      console.log(`🔊 Audio playback check: volume=${video.volume}, muted=${video.muted}, paused=${video.paused}`)
-      console.log(`🔊 Audio tracks: ${video.audioTracks ? video.audioTracks.length : 'not supported'}`)
-
-      // Check if we can detect audio activity
-      if (video.mozHasAudio !== undefined) {
-        console.log(`🔊 Mozilla audio detection: ${video.mozHasAudio}`)
-      }
-      if (video.webkitAudioDecodedByteCount !== undefined) {
-        console.log(`🔊 WebKit audio bytes: ${video.webkitAudioDecodedByteCount}`)
-      }
-    }
-
-    // Set up a timeout to detect if video takes too long to load
-    const loadTimeout = setTimeout(() => {
-      if (isLoading && onError) {
-        onError('Video is taking too long to load. The stream may be unavailable or your connection is slow.')
-      }
-    }, 30000) // 30 second timeout
+    const loadTimeout = setTimeout(() => { if (isLoading && onError) onError('Video is taking too long to load.') }, 30000)
 
     const handleLoadedMetadata = () => {
-      // Check if video element is still in the DOM before proceeding
       if (!video.isConnected) return
-
       clearTimeout(loadTimeout)
       setDuration(video.duration)
       setIsLoading(false)
-
-      // Enhanced audio configuration and codec detection
       video.volume = volume
       video.muted = false
-
-      // Force audio context activation for better browser compatibility
-      if (video.volume === 0) {
-        video.volume = 0.8
-        setVolume(0.8)
-      }
-
-      // Detect audio capabilities and codec support
-      const hasAudioTracks = video.audioTracks && video.audioTracks.length > 0
-      const hasAudioData = video.mozHasAudio !== false && video.webkitAudioDecodedByteCount !== 0
-      const audioSupported = video.canPlayType && (
-        video.canPlayType('audio/mp4; codecs="mp4a.40.2"') !== '' ||
-        video.canPlayType('audio/mpeg') !== '' ||
-        video.canPlayType('audio/ogg; codecs="vorbis"') !== '' ||
-        video.canPlayType('audio/webm; codecs="opus"') !== ''
-      )
-
-      console.log(`🔊 Audio configured: volume=${video.volume}, muted=${video.muted}, hasAudio=${!video.muted && video.volume > 0}`)
-      console.log(`🔊 Video element audio properties: readyState=${video.readyState}, networkState=${video.networkState}`)
-      console.log(`🔊 Audio detection: hasAudioTracks=${hasAudioTracks}, hasAudioData=${hasAudioData}, audioSupported=${audioSupported}`)
-  console.log(`🔊 Audio codec support check: ${video.canPlayType('video/mp4') ? 'supported' : 'not supported'}`)
-
-      // Try to activate audio context immediately
-      activateAudioContext()
-
-      // Discover available audio and subtitle tracks
+      if (video.volume === 0) { video.volume = 0.8; setVolume(0.8) }
       discoverTracks()
-
-      // Set start time if resuming playback
-      if (startTime > 0 && startTime < video.duration) {
-        video.currentTime = startTime
-        setCurrentTime(startTime)
-        console.log(`📺 Resuming playback from ${startTime}s`)
-      }
-
+      if (startTime > 0 && startTime < video.duration) { video.currentTime = startTime; setCurrentTime(startTime) }
       if (autoPlay) {
-        // Use a promise-based approach to handle play() properly
-        const playPromise = video.play()
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              // Only update state if video is still connected
-              if (video.isConnected) {
-                setIsPlaying(true)
-                console.log('🔊 Video and audio playback started successfully')
-                // Double-check audio after playback starts
-                // Internal audio playback check (scoped) will run after start
-              }
-            })
-            .catch((error) => {
-              console.log('Video play was interrupted:', error)
-              // Don't treat this as a fatal error
-              setIsPlaying(false)
-            })
-        }
+        // First attempt with sound
+        video.play().then(() => {
+          setIsPlaying(true)
+          video.muted = false
+          setIsMuted(false)
+          setRequiresClickForSound(false)
+          markActivity()
+        }).catch(() => {
+          // Retry muted (common mobile autoplay policy)
+          video.muted = true
+          setIsMuted(true)
+          video.play().then(() => {
+            // Playing muted; need user interaction for sound
+            setIsPlaying(true)
+            setRequiresClickForSound(true)
+            markActivity()
+          }).catch(() => {
+            // Fully blocked - wait for user gesture
+            setRequiresClickForSound(true)
+            setIsPlaying(false)
+            markActivity()
+          })
+        })
       }
     }
-
-  const handleTimeUpdate = () => {
-      const currentVideoTime = video.currentTime
-      setCurrentTime(currentVideoTime)
-
-      // Update recently played progress every 10 seconds
-    if (movieId && movieData && duration > 0) {
-        const progressUpdateInterval = 10 // seconds
-        if (Math.floor(currentVideoTime) % progressUpdateInterval === 0 &&
-            Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
-          RecentlyPlayedService.updateProgress(movieId, currentVideoTime, duration)
-      queueProgressUpdate({ contentId: movieId, currentTime: currentVideoTime, duration })
+    const handleTimeUpdate = () => {
+      const ct = video.currentTime
+      setCurrentTime(ct)
+      if (movieId && movieData && duration > 0) {
+        if (Math.floor(ct) % 10 === 0 && Math.floor(ct) !== Math.floor(ct - 0.1)) {
+          RecentlyPlayedService.updateProgress(movieId, ct, duration)
+          queueProgressUpdate({ contentId: movieId, currentTime: ct, duration })
         }
       }
-
-      // Persist per-episode progress locally if this is a series episode composite id
-  if (movieId && /:S\d+E\d+/.test(movieId) && duration > 0) {
+      if (movieId && /:S\d+E\d+/.test(movieId) && duration > 0) {
         const match = movieId.match(/^(.*):S(\d+)E(\d+)/)
         if (match) {
-          const seriesBase = match[1]
-          const season = match[2]
-            const episode = match[3]
-            const fraction = currentVideoTime / duration
-            // Only write every 5s to reduce churn
-            if (Math.floor(currentVideoTime) % 5 === 0 && Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
-              try {
-                localStorage.setItem(`series-episode-progress:${seriesBase}:S${season}E${episode}`, JSON.stringify({ fraction, seconds: currentVideoTime }))
-        saveEpisodeProgress({ seriesId: seriesBase, season: parseInt(season, 10), episode: parseInt(episode, 10), seconds: currentVideoTime, duration })
-              } catch {}
-            }
-        }
-      }
-
-      // Update custom subtitles with enhanced debugging
-      if (customSubtitles.length > 0 && selectedSubtitleTrack !== 'off') {
-        const activeSubtitle = customSubtitles.find(
-          sub => currentVideoTime >= sub.startTime && currentVideoTime <= sub.endTime
-        )
-
-        // Enhanced debug logging every 5 seconds
-        if (Math.floor(currentVideoTime) % 5 === 0 && Math.floor(currentVideoTime) !== Math.floor(currentVideoTime - 0.1)) {
-          console.log(`📝 Subtitle check at ${currentVideoTime.toFixed(1)}s:`)
-          console.log(`📝 - Custom subtitles: ${customSubtitles.length}`)
-          console.log(`📝 - Selected track: ${selectedSubtitleTrack}`)
-          console.log(`📝 - Active subtitle: ${activeSubtitle ? `"${activeSubtitle.text.substring(0, 30)}..."` : 'None'}`)
-          if (customSubtitles.length > 0) {
-            console.log(`📝 - First subtitle timing: ${customSubtitles[0].startTime}-${customSubtitles[0].endTime}`)
+          const seriesBase = match[1]; const season = match[2]; const episode = match[3]
+          if (Math.floor(ct) % 5 === 0 && Math.floor(ct) !== Math.floor(ct - 0.1)) {
+            try {
+              localStorage.setItem(`series-episode-progress:${seriesBase}:S${season}E${episode}`, JSON.stringify({ fraction: ct / duration, seconds: ct }))
+              saveEpisodeProgress({ seriesId: seriesBase, season: parseInt(season, 10), episode: parseInt(episode, 10), seconds: ct, duration })
+            } catch { }
           }
         }
-
-        setCurrentSubtitle(activeSubtitle?.text || '')
-      } else {
-        setCurrentSubtitle('')
       }
+  // Timeupdate still triggers progress logic; subtitle text now handled by engine interval
     }
-
-    const handlePlay = () => {
-      setIsPlaying(true)
-
-      // Add to recently played when playback starts
-      if (movieId && movieData) {
-        RecentlyPlayedService.add(movieData)
+  const handlePlay = () => { setIsPlaying(true); if (movieId && movieData) RecentlyPlayedService.add(movieData); markActivity() }
+    const handlePause = () => { setIsPlaying(false); if (movieId && movieData && duration > 0) { RecentlyPlayedService.updateProgress(movieId, currentTime, duration); immediateProgressUpdate({ contentId: movieId, currentTime, duration }) } }
+    const handleVolumeChangeEv = () => { setVolume(video.volume); setIsMuted(video.muted) }
+    const handleFullscreenChange = () => { setIsFullscreen(!!document.fullscreenElement) }
+    const handleLoadedData = () => { if (video.textTracks && video.textTracks.length > 0) discoverTracks() }
+    const handleError = (e: Event) => {
+      setIsLoading(false); setIsPlaying(false)
+      const ve = e.target as HTMLVideoElement | null; const err = ve?.error
+      let code = 'PLAYER_UNKNOWN'; let msg = 'Playback failed.'
+      switch (err?.code) {
+        case MediaError.MEDIA_ERR_NETWORK: code = 'PLAYER_NETWORK'; msg = 'Network error.'; break
+        case MediaError.MEDIA_ERR_DECODE: code = 'PLAYER_DECODE'; msg = 'Decode error.'; break
+        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: code = 'PLAYER_SRC_UNSUPPORTED'; msg = 'Source unsupported.'; break
+        case MediaError.MEDIA_ERR_ABORTED: code = 'PLAYER_ABORTED'; msg = 'Loading aborted.'; break
       }
-
-      // Start auto-hide controls when playback begins
-      startAutoHideControls()
-    }
-
-    const handlePause = () => {
-      setIsPlaying(false)
-
-      // Update progress when paused
-      if (movieId && movieData && duration > 0) {
-        RecentlyPlayedService.updateProgress(movieId, currentTime, duration)
-        immediateProgressUpdate({ contentId: movieId, currentTime, duration })
+      emitPlayerError(code, msg, { currentTime: ve?.currentTime, src: ve?.currentSrc, errorCode: err?.code })
+      // For decode / unsupported errors flag for UI retry
+      if (code === 'PLAYER_DECODE' || code === 'PLAYER_SRC_UNSUPPORTED') {
+        setPlaybackError({ code, message: msg })
+          // Safari specific auto-fallback: request a re-fetch with h264-only token once
+          if (isSafari && !attemptedH264FallbackRef.current && onError) {
+            attemptedH264FallbackRef.current = true
+            // Signal modal to reload with stricter token
+            onError('REQUEST_H264_FALLBACK')
+            return
+          }
       }
+      if (onError) onError(msg)
     }
-    const handleVolumeChange = () => {
-      setVolume(video.volume)
-      setIsMuted(video.muted)
-    }
-
-    const handleFullscreenChange = () => {
-      // Check for fullscreen element with browser compatibility
-      const isFullscreen = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
-      )
-      setIsFullscreen(isFullscreen)
-      console.log(`📺 Fullscreen state changed: ${isFullscreen}`)
-    }
-
-    const handleTextTrackChange = () => {
-      console.log(`📝 🎯 TEXT TRACK CHANGE EVENT FIRED!`)
-      if (video.textTracks) {
-        console.log(`📝 Text tracks after change: ${video.textTracks.length}`)
-        for (let i = 0; i < video.textTracks.length; i++) {
-          const track = video.textTracks[i]
-          console.log(`📝 Track ${i}: ${track.kind} - ${track.label} (${track.language}) - Mode: ${track.mode}`)
-        }
-      }
-    }
-
-    const handleLoadedData = () => {
-      console.log(`📝 🎯 LOADED DATA EVENT - Video fully loaded!`)
-      console.log(`📝 Checking for text tracks after loadeddata...`)
-      if (video.textTracks && video.textTracks.length > 0) {
-        console.log(`📝 ✅ Found ${video.textTracks.length} text tracks after loadeddata`)
-        discoverTracks()
-      }
-    }
-
-    const handleError = (error: Event) => {
-      console.error('Video error:', error)
-      setIsLoading(false)
-      setIsPlaying(false)
-
-      // Notify parent component about the error
-      if (onError) {
-        const videoElement = error.target as HTMLVideoElement
-        const errorCode = videoElement?.error?.code
-        let errorMessage = 'Video playback failed'
-
-        switch (errorCode) {
-          case MediaError.MEDIA_ERR_NETWORK:
-            errorMessage = 'Network error while loading video. The stream may be temporarily unavailable.'
-            break
-          case MediaError.MEDIA_ERR_DECODE:
-            errorMessage = 'Video format not supported or corrupted stream.'
-            break
-          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-            errorMessage = 'Video source not supported. Try a different stream.'
-            break
-          case MediaError.MEDIA_ERR_ABORTED:
-            errorMessage = 'Video loading was aborted.'
-            break
-          default:
-            errorMessage = 'Video playback failed. The stream may be temporarily unavailable.'
-        }
-
-        onError(errorMessage)
-      }
-    }
-
-    const handleAbort = () => {
-      console.log('Video loading aborted')
-      setIsLoading(false)
-      setIsPlaying(false)
-    }
+    const handleAbort = () => { setIsLoading(false); setIsPlaying(false) }
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('loadeddata', handleLoadedData)
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
-    video.addEventListener('volumechange', handleVolumeChange)
+    video.addEventListener('volumechange', handleVolumeChangeEv)
     video.addEventListener('error', handleError)
     video.addEventListener('abort', handleAbort)
-
-    // Listen for text track changes
-    if (video.textTracks) {
-      video.textTracks.addEventListener('addtrack', handleTextTrackChange)
-      video.textTracks.addEventListener('change', handleTextTrackChange)
-      video.textTracks.addEventListener('removetrack', handleTextTrackChange)
-    }
-
     document.addEventListener('fullscreenchange', handleFullscreenChange)
-
     return () => {
-      // Clear the timeout
       clearTimeout(loadTimeout)
-
-      // Pause video before cleanup to prevent play() interruption errors
-      if (video.isConnected && !video.paused) {
-        video.pause()
-      }
-
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('loadeddata', handleLoadedData)
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
-      video.removeEventListener('volumechange', handleVolumeChange)
+      video.removeEventListener('volumechange', handleVolumeChangeEv)
       video.removeEventListener('error', handleError)
       video.removeEventListener('abort', handleAbort)
-
-      // Remove text track listeners
-      if (video.textTracks) {
-        video.textTracks.removeEventListener('addtrack', handleTextTrackChange)
-        video.textTracks.removeEventListener('change', handleTextTrackChange)
-        video.textTracks.removeEventListener('removetrack', handleTextTrackChange)
-      }
-
-      // Add fullscreen event listeners with browser compatibility
-      // Remove fullscreen event listeners with browser compatibility
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
-      document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
-      document.addEventListener('mozfullscreenchange', handleFullscreenChange)
-      document.addEventListener('MSFullscreenChange', handleFullscreenChange)
     }
-  }, [autoPlay, volume])
+  }, [autoPlay, volume, isLoading, movieId, movieData, duration, selectedSubtitleTrack, customSubtitles, startTime, src, onError, currentTime])
 
-  const togglePlay = () => {
-    const video = videoRef.current
-    if (!video || !video.isConnected) return
-
-    if (isPlaying) {
-      video.pause()
-      // Show controls when paused
-      setShowControls(true)
-    } else {
-      // Ensure audio is enabled before playing
-      video.muted = false
-      video.volume = volume > 0 ? volume : 0.8
-      console.log(`🔊 Play initiated: volume=${video.volume}, muted=${video.muted}`)
-
-      // Enhanced audio context activation
-      activateAudioContext()
-
-      const playPromise = video.play()
-      if (playPromise !== undefined) {
-        playPromise.then(() => {
-          console.log('🔊 Video and audio playback started successfully')
-          // Check audio after a short delay
-          // Removed external audio check (scoped helper)
-          // Auto-hide controls after starting playback
-          startAutoHideControls()
-        }).catch((error) => {
-          console.log('Video play was interrupted:', error)
-          // Don't treat this as a fatal error, just update state
-          setIsPlaying(false)
-        })
-      }
-    }
-  }
-
-  const toggleMute = () => {
-    const video = videoRef.current
-    if (!video) return
-
-    video.muted = !video.muted
-
-    // If unmuting, ensure volume is set and try to activate audio context
-    if (!video.muted) {
-      if (video.volume === 0) {
-        video.volume = 0.8
-        setVolume(0.8)
-      }
-
-      // Enhanced audio context activation
-      activateAudioContext()
-
-      console.log(`🔊 Unmuted: volume=${video.volume}, muted=${video.muted}`)
-
-      // Check audio after unmuting
-  // Removed external audio check (scoped helper)
-    }
-  }
-
-  const handleVolumeChange = (newVolume: number) => {
-    const video = videoRef.current
-    if (!video) return
-
-    video.volume = newVolume
-    setVolume(newVolume)
-  }
-
-  const handleSeek = (newTime: number) => {
-    const video = videoRef.current
-    if (!video) return
-
-    video.currentTime = newTime
-    setCurrentTime(newTime)
-  }
-
-  const toggleFullscreen = async () => {
-    const container = containerRef.current
-    if (!container) return
-
-    try {
-      if (!document.fullscreenElement) {
-        // Try different fullscreen methods for better browser compatibility
-        if (container.requestFullscreen) {
-          await container.requestFullscreen()
-        } else if ((container as any).webkitRequestFullscreen) {
-          await (container as any).webkitRequestFullscreen()
-        } else if ((container as any).mozRequestFullScreen) {
-          await (container as any).mozRequestFullScreen()
-        } else if ((container as any).msRequestFullscreen) {
-          await (container as any).msRequestFullscreen()
-        } else {
-          console.warn('Fullscreen API not supported')
-          return
-        }
-        console.log('✅ Fullscreen activated')
-      } else {
-        // Exit fullscreen with browser compatibility
-        if (document.exitFullscreen) {
-          await document.exitFullscreen()
-        } else if ((document as any).webkitExitFullscreen) {
-          await (document as any).webkitExitFullscreen()
-        } else if ((document as any).mozCancelFullScreen) {
-          await (document as any).mozCancelFullScreen()
-        } else if ((document as any).msExitFullscreen) {
-          await (document as any).msExitFullscreen()
-        }
-        console.log('✅ Fullscreen exited')
-      }
-    } catch (error) {
-      console.error('Error toggling fullscreen:', error)
-      // Provide user feedback about the error
-      if (error instanceof Error && error.message.includes('not granted')) {
-        console.warn('Fullscreen request denied by browser. This may be due to browser security policies.')
-      }
-    }
-  }
-
-  const skipTime = (seconds: number) => {
-    const video = videoRef.current
-    if (!video) return
-
-    const newTime = Math.max(0, Math.min(duration, currentTime + seconds))
-    handleSeek(newTime)
-  }
-
-  const formatTime = (time: number) => {
-    const hours = Math.floor(time / 3600)
-    const minutes = Math.floor((time % 3600) / 60)
-    const seconds = Math.floor(time % 60)
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
-
-  const showControlsTemporarily = () => {
-    setShowControls(true)
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying && videoRef.current && !videoRef.current.paused) setShowControls(false)
-    }, 2500)
-  }
-
-  // Auto-hide controls when playback starts
-  const startAutoHideControls = () => {
-    // Small delay to ensure playback has actually started
-    setTimeout(() => {
-      if (isPlaying && videoRef.current && !videoRef.current.paused) {
-        showControlsTemporarily()
-      }
-    }, 500)
-  }
-
-  const showCursorTemporarily = () => {
-    setShowCursor(true)
-
-    if (cursorTimeoutRef.current) {
-      clearTimeout(cursorTimeoutRef.current)
-    }
-
-    cursorTimeoutRef.current = setTimeout(() => {
-      if (isPlaying && !showControls) {
-        setShowCursor(false)
-      }
-    }, 2000) // Hide cursor after 2 seconds of inactivity
-  }
-
-  // Show cursor when controls are visible
-  useEffect(() => {
-    if (showControls) {
-      setShowCursor(true)
-      if (cursorTimeoutRef.current) {
-        clearTimeout(cursorTimeoutRef.current)
-      }
-    }
-  }, [showControls])
-
-  // Auto-hide controls when playback starts
-  useEffect(() => {
-    if (isPlaying && videoRef.current && !videoRef.current.paused) {
-      startAutoHideControls()
-    }
-  }, [isPlaying])
-
-  const handleMouseMove = () => {
-    showControlsTemporarily()
-    showCursorTemporarily()
-  }
-
-  const handleContainerClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement
-    const isControlElement = target.closest('[data-video-controls]')
-    if (!isControlElement) {
-      togglePlay()
-    }
-    showControlsTemporarily()
-  }
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    // Show controls temporarily for any keyboard interaction
-    showControlsTemporarily()
-
-    switch (e.code) {
-      case 'Space':
-        e.preventDefault()
-        togglePlay()
-        break
-      case 'ArrowLeft':
-        e.preventDefault()
-        skipTime(-10)
-        break
-      case 'ArrowRight':
-        e.preventDefault()
-        skipTime(10)
-        break
-      case 'KeyM':
-        e.preventDefault()
-        toggleMute()
-        break
-      case 'KeyF':
-        e.preventDefault()
-        toggleFullscreen()
-        break
-      case 'Escape':
-        if (isFullscreen) {
-          // Exit fullscreen with browser compatibility
-          if (document.exitFullscreen) {
-            document.exitFullscreen()
-          } else if ((document as any).webkitExitFullscreen) {
-            (document as any).webkitExitFullscreen()
-          } else if ((document as any).mozCancelFullScreen) {
-            (document as any).mozCancelFullScreen()
-          } else if ((document as any).msExitFullscreen) {
-            (document as any).msExitFullscreen()
-          }
-        } else {
-          onClose()
-        }
-        break
-    }
-  }
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current)
-      }
-      if (cursorTimeoutRef.current) {
-        clearTimeout(cursorTimeoutRef.current)
-      }
-    }
-  }, [isPlaying, isFullscreen, currentTime, duration])
-
-  // Track handling functions
+  // Track discovery
+  const appendedSubsRef = useRef<Set<string>>(new Set())
   const discoverTracks = () => {
-    const video = videoRef.current
-    if (!video) return
-
-    console.log('🎵 Discovering audio and subtitle tracks...')
-
-    // Discover audio tracks
+    const video = videoRef.current; if (!video) return
     const audioTrackList: { id: string; label: string; language: string }[] = []
     if (video.audioTracks && video.audioTracks.length > 0) {
-      console.log(`🎵 Found ${video.audioTracks.length} audio tracks`)
       for (let i = 0; i < video.audioTracks.length; i++) {
-        const track = video.audioTracks[i]
-        audioTrackList.push({
-          id: i.toString(),
-          label: track.label || `Audio Track ${i + 1}`,
-          language: track.language || 'unknown'
-        })
-        console.log(`🎵 Audio Track ${i}: ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
+        const t = video.audioTracks[i]
+        audioTrackList.push({ id: i.toString(), label: t.label || `Audio Track ${i + 1}`, language: t.language || 'unknown' })
       }
     } else {
-      console.log('🎵 No native audio tracks found, adding default streaming options')
-      // For streaming content, provide common audio language options
-      audioTrackList.push(
-        { id: 'default', label: 'English', language: 'en' },
-        { id: 'alt1', label: 'Original Audio', language: 'original' }
-      )
+      audioTrackList.push({ id: 'default', label: 'English', language: 'en' })
     }
-
-    // Discover subtitle tracks
-    const subtitleTrackList: { id: string; label: string; language: string; src?: string }[] = [
-      { id: 'off', label: 'Off', language: 'none' }
-    ]
-
-    // Enhanced text track detection with multiple checks
-    const checkForTextTracks = () => {
-      console.log(`📝 🔍 COMPREHENSIVE TEXT TRACK ANALYSIS:`)
-      console.log(`📝 Video element:`, video)
-      console.log(`📝 Video src:`, video.src?.substring(0, 100) + '...')
-      console.log(`📝 Video readyState:`, video.readyState)
-      console.log(`📝 Video networkState:`, video.networkState)
-      console.log(`📝 TextTracks object:`, video.textTracks)
-      console.log(`📝 TextTracks length:`, video.textTracks?.length || 0)
-
-      if (video.textTracks && video.textTracks.length > 0) {
-        console.log(`📝 ✅ FOUND ${video.textTracks.length} NATIVE TEXT TRACKS IN VIDEO!`)
-        const updatedSubtitleTracks = [{ id: 'off', label: 'Off', language: 'none' }]
-
-        for (let i = 0; i < video.textTracks.length; i++) {
-          const track = video.textTracks[i]
-          console.log(`📝 Native Track ${i}:`)
-          console.log(`📝   - Kind: ${track.kind}`)
-          console.log(`📝   - Label: "${track.label || 'Unlabeled'}"`)
-          console.log(`📝   - Language: ${track.language || 'unknown'}`)
-          console.log(`📝   - Mode: ${track.mode}`)
-          // readyState is non-standard on some browsers; skipped
-          console.log(`📝   - Cues: ${track.cues?.length || 0}`)
-
-          if (track.kind === 'subtitles' || track.kind === 'captions') {
-            updatedSubtitleTracks.push({
-              id: i.toString(),
-              label: track.label || `${track.kind} ${i + 1}`,
-              language: track.language || 'unknown'
-            })
-          }
-        }
-
-        if (updatedSubtitleTracks.length > 1) {
-          setSubtitleTracks(updatedSubtitleTracks)
-          console.log(`📝 ✅ Updated subtitle tracks with ${updatedSubtitleTracks.length - 1} native tracks`)
-          return true
-        }
-      } else {
-        console.log(`📝 ❌ No native text tracks found in video`)
-
-        // Check if video has any tracks at all
-        if (video.audioTracks) {
-          console.log(`📝 Audio tracks available: ${video.audioTracks.length}`)
-        }
-        if (video.videoTracks) {
-          console.log(`📝 Video tracks available: ${video.videoTracks.length}`)
-        }
-      }
-      return false
+    const subtitleTrackList: { id: string; label: string; language: string; src?: string }[] = [{ id: 'off', label: 'Off', language: 'none' }]
+    if (realSubtitles.length > 0) {
+      realSubtitles.forEach(sub => { subtitleTrackList.push({ id: `real_${sub.language}`, label: sub.label, language: sub.language, src: sub.url }) })
     }
-
-    // Check immediately
-    checkForTextTracks()
-
-    // Check after 1 second
-    setTimeout(() => {
-      console.log(`📝 🔄 Checking for text tracks after 1 second...`)
-      checkForTextTracks()
-    }, 1000)
-
-    // Check after 3 seconds
-    setTimeout(() => {
-      console.log(`📝 🔄 Checking for text tracks after 3 seconds...`)
-      checkForTextTracks()
-    }, 3000)
-
-    if (video.textTracks && video.textTracks.length > 0) {
-      console.log(`📝 Found ${video.textTracks.length} text tracks (immediate check)`)
-      for (let i = 0; i < video.textTracks.length; i++) {
-        const track = video.textTracks[i]
-        console.log(`📝 Text Track ${i}: ${track.kind} - ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
-        if (track.kind === 'subtitles' || track.kind === 'captions') {
-          subtitleTrackList.push({
-            id: i.toString(),
-            label: track.label || `${track.kind} ${i + 1}`,
-            language: track.language || 'unknown'
-          })
-        }
-      }
-    } else {
-      console.log('📝 No native text tracks found, checking for real subtitles from SubDL API')
-
-      // Prioritize real subtitles from SubDL API
-      if (realSubtitles && realSubtitles.length > 0) {
-        console.log(`📝 ✅ FOUND ${realSubtitles.length} REAL SUBTITLE FILES FROM SUBDL API!`)
-
-        realSubtitles.forEach((subtitle, index) => {
-          console.log(`📝 Real Subtitle ${index}: ${subtitle.label} (${subtitle.language}) - URL: ${subtitle.url}`)
-
-          // Add real subtitle track to the list
-          subtitleTrackList.push({
-            id: `real_${subtitle.language}`,
-            label: subtitle.label,
-            language: subtitle.language,
-            src: subtitle.url
-          })
-
-          // Create and add HTML5 track element to video
-          const trackElement = document.createElement('track')
-          trackElement.kind = 'subtitles'
-          trackElement.src = subtitle.url
-          trackElement.srclang = subtitle.language
-          trackElement.label = subtitle.label
-          trackElement.default = false // Start with subtitles OFF
-
-          // Add to video element
-          video.appendChild(trackElement)
-          console.log(`📝 Added HTML5 track element for ${subtitle.label}`)
-        })
-
-        console.log(`📝 ✅ Successfully loaded ${realSubtitles.length} real subtitle tracks`)
-      } else if (availableSubtitles && availableSubtitles.length > 0) {
-        console.log(`📝 ⚠️ Falling back to fake subtitle metadata (${availableSubtitles.length} languages)`)
-        console.log(`📝 VideoPlayer: Stream title: ${title}`)
-        console.log(`📝 VideoPlayer: Video source: ${src?.substring(0, 50)}...`)
-
-        // Language code to name mapping
-        const languageNames: Record<string, string> = {
-          'en': 'English',
-          'es': 'Spanish',
-          'fr': 'French',
-          'de': 'German',
-          'it': 'Italian',
-          'pt': 'Portuguese',
-          'ru': 'Russian',
-          'ja': 'Japanese',
-          'ko': 'Korean',
-          'zh': 'Chinese',
-          'nl': 'Dutch',
-          'sv': 'Swedish',
-          'no': 'Norwegian',
-          'da': 'Danish',
-          'fi': 'Finnish',
-          'pl': 'Polish',
-          'cs': 'Czech',
-          'hu': 'Hungarian',
-          'tr': 'Turkish',
-          'ar': 'Arabic',
-          'he': 'Hebrew',
-          'hi': 'Hindi',
-          'th': 'Thai',
-          'vi': 'Vietnamese'
-        }
-
-        availableSubtitles.forEach(langCode => {
-          const trackLabel = languageNames[langCode] || langCode.toUpperCase()
-          subtitleTrackList.push({
-            id: langCode,
-            label: trackLabel,
-            language: langCode,
-            src: 'stream'
-          })
-          console.log(`📝 VideoPlayer: Added subtitle track: ${trackLabel} (${langCode})`)
-        })
-      } else {
-        console.log('📝 No subtitle information available from stream')
-        // Provide a basic set of common subtitle options as fallback
-        subtitleTrackList.push(
-          { id: 'en', label: 'English', language: 'en', src: 'external' }
-        )
-      }
+    if (availableSubtitles.length > 0 && subtitleTrackList.length === 1) {
+      const names: Record<string, string> = { en: 'English', es: 'Spanish', fr: 'French' }
+      availableSubtitles.forEach(code => { subtitleTrackList.push({ id: code, label: names[code] || code.toUpperCase(), language: code, src: 'stream' }) })
     }
-
     setAudioTracks(audioTrackList)
     setSubtitleTracks(subtitleTrackList)
-
-    console.log(`🎛️ Audio tracks available: ${audioTrackList.length}`)
-    console.log(`📝 VideoPlayer: Final subtitle track list:`, subtitleTrackList.map(t => `${t.label} (${t.id})`))
-    console.log(`📝 VideoPlayer: Total subtitle tracks available: ${subtitleTrackList.length}`)
-
-    // Set default selections
-    if (audioTrackList.length > 0) {
-      setSelectedAudioTrack('0')
-    }
+    if (audioTrackList.length > 0) setSelectedAudioTrack(audioTrackList[0].id)
   }
 
-  const selectAudioTrack = (trackId: string) => {
-    const video = videoRef.current
-    if (!video) {
-      console.log('🎵 Cannot select audio track: video not available')
-      return
-    }
+  // Rebuild track list when realSubtitles list changes
+  useEffect(() => { discoverTracks() }, [realSubtitles])
 
-    console.log(`🎵 Selecting audio track: ${trackId}`)
-
-    // For proxied streams, we don't have native audioTracks
-    // Instead, we'll ensure audio is properly enabled and configured
-    try {
-      // Ensure audio is enabled and not muted
-      video.muted = false
-      video.volume = volume > 0 ? volume : 0.8
-
-      // For proxied streams, we can't actually switch tracks
-      // but we can ensure audio is working properly
-      setSelectedAudioTrack(trackId)
-      console.log(`🎵 Audio track ${trackId} selected (proxied stream)`)
-      console.log(`🔊 Audio state: volume=${video.volume}, muted=${video.muted}`)
-
-      // Try to trigger audio context if needed (for autoplay policy)
-      if (video.paused) {
-        const playPromise = video.play()
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            console.log('🎵 Audio enabled through play action')
-          }).catch((error) => {
-            console.log('🎵 Play failed, but audio should still work on user interaction:', error)
-          })
-        }
-      }
-    } catch (error) {
-      console.error('🎵 Error configuring audio:', error)
-    }
-  }
-
-  // Function to parse SRT subtitle format
-  const parseSRT = (srtContent: string) => {
-    const subtitles: { text: string; startTime: number; endTime: number }[] = []
-    const blocks = srtContent.trim().split('\n\n')
-
-    for (const block of blocks) {
-      const lines = block.split('\n')
-      if (lines.length >= 3) {
-        const timeLine = lines[1]
-        const textLines = lines.slice(2)
-
-        const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/)
-        if (timeMatch) {
-          const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000
-          const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000
-
-          subtitles.push({
-            text: textLines.join('\n'),
-            startTime,
-            endTime
-          })
-        }
-      }
-    }
-
-    return subtitles
-  }
-
-  // Function to load external subtitles
-  const loadExternalSubtitles = async (language: string, source: string = 'external') => {
-    try {
-      console.log(`📝 Attempting to load subtitles for language: ${language} from ${source}`)
-
-      if (source === 'stream') {
-        // For stream-based subtitles, show a message that subtitles are embedded
-        console.log(`📝 Subtitles for ${language} are embedded in the stream`)
-
-        // Create a placeholder message for stream-based subtitles
-        const streamSubtitles = [
-          { text: `${language.toUpperCase()} subtitles are embedded in this stream`, startTime: 5, endTime: 10 },
-          { text: "If you don't see subtitles, they may not be available for this specific video file", startTime: 15, endTime: 20 }
-        ]
-
-        setCustomSubtitles(streamSubtitles)
-        console.log(`📝 Stream-based subtitles enabled for ${language}`)
-        return true
-      } else {
-        // For external subtitles, show a sample/placeholder
-        const sampleSubtitles = [
-          { text: "External subtitle loading not yet implemented", startTime: 10, endTime: 15 },
-          { text: "This stream may have embedded subtitles", startTime: 20, endTime: 25 }
-        ]
-
-        setCustomSubtitles(sampleSubtitles)
-        console.log(`📝 External subtitle placeholder loaded for ${language}`)
-        return true
-      }
-    } catch (error) {
-      console.error('📝 Error loading subtitles:', error)
-      return false
-    }
-  }
-
-  const selectSubtitleTrack = async (trackId: string) => {
-    const video = videoRef.current
-    if (!video) {
-      console.log('📝 Cannot select subtitle track: video not available')
-      return
-    }
-
-    console.log(`📝 Selecting subtitle track: ${trackId}`)
-
-    try {
-      // Clear custom subtitles first
-      setCustomSubtitles([])
+  // Subtitle engine: incremental scan using index ref
+  const updateSubtitleOverlay = useCallback(() => {
+    if (selectedSubtitleTrack === 'off' || customSubtitles.length === 0) {
       setCurrentSubtitle('')
-
-      // Always disable all existing text tracks first
-      if (video.textTracks && video.textTracks.length > 0) {
-        for (let i = 0; i < video.textTracks.length; i++) {
-          const track = video.textTracks[i]
-          if (track.kind === 'subtitles' || track.kind === 'captions') {
-            track.mode = 'disabled'
-            console.log(`📝 Disabled native track ${i}: ${track.label || 'Unlabeled'}`)
-          }
-        }
-      }
-
-      if (trackId === 'off') {
-        console.log('📝 All subtitles turned off')
-        setSelectedSubtitleTrack(trackId)
+      subtitleIndexRef.current = 0
+      setSubtitleDebug(d=>({...d,active:-1,count:customSubtitles.length,track:selectedSubtitleTrack}))
+      return
+    }
+    const v = videoRef.current; if (!v) return
+    const t = v.currentTime
+    let i = subtitleIndexRef.current
+    // Move backward if overshot (seek backward)
+    while (i > 0 && t < customSubtitles[i].startTime) i--
+    // Advance while current time past end
+    while (i < customSubtitles.length - 1 && t > customSubtitles[i].endTime) i++
+    // Ensure we are at cue containing t
+    if (!(t >= customSubtitles[i].startTime && t <= customSubtitles[i].endTime)) {
+      const found = customSubtitles.findIndex(c=> t>=c.startTime && t<=c.endTime)
+      if (found !== -1) i = found; else {
+        setCurrentSubtitle('')
+        subtitleIndexRef.current = i
+        setSubtitleDebug(d=>({...d,active:-1,count:customSubtitles.length,track:selectedSubtitleTrack}))
         return
       }
-
-      // Handle native text tracks (numeric IDs)
-      if (!isNaN(parseInt(trackId))) {
-        const trackIndex = parseInt(trackId)
-        if (video.textTracks && trackIndex >= 0 && trackIndex < video.textTracks.length) {
-          const track = video.textTracks[trackIndex]
-          if (track.kind === 'subtitles' || track.kind === 'captions') {
-            track.mode = 'showing'
-            console.log(`📝 ✅ ENABLED NATIVE SUBTITLE TRACK ${trackId}: ${track.label || 'Unlabeled'} (${track.language || 'unknown'})`)
-            console.log(`📝 Track mode set to: ${track.mode}`)
-            // Non-standard readyState omitted
-
-            // Force video to refresh subtitle display
-            video.currentTime = video.currentTime + 0.001
-
-            // Set the selected track
-            setSelectedSubtitleTrack(trackId)
-            console.log(`📝 Native subtitles should now be visible on the video element`)
-            return
-          }
-        }
-      } else {
-        // Handle external/stream subtitle tracks (string IDs)
-        const selectedTrack = subtitleTracks.find(track => track.id === trackId)
-        if (selectedTrack) {
-          console.log(`📝 ⚠️ WARNING: Selected track "${selectedTrack.label}" (${trackId}) is not a native text track`)
-          console.log(`📝 This suggests the video file may not have embedded subtitles for this language`)
-          console.log(`📝 Stream source: ${selectedTrack.src || 'external'}`)
-
-          if (selectedTrack.src === 'stream') {
-            console.log(`📝 ❌ Stream-based subtitle track selected, but no native text tracks found`)
-            console.log(`📝 This means the video file doesn't actually contain embedded subtitles`)
-            console.log(`📝 The subtitle metadata may be incorrect or the file lacks subtitle streams`)
-
-            // Don't create custom overlays - just inform the user
-            setCurrentSubtitle('')
-            console.log(`📝 No custom subtitle overlay will be created - check if video has real embedded subtitles`)
-          } else {
-            await loadExternalSubtitles(selectedTrack.language, selectedTrack.src)
-          }
-        }
-      }
-
-      setSelectedSubtitleTrack(trackId)
-    } catch (error) {
-      console.error('📝 Error selecting subtitle track:', error)
     }
+    subtitleIndexRef.current = i
+    const cue = customSubtitles[i]
+    setCurrentSubtitle(cue.text)
+    setSubtitleDebug(d=>({...d,active:i,count:customSubtitles.length,track:selectedSubtitleTrack}))
+  }, [customSubtitles, selectedSubtitleTrack])
+
+  useEffect(() => {
+    if (subtitleIntervalRef.current) { clearInterval(subtitleIntervalRef.current); subtitleIntervalRef.current = null }
+    if (customSubtitles.length > 0 && selectedSubtitleTrack !== 'off') {
+      subtitleIndexRef.current = 0
+      subtitleIntervalRef.current = setInterval(updateSubtitleOverlay, 250)
+      updateSubtitleOverlay()
+    } else { setCurrentSubtitle('') }
+    return () => { if (subtitleIntervalRef.current) clearInterval(subtitleIntervalRef.current) }
+  }, [customSubtitles, selectedSubtitleTrack, updateSubtitleOverlay])
+
+  // Developer debug toggle (press Shift+D)
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.code === 'KeyD' && e.shiftKey) setSubtitleDebug(d=>({...d})) }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [])
+
+  // Custom subtitle parser (supports SRT & VTT, optional hour, attributes after -->)
+  const parseTimestamp = (raw: string) => {
+    const norm = raw.trim().replace(',', '.');
+    // Patterns: HH:MM:SS.mmm or MM:SS.mmm
+    const hMatch = norm.match(/^(\d{2}):(\d{2}):(\d{2})[.,](\d{3})$/)
+    if (hMatch) return parseInt(hMatch[1])*3600 + parseInt(hMatch[2])*60 + parseInt(hMatch[3]) + parseInt(hMatch[4])/1000
+    const mMatch = norm.match(/^(\d{2}):(\d{2})[.,](\d{3})$/)
+    if (mMatch) return parseInt(mMatch[1])*60 + parseInt(mMatch[2]) + parseInt(mMatch[3])/1000
+    return NaN
+  }
+  const parseSubtitleFile = (rawText: string) => {
+    let text = rawText.replace(/\r/g, '')
+    if (text.startsWith('WEBVTT')) text = text.replace(/^WEBVTT.*\n+/i, '')
+    const blocks = text.split(/\n\n+/)
+    const cues: { text: string; startTime: number; endTime: number }[] = []
+  const timingRegex = /^((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})\s+-->\s+((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})(?:\s+.*)?$/
+    for (const block of blocks) {
+      const lines = block.split(/\n/).filter(l => l.trim() !== '')
+      if (lines.length < 2) continue
+      let idx = 0
+      if (/^\d+$/.test(lines[0])) idx = 1
+      const timingLine = lines[idx]
+  const mt = timingLine.match(timingRegex)
+  if (!mt) continue
+  const start = parseTimestamp(mt[1])
+  const end = parseTimestamp(mt[2])
+      if (isNaN(start) || isNaN(end)) continue
+      const cueText = lines.slice(idx + 1).join('\n')
+      cues.push({ startTime: start, endTime: end, text: cueText })
+    }
+    const sorted = cues.sort((a,b)=>a.startTime-b.startTime)
+    if (sorted.length === 0) {
+      const alt: { startTime:number; endTime:number; text:string }[] = []
+      const globalRe = /^((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})\s+-->\s+((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})(?:.*)$([\s\S]*?)(?=^\s*$|^(?:\d+\s*$)|\Z)/gm
+      let m: RegExpExecArray | null
+      while ((m = globalRe.exec(text)) !== null) {
+        const s = parseTimestamp(m[1]); const e = parseTimestamp(m[2]); if (isNaN(s)||isNaN(e)) continue
+        const body = (m[3]||'').trim()
+        alt.push({ startTime: s, endTime: e, text: body })
+      }
+      if (alt.length) return alt.sort((a,b)=>a.startTime-b.startTime)
+    }
+    return sorted
+  }
+  const loadCustomSubtitleFromUrl = async (url: string) => {
+    try {
+      console.log('[Subtitles] Fetching', url)
+      const res = await fetch(url)
+      const ct = res.headers.get('content-type') || 'unknown'
+      if (!res.ok) throw new Error('HTTP '+res.status)
+      const txt = await res.text()
+      console.log('[Subtitles] size chars=', txt.length, 'type=', ct, 'preview=', txt.slice(0,120).replace(/\n/g,'\\n'))
+      const cues = parseSubtitleFile(txt)
+      if (cues.length === 0) {
+        console.warn('[Subtitles] 0 cues parsed; injecting diagnostic placeholder')
+        setCustomSubtitles([
+          { text: 'No subtitle cues parsed (diagnostic).', startTime: 0, endTime: 3 },
+          { text: 'Possible causes: timing format not matched, empty file, or fetch returned HTML.', startTime: 4, endTime: 10 },
+          { text: 'Check console for "[Subtitles]" logs.', startTime: 11, endTime: 16 }
+        ])
+        setSubtitleDebug({count:0,active:-1,track:selectedSubtitleTrack})
+        setSubtitleStatus('0 cues parsed')
+        return
+      }
+      console.log(`[Subtitles] Parsed ${cues.length} cues (first:`, cues[0], ')')
+      setCustomSubtitles(cues)
+      setSubtitleDebug({count:cues.length,active:-1,track:selectedSubtitleTrack})
+      setSubtitleStatus(`${cues.length} cues loaded`)
+      setTimeout(()=> setSubtitleStatus(''), 2500)
+    } catch (e) {
+      console.warn('Subtitle fetch failed', e)
+      setCustomSubtitles([{ text: 'Subtitle load failed', startTime: 0, endTime: 5 }])
+      setSubtitleDebug({count:0,active:-1,track:selectedSubtitleTrack})
+      setSubtitleStatus('Subtitle fetch failed')
+    }
+  }
+
+  const loadExternalSubtitles = async (language: string, source: string = 'external') => {
+    try {
+      if (source === 'stream') {
+        setCustomSubtitles([
+          { text: `${language.toUpperCase()} subtitles are embedded in this stream`, startTime: 5, endTime: 10 },
+          { text: "If you don't see subtitles, they may not be available for this specific video file", startTime: 15, endTime: 20 }
+        ])
+      } else {
+        setCustomSubtitles([
+          { text: 'External subtitle loading not yet implemented', startTime: 10, endTime: 15 },
+          { text: 'This stream may have embedded subtitles', startTime: 20, endTime: 25 }
+        ])
+      }
+      return true
+    } catch { return false }
+  }
+
+  const selectAudioTrack = (trackId: string) => { setSelectedAudioTrack(trackId) }
+  const selectSubtitleTrack = async (trackId: string) => {
+    setCustomSubtitles([]); setCurrentSubtitle('')
+    if (trackId === 'off') { setSelectedSubtitleTrack('off'); return }
+    const st = subtitleTracks.find(s => s.id === trackId)
+    if (!st) { setSelectedSubtitleTrack('off'); return }
+  setSubtitleStatus('Loading subtitles...')
+    if (st.src) {
+      if (st.id.startsWith('real_')) await loadCustomSubtitleFromUrl(st.src)
+      else await loadExternalSubtitles(st.language, st.src)
+    }
+    setSelectedSubtitleTrack(trackId)
+  }
+
+  // Utility / formatting
+  const formatTime = (t: number) => { const h = Math.floor(t / 3600); const m = Math.floor((t % 3600) / 60); const s = Math.floor(t % 60); return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}` : `${m}:${s.toString().padStart(2, '0')}` }
+  const handleSeek = (nt: number) => { const v = videoRef.current; if (!v) return; v.currentTime = nt; setCurrentTime(nt) }
+  const skipTime = (s: number) => handleSeek(Math.max(0, Math.min(duration, currentTime + s)))
+  const handleVolumeChangeVal = (nv: number) => { const v = videoRef.current; if (!v) return; v.volume = nv; setVolume(nv); if (nv > 0) setIsMuted(false) }
+  const togglePlay = () => { const v = videoRef.current; if (!v) return;
+    if (!v.paused) { // pause path
+      if (requiresClickForSound && v.muted) { v.muted = false; setIsMuted(false); setRequiresClickForSound(false) }
+      v.pause(); setIsPlaying(false); setShowControls(true); markActivity(); return }
+    if (requiresClickForSound && v.muted) { v.muted = false; setIsMuted(false); setRequiresClickForSound(false) }
+    if (v.volume === 0) { v.volume = 0.8; setVolume(0.8) }
+    v.play().then(()=>{ setIsPlaying(true); markActivity() }).catch(()=> setIsPlaying(false)) }
+  const toggleMute = () => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; if (!v.muted && v.volume === 0) { v.volume = 0.8; setVolume(0.8) } setIsMuted(v.muted) }
+  const toggleFullscreen = async () => { const c = containerRef.current; if (!c) return; try { if (!document.fullscreenElement) { await c.requestFullscreen?.() } else { await document.exitFullscreen?.() } } catch { } }
+  const markActivity = () => { lastActivityRef.current = Date.now(); setShowControls(true); setShowCursor(true) }
+  const handleMouseMove = (e?: any) => {
+    const { clientX, clientY } = e || {}
+    if (clientX != null && clientY != null) {
+      const last = lastMousePos.current
+      if (!last || Math.abs(last.x - clientX) > 3 || Math.abs(last.y - clientY) > 3) {
+        lastMousePos.current = { x: clientX, y: clientY }
+        markActivity()
+      }
+    } else { markActivity() }
+  }
+  const handleContainerClick = (e: React.MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-video-controls]')) togglePlay(); markActivity() }
+  const handleVideoClick = (e: React.MouseEvent) => { e.stopPropagation(); togglePlay() }
+  const handleKeyDown = (e: KeyboardEvent) => { markActivity(); switch (e.code) { case 'Space': e.preventDefault(); togglePlay(); break; case 'ArrowLeft': e.preventDefault(); skipTime(-10); break; case 'ArrowRight': e.preventDefault(); skipTime(10); break; case 'KeyM': e.preventDefault(); toggleMute(); break; case 'KeyF': e.preventDefault(); toggleFullscreen(); break; case 'Escape': if (isFullscreen) document.exitFullscreen?.(); else onClose(); break } }
+  useEffect(() => { document.addEventListener('keydown', handleKeyDown); return () => { document.removeEventListener('keydown', handleKeyDown) } }, [isPlaying, isFullscreen, currentTime, duration])
+  // Inactivity watcher
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const v = videoRef.current
+      if (!v) return
+      if (!v.paused && isPlaying) {
+        const idle = Date.now() - lastActivityRef.current
+        if (idle > AUTO_HIDE_DELAY) { setShowControls(false); setShowCursor(false) }
+      }
+    }, 250)
+    return () => clearInterval(interval)
+  }, [isPlaying])
+  // Enable selected audio track (if browser exposes audioTracks API)
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !v.audioTracks || !v.audioTracks.length) return
+    try {
+      for (let i = 0; i < v.audioTracks.length; i++) {
+        // @ts-ignore
+        v.audioTracks[i].enabled = (i.toString() === selectedAudioTrack || v.audioTracks[i].id === selectedAudioTrack)
+      }
+    } catch { }
+  }, [selectedAudioTrack])
+
+  // Basic global activity listeners
+  useEffect(() => {
+    const a = () => markActivity()
+    window.addEventListener('pointerdown', a, true)
+    window.addEventListener('pointermove', a, true)
+    window.addEventListener('keydown', a, true)
+    window.addEventListener('touchstart', a, true)
+    return () => { window.removeEventListener('pointerdown', a, true); window.removeEventListener('pointermove', a, true); window.removeEventListener('keydown', a, true); window.removeEventListener('touchstart', a, true) }
+  }, [])
+  useEffect(() => { if (isPlaying) markActivity() }, [isPlaying])
+
+  // Intro skip & next episode logic
+  const isSeries = !!(movieId && /:S\d+E\d+/.test(movieId))
+  useEffect(() => { if (!isSeries || duration === 0) return; if (currentTime < INTRO_VISIBLE_WINDOW) setShowSkipIntro(currentTime > 5); else setShowSkipIntro(false) }, [currentTime, duration, isSeries])
+  useEffect(() => { if (!isSeries || !hasNextEpisode || duration === 0) return; const rem = duration - currentTime; if (rem < NEXT_EPISODE_THRESHOLD) { if (!showNextEpisode) { setShowNextEpisode(true); setNextCountdown(AUTO_PLAY_NEXT_COUNTDOWN) } } else if (showNextEpisode) setShowNextEpisode(false) }, [currentTime, duration, isSeries, hasNextEpisode, showNextEpisode])
+  useEffect(() => { if (!showNextEpisode) return; if (nextIntervalRef.current) clearInterval(nextIntervalRef.current); nextIntervalRef.current = setInterval(() => { setNextCountdown(c => { if (c <= 1) { clearInterval(nextIntervalRef.current); if (onNextEpisode) onNextEpisode(); return 0 } return c - 1 }) }, 1000); return () => { if (nextIntervalRef.current) clearInterval(nextIntervalRef.current) } }, [showNextEpisode, onNextEpisode])
+
+  // Timeline hover & buffer ranges
+  const handleTimelineMove = (e: React.MouseEvent) => { if (!duration) return; const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)); setHoverPercent(pct); setHoverTime(pct * duration) }
+  const clearHover = () => { setHoverPercent(null); setHoverTime(null) }
+  useEffect(() => { const v = videoRef.current; if (!v) return; const update = () => { if (!v.buffered || !duration) return; const r: Array<{ startPct: number; endPct: number }> = []; for (let i = 0; i < v.buffered.length; i++) r.push({ startPct: v.buffered.start(i) / duration, endPct: v.buffered.end(i) / duration }); setBufferedRanges(r) }; const int = setInterval(update, 1000); update(); return () => clearInterval(int) }, [duration])
+
+  // Menus
+  const closeMenus = useCallback(() => { setShowAudioMenu(false); setShowSubtitleMenu(false); setShowSettingsMenu(false) }, [])
+  const toggleMenu = (m: 'audio' | 'subs' | 'settings') => { setShowAudioMenu(m === 'audio' ? !showAudioMenu : false); setShowSubtitleMenu(m === 'subs' ? !showSubtitleMenu : false); setShowSettingsMenu(m === 'settings' ? !showSettingsMenu : false) }
+  useEffect(() => { if (videoRef.current) videoRef.current.playbackRate = playbackRate }, [playbackRate])
+  const enterPip = async () => { const v = videoRef.current; if (!v) return; try { // @ts-ignore
+    if (document.pictureInPictureElement) { // @ts-ignore
+      await document.exitPictureInPicture() } else if ((v as any).requestPictureInPicture) { await (v as any).requestPictureInPicture() } } catch { } }
+
+  if (!isValidSrc) return <div className="flex items-center justify-center w-full h-full bg-black text-white"><div className="text-center space-y-4"><p>Invalid video source.</p><Button onClick={onClose} variant="outline" className="text-white border-white">Close</Button></div></div>
+
+  const retryPlayback = () => {
+    setRetryCount(c => c + 1)
+    // Attempt re-init; state effect will run
+    markActivity()
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`relative w-full h-full bg-black flex items-center justify-center transition-all duration-300 ${
-        showCursor ? 'cursor-pointer' : 'cursor-none'
-      }`}
-      onMouseMove={handleMouseMove}
-  onClick={handleContainerClick}
-    >
-      <video
-        ref={videoRef}
-        src={src}
-        className={`w-full h-full object-contain ${
-          showCursor ? 'cursor-pointer' : 'cursor-none'
-        }`}
-        onDoubleClick={toggleFullscreen}
-        controls={false}
-        preload="metadata"
-        crossOrigin={src?.includes('torrentio.strem.fun') ? undefined : "anonymous"}
-      />
+  <div ref={containerRef} className={`relative w-full h-full bg-black flex items-center justify-center transition-colors duration-300 ${showCursor ? 'cursor-default' : 'cursor-none'}`} onMouseMove={handleMouseMove} onClick={handleContainerClick} onMouseLeave={closeMenus}>
+  <video ref={videoRef} className="w-full h-full object-contain" playsInline onDoubleClick={toggleFullscreen} onClick={handleVideoClick} controls={false} preload="metadata" crossOrigin={src?.includes('torrentio.strem.fun') ? undefined : 'anonymous'} />
 
-      {/* Custom subtitle overlay positioned above controls */}
       {currentSubtitle && selectedSubtitleTrack !== 'off' && (
-        <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-40 max-w-4xl px-4">
-          <div className="bg-black bg-opacity-75 text-white text-center px-4 py-2 rounded-lg shadow-lg">
-            <p className="text-lg leading-relaxed whitespace-pre-line">{currentSubtitle}</p>
-          </div>
+        <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 z-40 max-w-4xl px-4">
+          <div className="bg-black/70 text-white text-center px-4 py-2 rounded-md shadow-lg"><p className="text-lg leading-relaxed whitespace-pre-line drop-shadow-md">{currentSubtitle}</p></div>
         </div>
       )}
+      {subtitleStatus && selectedSubtitleTrack!=='off' && !currentSubtitle && (
+        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 z-40 px-3 py-1 bg-black/60 text-white text-xs rounded">{subtitleStatus}</div>
+      )}
+      {/* Subtitle debug (visible if Shift+D toggled and cues loaded) */}
+      {customSubtitles.length>0 && selectedSubtitleTrack!=='off' && (
+        <div className="absolute bottom-2 left-2 text-[10px] font-mono text-white/60 bg-black/40 px-2 py-1 rounded pointer-events-none">
+          cues:{subtitleDebug.count} active:{subtitleDebug.active} track:{selectedSubtitleTrack}
+        </div>) }
 
-
-
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
-          <div className="text-white text-xl">Loading video...</div>
-        </div>
+      {showSkipIntro && (
+        <div className="absolute top-24 right-8 z-40"><Button onClick={() => skipTime(INTRO_SKIP_HEURISTIC_SECONDS)} className="bg-white/20 hover:bg-white/30 text-white">Skip Intro</Button></div>
       )}
 
-      {/* Controls Overlay */}
-      <div
-        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/60 transition-opacity duration-300 pointer-events-none ${
-          showControls ? 'opacity-100' : 'opacity-0'
-        }`}
-        data-video-controls
-      >
-        {/* Top Controls */}
-        <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-auto" data-video-controls>
-          <h1 className="text-white text-xl font-semibold">{title}</h1>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="text-white hover:bg-white/20"
-            data-video-controls
-          >
-            <X className="h-6 w-6" />
-          </Button>
-        </div>
-
-        {/* Center Play Button */}
-        {!isPlaying && !isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-auto" data-video-controls>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={togglePlay}
-              className="w-20 h-20 rounded-full bg-white/20 hover:bg-white/30 text-white"
-              data-video-controls
-            >
-              <Play className="h-10 w-10 fill-current" />
-            </Button>
-          </div>
-        )}
-
-        {/* Bottom Controls */}
-        <div className="absolute bottom-4 left-4 right-4 space-y-4 pointer-events-auto" data-video-controls>
-          {/* Progress Bar */}
-          <div className="flex items-center space-x-2" data-video-controls>
-            <span className="text-white text-sm min-w-[50px]">{formatTime(currentTime)}</span>
-            <div className="flex-1">
-              <Progress
-                value={(currentTime / duration) * 100}
-                className="h-1 cursor-pointer"
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const percent = (e.clientX - rect.left) / rect.width
-                  handleSeek(percent * duration)
-                }}
-                data-video-controls
-              />
+      {showNextEpisode && (
+        <div className="absolute inset-0 flex items-end justify-end p-8 z-40 pointer-events-none">
+          <div className="bg-black/70 text-white p-4 rounded-md w-64 space-y-2 pointer-events-auto">
+            <p className="font-semibold">Next episode in {nextCountdown}s</p>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => { if (onNextEpisode) onNextEpisode() }}>Play Now</Button>
+              <Button size="sm" variant="outline" className="flex-1 border-gray-400 text-white" onClick={() => setShowNextEpisode(false)}>Cancel</Button>
             </div>
-            <span className="text-white text-sm min-w-[50px]">{formatTime(duration)}</span>
+          </div>
+        </div>
+      )}
+
+      {isLoading && <div className="absolute inset-0 flex items-center justify-center bg-black/70"><div className="text-white text-xl animate-pulse">Loading…</div></div>}
+      {playbackError && !isLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 z-40">
+          <div className="text-center space-y-2 max-w-md px-6">
+            <h2 className="text-white text-lg font-semibold">Playback Issue</h2>
+            <p className="text-white/80 text-sm">{playbackError.message} (Code: {playbackError.code})</p>
+            <p className="text-white/50 text-xs">Strategy: {lastStrategyRef.current} • Retry #{retryCount}</p>
+            <div className="flex gap-3 justify-center pt-2">
+              <Button onClick={retryPlayback} className="bg-red-600 hover:bg-red-700 text-white">Try Again</Button>
+              <Button variant="outline" onClick={onClose} className="text-white border-white/40 hover:bg-white/10">Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(!isPlaying || requiresClickForSound) && !isLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-30 select-none">
+          <button onClick={togglePlay} className="w-24 h-24 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition" aria-label="Play / Unmute">
+            <Play className="w-12 h-12" />
+          </button>
+          {requiresClickForSound && <div className="text-center text-white/80 text-sm px-4 py-2 bg-black/50 rounded-md max-w-sm">Autoplay started muted. Click to enable sound.</div>}
+        </div>
+      )}
+
+      <div className={`absolute inset-0 flex flex-col justify-between transition-opacity ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} data-video-controls>
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-6 pt-4 text-white select-none">
+          <div className="space-y-1">
+            <h1 className="text-lg font-semibold drop-shadow-md max-w-[60vw] truncate">{title}</h1>
+            {movieData?.year && <p className="text-xs text-white/70">{movieData.year}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20" aria-label="Close"><X /></Button>
+          </div>
+        </div>
+
+        {/* Timeline + controls */}
+        <div className="px-6 pb-5 flex flex-col gap-3 text-white select-none" data-video-controls>
+          {/* Timeline */}
+          <div className="relative h-6 group" onMouseMove={handleTimelineMove} onMouseLeave={clearHover} onClick={(e) => { const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)); handleSeek(pct * duration) }}>
+            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 bg-white/20 rounded overflow-hidden">
+              {bufferedRanges.map((r, i) => <div key={i} style={{ left: `${r.startPct * 100}%`, width: `${(r.endPct - r.startPct) * 100}%` }} className="absolute top-0 h-full bg-white/35 rounded" />)}
+              <div style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} className="absolute top-0 h-full bg-red-600 rounded" />
+              {hoverPercent !== null && <div style={{ left: `${hoverPercent * 100}%` }} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white" />}
+            </div>
+            {hoverTime !== null && <div style={{ left: `${(hoverPercent || 0) * 100}%` }} className="absolute -top-16 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none"><div className="w-40 h-20 bg-black/60 border border-white/20 rounded flex items-center justify-center text-xs">Thumbnail</div><div className="bg-black/80 text-white text-[10px] px-2 py-1 rounded">{formatTime(hoverTime)}</div></div>}
+            <div className="absolute -bottom-5 left-0 right-0 flex justify-between text-[11px] text-white/70"><span>{formatTime(currentTime)}</span><span>{formatTime(duration)}</span></div>
           </div>
 
-          {/* Control Buttons */}
-          <div
-            className="flex items-center justify-between"
-            onMouseLeave={() => setShowVolumeSlider(false)}
-            data-video-controls
-          >
-            <div className="flex items-center space-x-2" data-video-controls>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => skipTime(-10)}
-                className="text-white hover:bg-white/20"
-                data-video-controls
-              >
-                <SkipBack className="h-5 w-5" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={togglePlay}
-                className="text-white hover:bg-white/20"
-                data-video-controls
-              >
-                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-current" />}
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => skipTime(10)}
-                className="text-white hover:bg-white/20"
-                data-video-controls
-              >
-                <SkipForward className="h-5 w-5" />
-              </Button>
-
-              <div className="flex items-center space-x-2" data-video-controls>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleMute}
-                  onMouseEnter={() => setShowVolumeSlider(true)}
-                  className="text-white hover:bg-white/20"
-                  data-video-controls
-                >
-                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-                </Button>
-
-                {/* Volume Slider */}
-                <div
-                  className={`flex items-center transition-all duration-200 ${
-                    showVolumeSlider ? 'w-20 opacity-100' : 'w-0 opacity-0'
-                  }`}
-                  onMouseEnter={() => setShowVolumeSlider(true)}
-                  onMouseLeave={() => setShowVolumeSlider(false)}
-                  data-video-controls
-                >
-                  <Slider
-                    value={[isMuted ? 0 : volume * 100]}
-                    onValueChange={(value) => {
-                      const newVolume = value[0] / 100
-                      handleVolumeChange(newVolume)
-                      if (newVolume > 0 && isMuted) {
-                        toggleMute() // Unmute if volume is increased
-                      }
-                    }}
-                    max={100}
-                    step={1}
-                    className="w-full"
-                    data-video-controls
-                  />
-                </div>
+          {/* Controls row */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" onClick={() => skipTime(-10)} className="text-white hover:bg-white/20" aria-label="Back 10s"><Rewind className="w-5 h-5" /></Button>
+              <Button variant="ghost" size="icon" onClick={togglePlay} className="text-white hover:bg-white/20" aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}</Button>
+              <Button variant="ghost" size="icon" onClick={() => skipTime(10)} className="text-white hover:bg-white/20" aria-label="Forward 10s"><FastForward className="w-5 h-5" /></Button>
+              <div className="flex items-center group select-none">
+                <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white hover:bg-white/20" aria-label={isMuted ? 'Unmute' : 'Mute'}>{isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</Button>
+                <VolumeBar volume={isMuted ? 0 : volume} onChange={(nv)=>{ handleVolumeChangeVal(nv); if (nv>0 && isMuted) toggleMute() }} />
               </div>
+              <span className="text-[11px] text-white/60 w-8 text-center">{playbackRate}x</span>
             </div>
-
-            <div className="flex items-center space-x-2" data-video-controls>
-              {/* Audio Track Selector */}
-              {audioTracks.length > 0 && (
-                <div className="relative group" data-video-controls>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white/20"
-                    title={`Audio Language (${audioTracks.length} tracks available)`}
-                    data-video-controls
-                  >
-                    <Languages className="h-5 w-5" />
-                  </Button>
-                  <select
-                    value={selectedAudioTrack}
-                    onChange={(e) => selectAudioTrack(e.target.value)}
-                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                    title="Select audio language"
-                    data-video-controls
-                  >
-                    {audioTracks.map((track) => (
-                      <option key={track.id} value={track.id}>
-                        {track.label} {track.language !== 'unknown' && `(${track.language})`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Subtitle Track Selector */}
-              {subtitleTracks.length > 1 && (
-                <div className="relative group" data-video-controls>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white/20"
-                    title={`Subtitles (${subtitleTracks.length - 1} tracks available)`}
-                    data-video-controls
-                  >
-                    <Subtitles className="h-5 w-5" />
-                  </Button>
-                  <select
-                    value={selectedSubtitleTrack}
-                    onChange={(e) => {
-                      selectSubtitleTrack(e.target.value)
-                    }}
-                    className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-                    title="Select subtitle language"
-                    data-video-controls
-                  >
-                    {subtitleTracks.map((track) => (
-                      <option key={track.id} value={track.id}>
-                        {track.label} {track.language !== 'none' && track.language !== 'unknown' && `(${track.language})`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+            <div className="flex items-center gap-1">
+              {audioTracks.length > 0 && <div className="relative"><Button variant="ghost" size="icon" aria-label="Audio" onClick={(e) => { e.stopPropagation(); toggleMenu('audio') }} className={`${showAudioMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><Languages className="w-5 h-5" /></Button>{showAudioMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-2 w-48 text-xs space-y-1 z-50"><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Audio</p>{audioTracks.map(t => <button key={t.id} onClick={() => { selectAudioTrack(t.id); setShowAudioMenu(false) }} className={`w-full text-left px-2 py-1 rounded hover:bg-white/10 ${selectedAudioTrack === t.id ? 'text-red-400' : ''}`}>{t.label}{t.language && t.language !== 'unknown' && ` (${t.language})`}</button>)}</div>}</div>}
+              {subtitleTracks.length > 1 && <div className="relative"><Button variant="ghost" size="icon" aria-label="Subtitles" onClick={(e) => { e.stopPropagation(); toggleMenu('subs') }} className={`${showSubtitleMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><Subtitles className="w-5 h-5" /></Button>{showSubtitleMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-2 w-56 text-xs space-y-1 z-50 max-h-64 overflow-auto"><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Subtitles</p>{subtitleTracks.map(t => <button key={t.id} onClick={() => { selectSubtitleTrack(t.id); setShowSubtitleMenu(false) }} className={`w-full text-left px-2 py-1 rounded hover:bg-white/10 ${selectedSubtitleTrack === t.id ? 'text-red-400' : ''}`}>{t.label}</button>)}</div>}</div>}
+              <div className="relative"><Button variant="ghost" size="icon" aria-label="Settings" onClick={(e) => { e.stopPropagation(); toggleMenu('settings') }} className={`${showSettingsMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><SettingsIcon className="w-5 h-5" /></Button>{showSettingsMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-3 w-60 text-xs space-y-3 z-50"><div><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Playback Speed</p><div className="flex flex-wrap gap-1">{[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(r => <button key={r} onClick={() => setPlaybackRate(r)} className={`px-2 py-1 rounded bg-white/10 hover:bg-white/20 ${playbackRate === r ? 'bg-red-600 text-white' : ''}`}>{r}x</button>)}</div></div><div><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Quality</p><div className="px-2 py-1 rounded bg-white/10 flex items-center justify-between">Auto<span className="text-white/40 text-[10px]"></span></div><p className="text-[10px] text-white/40 mt-1">Quality picked by stream scoring logic.</p></div></div>}</div>
+              <Button variant="ghost" size="icon" aria-label="Picture in Picture" onClick={enterPip} className="text-white hover:bg-white/20"><PictureInPicture2 className="w-5 h-5" /></Button>
+              <Button variant="ghost" size="icon" aria-label="Fullscreen" onClick={toggleFullscreen} className="text-white hover:bg-white/20"><Maximize className="w-5 h-5" /></Button>
             </div>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleFullscreen}
-              className="text-white hover:bg-white/20"
-              data-video-controls
-            >
-              <Maximize className="h-5 w-5" />
-            </Button>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Inline volume bar component (red track like timeline)
+function VolumeBar({ volume, onChange }: { volume: number; onChange: (v: number) => void }) {
+  const pct = Math.round(volume * 100)
+  return (
+    <div className="relative w-28 h-4 flex items-center select-none ml-1" onClick={(e) => {
+      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+      const nv = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+      onChange(nv)
+    }} onMouseMove={(e) => { if (e.buttons === 1) { const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); const nv = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)); onChange(nv) } }}>
+      <div className="absolute inset-0 rounded-full bg-white/20" />
+      <div className="absolute inset-y-0 left-0 rounded-full bg-red-600" style={{ width: `${pct}%` }} />
+      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-transparent" />
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-white/50 opacity-0 group-hover:opacity-100 transition">{pct}%</div>
     </div>
   )
 }

@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "name": "atom-of-thought",
+      "type": "reasoning",
+      "description": "Structured decomposition (premise -> reasoning -> hypothesis -> verification -> conclusion)."
+    },
+    {
+      "name": "sequential-thinking",
+      "type": "reasoning",
+      "description": "Lightweight iterative chain-of-thought with revision/branch support."
+    },
+    {
+      "name": "context7",
+      "type": "docs",
+      "description": "Fetch focused, up-to-date library documentation slices (Next.js, React, Tailwind, etc.)."
+    }
+  ],
+  "notes": "These MCP capabilities are assistant/runtime-provided; no runtime bundle impact. This file documents enabled conceptual tools for team awareness."
+}

@@ -1,6 +1,6 @@
 "use client"
 
-import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+import CinematicRail from '@/components/cinematic/CinematicRail'
 import { Search } from 'lucide-react'
 
 interface SearchResult {
@@ -57,31 +57,20 @@ export function SeamlessSearchOverlay({
 
           {/* Search Results */}
           {searchResults.length > 0 ? (
-            <MoviepireMovieGrid
-              title=""
-              movies={searchResults.map(result => ({
+            <CinematicRail
+              id="seamless-search-results"
+              title="Search Results"
+              items={searchResults.map(result => ({
                 id: result.id,
                 title: result.title,
                 poster: result.poster,
-                backdrop: result.backdrop,
+                backdrop: result.backdrop || result.poster,
                 year: result.year,
                 genre: [result.type === 'movie' ? 'Movie' : 'TV Show']
-              }))}
-              onPlay={(movie) => {
-                const searchResult = searchResults.find(r => r.id === movie.id)
-                if (searchResult) {
-                  onPlay(movie.id, searchResult.title)
-                }
-              }}
-              onAddToList={(movie) => {
-                const searchResult = searchResults.find(r => r.id === movie.id)
-                if (searchResult) onAddToList(searchResult)
-              }}
-              onMoreInfo={(movie) => {
-                const searchResult = searchResults.find(r => r.id === movie.id)
-                if (searchResult) onMoreInfo(searchResult)
-              }}
-              showMovieTitles={true}
+              })) as any}
+              onPlay={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onPlay(id, found.title) }}
+              onAdd={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onAddToList(found) }}
+              onInfo={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onMoreInfo(found) }}
             />
           ) : !isSearching && searchQuery.trim() ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">

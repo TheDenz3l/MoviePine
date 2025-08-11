@@ -188,10 +188,27 @@ export class RealDebridAPI {
     )
 
     if (videoFiles.length === 0) return null
-
-    return videoFiles.reduce((largest, current) => 
-      current.bytes > largest.bytes ? current : largest
-    )
+    // Safari optimization: prefer MP4 (HEVC/H264) over MKV even if slightly smaller
+    try {
+      const isSafari = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
+      if (isSafari) {
+        const mp4s = videoFiles.filter(f => /\.mp4$/i.test(f.path))
+        if (mp4s.length) {
+          // Rank mp4 files: h265/hevc first, then h264/x264, then others by size
+          const scored = mp4s.map(f => {
+            const n = f.path.toLowerCase()
+            let score = 0
+            if (/(hevc|x265|h\.265)/.test(n)) score += 30
+            if (/(h\.264|x264|avc)/.test(n)) score += 20
+            // normalize size component
+            score += Math.min(f.bytes / (1024*1024*50), 10) // up to +10 for size
+            return { f, score }
+          }).sort((a,b)=> b.score - a.score)
+          return scored[0].f
+        }
+      }
+    } catch {}
+    return videoFiles.reduce((largest, current) => current.bytes > largest.bytes ? current : largest)
   }
 
   // Get streaming URL for a torrent

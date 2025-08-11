@@ -19,6 +19,8 @@ export interface RecentlyPlayedMovie {
   lastSubtitles?: string[]
 }
 
+import { safeParse, safeStringify } from '@/lib/utils/safe-json'
+
 const STORAGE_KEY = 'movieplayer_recently_played'
 const MAX_ITEMS = 15
 
@@ -31,7 +33,7 @@ export class RecentlyPlayedService {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (!stored) return []
       
-      const movies: RecentlyPlayedMovie[] = JSON.parse(stored)
+  const movies = safeParse<RecentlyPlayedMovie[]>(stored, [], 'recently-played') || []
       return movies.sort((a, b) => b.lastWatched - a.lastWatched)
     } catch (error) {
       console.error('Error loading recently played movies:', error)
@@ -70,7 +72,7 @@ export class RecentlyPlayedService {
       // Add to beginning and limit to MAX_ITEMS
       const updated = [newEntry, ...filtered].slice(0, MAX_ITEMS)
       
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+  localStorage.setItem(STORAGE_KEY, safeStringify(updated, '[]', 'recently-played'))
       console.log(`📺 Added "${movie.title}" to recently played`)
     } catch (error) {
       console.error('Error adding to recently played:', error)
@@ -103,7 +105,7 @@ export class RecentlyPlayedService {
         isCompleted
       }
       
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(movies))
+  localStorage.setItem(STORAGE_KEY, safeStringify(movies, '[]', 'recently-played'))
       
       // Only log significant progress updates to avoid spam
       if (Math.floor(progress * 10) !== Math.floor((movies[movieIndex].progress || 0) * 10)) {
@@ -130,7 +132,7 @@ export class RecentlyPlayedService {
         lastStreamUrl: streamUrl,
         lastSubtitles: subtitles
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(movies))
+  localStorage.setItem(STORAGE_KEY, safeStringify(movies, '[]', 'recently-played'))
     } catch (e) {
       console.error('Error setting stream info:', e)
     }
@@ -155,7 +157,7 @@ export class RecentlyPlayedService {
       const movies = this.getAll()
       const filtered = movies.filter(m => m.id !== movieId)
       
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered))
+  localStorage.setItem(STORAGE_KEY, safeStringify(filtered, '[]', 'recently-played'))
       console.log(`📺 Removed movie ${movieId} from recently played`)
     } catch (error) {
       console.error('Error removing from recently played:', error)

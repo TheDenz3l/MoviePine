@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { VideoPlayer } from "./video-player"
+import VideoPlayer from "./video-player"
 import { Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -30,6 +30,11 @@ interface VideoPlayerModalProps {
     genre?: string[]
   }
   startTime?: number
+  // Optional: function to derive the next episode id given a current episode id.
+  // If not provided we'll try to increment season/episode pattern like tmdb_12345:S01E02
+  resolveNextEpisodeId?: (currentId: string) => string | null
+  // Optional: hook to preload next episode metadata before playback
+  onPreloadNextEpisode?: (nextId: string) => Promise<void> | void
 }
 
 export function VideoPlayerModal({
@@ -40,7 +45,9 @@ export function VideoPlayerModal({
   onGetStreamingUrl,
   onGetStreamingResult,
   movieData,
-  startTime = 0
+  startTime = 0,
+  resolveNextEpisodeId,
+  onPreloadNextEpisode
 }: VideoPlayerModalProps) {
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null)
   const [availableSubtitles, setAvailableSubtitles] = useState<string[]>([])
@@ -55,9 +62,12 @@ export function VideoPlayerModal({
   const [loadingStatus, setLoadingStatus] = useState<string>('')
   const [currentAttempt, setCurrentAttempt] = useState<number>(0)
   const [totalAttempts, setTotalAttempts] = useState<number>(0)
+  // Series navigation
+  const [nextEpisodeId, setNextEpisodeId] = useState<string | null>(null)
+  const [isAdvancing, setIsAdvancing] = useState(false)
 
   useEffect(() => {
-    if (isOpen && movieId) {
+  if (isOpen && movieId) {
       prepareStream()
     } else {
       // Reset state when modal closes
@@ -68,7 +78,9 @@ export function VideoPlayerModal({
       setIsLoading(false)
       setLoadingStatus('')
       setCurrentAttempt(0)
-      setTotalAttempts(0)
+  setTotalAttempts(0)
+  setNextEpisodeId(null)
+  setIsAdvancing(false)
     }
   }, [isOpen, movieId])
 
@@ -79,6 +91,8 @@ export function VideoPlayerModal({
       setStreamingUrl(null)
     }
   }, [])
+
+  const isSafari = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
 
   const prepareStream = async () => {
     if (!movieId) return
@@ -94,10 +108,13 @@ export function VideoPlayerModal({
 
     try {
       console.log(`🎬 Preparing stream for movie: ${movieId}`)
+  // Determine next episode id if this looks like a series episode id
+  computeNextEpisodeId(movieId)
 
       // Try to get streaming result with subtitle information first
+  const idForRequest = isSafari ? movieId + '#safari' : movieId
       if (onGetStreamingResult) {
-        const result = await onGetStreamingResult(movieId)
+        const result = await onGetStreamingResult(idForRequest)
         if (result) {
           console.log(`✅ Streaming result obtained: ${result.url.substring(0, 50)}...`)
           console.log(`📝 VideoPlayerModal: Available subtitles from result: [${result.subtitles.join(', ') || 'None'}]`)
@@ -117,9 +134,9 @@ export function VideoPlayerModal({
         }
       } else {
         // Fallback to original method
-        const url = await onGetStreamingUrl(movieId)
+  const url = await onGetStreamingUrl(idForRequest)
         if (url) {
-          const streamUrl = typeof url === 'string' ? url : url.url
+          const streamUrl = typeof url === 'string' ? url : (url as any)
           console.log(`✅ Streaming URL obtained: ${streamUrl.substring(0, 50)}...`)
           setLoadingStatus('Stream ready! Starting playback...')
           setStreamingUrl(streamUrl)
@@ -205,6 +222,68 @@ Try searching for a different movie or check back later.`
     prepareStream()
   }
 
+  const computeNextEpisodeId = (id: string) => {
+    if (resolveNextEpisodeId) {
+      const custom = resolveNextEpisodeId(id)
+      setNextEpisodeId(custom)
+      return
+    }
+    // Pattern: base:S01E02 (season 1 episode 2)
+    const match = id.match(/^(.*):S(\d+)E(\d+)$/)
+    if (!match) { setNextEpisodeId(null); return }
+    const base = match[1]
+    const season = parseInt(match[2], 10)
+    const episode = parseInt(match[3], 10)
+    const nextEpisode = episode + 1
+    // We don't know season length; optimistic next episode id.
+    const nextId = `${base}:S${String(season).padStart(2, '0')}E${String(nextEpisode).padStart(2, '0')}`
+    setNextEpisodeId(nextId)
+  }
+
+  const handleAdvanceToNext = async () => {
+    if (!nextEpisodeId) return
+    setIsAdvancing(true)
+    try {
+      if (onPreloadNextEpisode) await onPreloadNextEpisode(nextEpisodeId)
+      // Update current movie context
+      // Re-run prepareStream with new id
+      // Because movieId is a prop, we can't mutate it directly; expect parent to control.
+      // If parent isn't controlling, we fallback to internal simulation by calling provided callbacks.
+      console.log('➡️ Advancing to next episode', nextEpisodeId)
+      // We simulate closing and re-opening with new id by calling onGetStreamingResult directly.
+      setStreamingUrl(null)
+      setAvailableSubtitles([])
+      setRealSubtitles([])
+      setError(null)
+      setIsLoading(true)
+      if (onGetStreamingResult) {
+        const result = await onGetStreamingResult(nextEpisodeId)
+        if (result) {
+          setStreamingUrl(result.url)
+          setAvailableSubtitles(result.subtitles)
+          setRealSubtitles(result.realSubtitles || [])
+          setLoadingStatus('Stream ready! Starting playback...')
+          computeNextEpisodeId(nextEpisodeId)
+        } else {
+          setError(categorizeStreamError(nextEpisodeId))
+        }
+      } else if (onGetStreamingUrl) {
+        const url = await onGetStreamingUrl(nextEpisodeId)
+        if (url) {
+          setStreamingUrl(typeof url === 'string' ? url : (url as any))
+          setLoadingStatus('Stream ready! Starting playback...')
+          computeNextEpisodeId(nextEpisodeId)
+        } else setError(categorizeStreamError(nextEpisodeId))
+      }
+    } catch (e) {
+      console.error('Error advancing to next episode', e)
+      setError('Failed to load next episode.')
+    } finally {
+      setIsAdvancing(false)
+      setIsLoading(false)
+    }
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent
@@ -280,7 +359,45 @@ Try searching for a different movie or check back later.`
             movieId={movieId || undefined}
             movieData={movieData}
             startTime={startTime}
+            hasNextEpisode={!!nextEpisodeId}
+            onNextEpisode={handleAdvanceToNext}
             onError={(errorMessage) => {
+              if (errorMessage === 'REQUEST_H264_FALLBACK' && movieId && isSafari) {
+                console.log('🧪 Modal: Received H264 fallback request, retrying with #safari+h264 token')
+                setStreamingUrl(null)
+                setIsLoading(true)
+                // Re-run streaming result with added token forcing h264
+                const retryId = movieId + '#safari+h264'
+                ;(async () => {
+                  try {
+                    if (onGetStreamingResult) {
+                      const result = await onGetStreamingResult(retryId)
+                      if (result) {
+                        setStreamingUrl(result.url)
+                        setAvailableSubtitles(result.subtitles)
+                        setRealSubtitles(result.realSubtitles || [])
+                        setError(null)
+                      } else {
+                        setError(categorizeStreamError(movieId))
+                      }
+                    } else if (onGetStreamingUrl) {
+                      const url = await onGetStreamingUrl(retryId)
+                      if (url) {
+                        setStreamingUrl(typeof url === 'string' ? url : (url as any))
+                        setError(null)
+                      } else {
+                        setError(categorizeStreamError(movieId))
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Fallback retry failed', e)
+                    setError('Fallback retry failed.')
+                  } finally {
+                    setIsLoading(false)
+                  }
+                })()
+                return
+              }
               console.error('Video player error:', errorMessage)
               setError(errorMessage)
               setStreamingUrl(null)
@@ -289,6 +406,14 @@ Try searching for a different movie or check back later.`
               setIsLoading(false)
             }}
           />
+        )}
+        {isAdvancing && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white z-50">
+            <div className="space-y-2 text-center">
+              <Loader2 className="h-10 w-10 animate-spin mx-auto" />
+              <p className="text-sm">Loading next episode...</p>
+            </div>
+          </div>
         )}
       </DialogContent>
     </Dialog>

@@ -1,0 +1,29 @@
+
+> movieplayer@0.1.0 dev
+> NEXT_DISABLE_TURBOPACK=1 next dev -p 3000
+
+   ▲ Next.js 15.4.5
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.252:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1218ms
+ ○ Compiling / ...
+ ✓ Compiled / in 2.9s (1042 modules)
+ GET / 200 in 3129ms
+ ✓ Compiled /api/config in 199ms (579 modules)
+ ✓ Compiled in 138ms (463 modules)
+ GET /favicon.ico 200 in 428ms
+ GET /api/config 200 in 327ms
+ GET /api/config 200 in 35ms
+ GET / 200 in 105ms
+ ✓ Compiled /api/torrentio in 112ms (1035 modules)
+🔗 Proxying Torrentio request: https://torrentio.strem.fun/providers=rarbg|1337x|thepiratebay|kickass|torrentgalaxy|sort=qualitysize|realdebrid=LNWEQRH45NCRI52OTWOGJ24NFQDYTQRYTD6SSG3ZXVKUF7B5JFKQ/manifest.json
+✅ Torrentio response: 0 streams found
+ GET /api/torrentio?endpoint=https%3A%2F%2Ftorrentio.strem.fun%2Fproviders%3Drarbg%7C1337x%7Cthepiratebay%7Ckickass%7Ctorrentgalaxy%7Csort%3Dqualitysize%7Crealdebrid%3DLNWEQRH45NCRI52OTWOGJ24NFQDYTQRYTD6SSG3ZXVKUF7B5JFKQ%2Fmanifest.json 200 in 298ms
+🔗 Proxying Torrentio request: https://torrentio.strem.fun/providers=rarbg|1337x|thepiratebay|kickass|torrentgalaxy|sort=qualitysize|realdebrid=LNWEQRH45NCRI52OTWOGJ24NFQDYTQRYTD6SSG3ZXVKUF7B5JFKQ/manifest.json
+✅ Torrentio response: 0 streams found
+ GET /api/torrentio?endpoint=https%3A%2F%2Ftorrentio.strem.fun%2Fproviders%3Drarbg%7C1337x%7Cthepiratebay%7Ckickass%7Ctorrentgalaxy%7Csort%3Dqualitysize%7Crealdebrid%3DLNWEQRH45NCRI52OTWOGJ24NFQDYTQRYTD6SSG3ZXVKUF7B5JFKQ%2Fmanifest.json 200 in 86ms
+ ✓ Compiled in 534ms (1049 modules)
+ GET / 200 in 62ms

@@ -1,5 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Guess a better video mime type when Real-Debrid (or others) return a generic download type
+function guessContentType(url: string, original?: string | null): string {
+  if (original && !/force-download|octet-stream/i.test(original)) return original
+  const lower = url.toLowerCase().split('?')[0]
+  if (lower.endsWith('.mp4')) return 'video/mp4'
+  if (lower.endsWith('.mkv')) return 'video/x-matroska'
+  if (lower.endsWith('.webm')) return 'video/webm'
+  if (lower.endsWith('.mov')) return 'video/quicktime'
+  if (lower.endsWith('.m4v')) return 'video/x-m4v'
+  if (lower.endsWith('.avi')) return 'video/x-msvideo'
+  if (lower.endsWith('.wmv')) return 'video/x-ms-wmv'
+  if (lower.endsWith('.flv')) return 'video/x-flv'
+  if (lower.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl'
+  return original || 'application/octet-stream'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -14,84 +30,48 @@ export async function GET(request: NextRequest) {
 
     console.log(`🎬 Proxying video stream: ${url.substring(0, 100)}...`)
 
-    // Fetch the video stream from Real-Debrid
-    const response = await fetch(url, {
+    // Fetch the video stream (supports range)
+    const upstream = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5',
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'video/*;q=0.9,*/*;q=0.5',
         'Accept-Encoding': 'identity',
-        'Range': request.headers.get('range') || 'bytes=0-'
+        ...(request.headers.get('range') ? { 'Range': request.headers.get('range') as string } : {})
       }
     })
 
-    if (!response.ok) {
-      console.log(`❌ Failed to fetch video stream: ${response.status} ${response.statusText}`)
+    if (!upstream.ok && upstream.status !== 206) {
+      console.log(`❌ Failed to fetch video stream: ${upstream.status} ${upstream.statusText}`)
       return NextResponse.json(
-        { error: `HTTP ${response.status}: ${response.statusText}` },
-        { status: response.status }
+        { error: `HTTP ${upstream.status}: ${upstream.statusText}` },
+        { status: upstream.status }
       )
     }
 
-    // Get the response headers
-    const contentType = response.headers.get('content-type') || 'video/mp4'
-    const contentLength = response.headers.get('content-length')
-    const acceptRanges = response.headers.get('accept-ranges')
-    const contentRange = response.headers.get('content-range')
+    const originalType = upstream.headers.get('content-type')
+    const contentType = guessContentType(url, originalType)
+    const contentLength = upstream.headers.get('content-length')
+    const contentRange = upstream.headers.get('content-range')
+    const acceptRanges = upstream.headers.get('accept-ranges') || 'bytes'
 
-    console.log(`✅ Video stream response: ${response.status}, Content-Type: ${contentType}`)
+    console.log(`✅ Video stream response: ${upstream.status}, Normalized-Type: ${contentType}, Original-Type: ${originalType}`)
 
-    // Create response headers for video streaming
-    const responseHeaders = new Headers({
+    const headers = new Headers({
       'Content-Type': contentType,
-      'Accept-Ranges': acceptRanges || 'bytes',
-      'Cache-Control': 'public, max-age=3600',
+      'Accept-Ranges': acceptRanges,
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
       'Access-Control-Allow-Headers': 'Range, Content-Range, Content-Length, Content-Type'
     })
+    if (contentLength) headers.set('Content-Length', contentLength)
+    if (contentRange) headers.set('Content-Range', contentRange)
+    if (/m3u8/i.test(contentType)) headers.set('Cache-Control', 'no-cache')
+    else headers.set('Cache-Control', 'public, max-age=3600')
 
-    if (contentLength) {
-      responseHeaders.set('Content-Length', contentLength)
-    }
-
-    if (contentRange) {
-      responseHeaders.set('Content-Range', contentRange)
-    }
-
-    // Handle range requests for video seeking
-    const status = response.status === 206 ? 206 : 200
-
-    // Stream the video content
-    const stream = new ReadableStream({
-      start(controller) {
-        const reader = response.body?.getReader()
-        if (!reader) {
-          controller.close()
-          return
-        }
-
-        function pump(): Promise<void> {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              controller.close()
-              return
-            }
-            controller.enqueue(value)
-            return pump()
-          }).catch(error => {
-            console.error('❌ Stream error:', error)
-            controller.error(error)
-          })
-        }
-
-        return pump()
-      }
-    })
-
-    return new NextResponse(stream, {
-      status,
-      headers: responseHeaders
+    return new NextResponse(upstream.body, {
+      status: contentRange ? 206 : (upstream.status === 206 ? 206 : 200),
+      headers
     })
 
   } catch (error) {

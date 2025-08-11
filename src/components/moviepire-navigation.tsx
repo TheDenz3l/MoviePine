@@ -57,9 +57,11 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
         return
       }
 
-      // Don't close if clicking on the search overlay (seamless search results)
+      // Don't close if clicking on any search overlay
       const searchOverlay = document.querySelector('[data-search-overlay]')
-      if (searchOverlay && searchOverlay.contains(target)) {
+      const gridOverlay = document.querySelector('.fixed.inset-0.z-50')
+      if ((searchOverlay && searchOverlay.contains(target)) || 
+          (gridOverlay && gridOverlay.contains(target))) {
         return
       }
 

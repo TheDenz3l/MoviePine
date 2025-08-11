@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { TMDBAPI } from '@/lib/api/tmdb'
-import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
+import CinematicRail from '@/components/cinematic/CinematicRail'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -218,7 +218,6 @@ export function MoviepireExplorePage({
       <MoviepireNavigation
         onNavigate={onNavigate}
         activeCategory={activeCategory}
-        onSearch={onSearch}
       />
 
       {/* Content */}
@@ -227,7 +226,7 @@ export function MoviepireExplorePage({
         <nav className="mb-8">
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-white mb-4">Categories</h2>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-2">
               {categories.map((category) => (
                 <button
                   key={category.id}
@@ -246,7 +245,7 @@ export function MoviepireExplorePage({
 
           <div>
             <h2 className="text-lg font-semibold text-white mb-4">Genres</h2>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               {genres.map((genre) => (
                 <button
                   key={genre.id}
@@ -273,13 +272,13 @@ export function MoviepireExplorePage({
               <div className="text-white text-xl">Loading...</div>
             </div>
           ) : (
-            <MoviepireMovieGrid
-              title=""
-              movies={movies}
-              onPlay={onPlay}
-              onAddToList={onAddToList}
-              onMoreInfo={onMoreInfo}
-              showMovieTitles={true}
+            <CinematicRail
+              id="explore-grid"
+              title={selectedGenre ? `Genre: ${genres.find(g => g.id === selectedGenre)?.name || ''}` : categories.find(c => c.id === selectedCategory)?.name || ''}
+              items={movies.map(m => ({ id: m.id, title: m.title, poster: m.poster, backdrop: m.poster, year: m.year, genre: m.genre })) as any}
+              onPlay={(id) => { const mv = movies.find(x=>x.id===id); if(mv) onPlay(id, mv.title) }}
+              onAdd={(id) => { const mv = movies.find(x=>x.id===id); if(mv) onAddToList(mv) }}
+              onInfo={(id) => { const mv = movies.find(x=>x.id===id); if(mv) onMoreInfo(mv) }}
             />
           )}
         </div>

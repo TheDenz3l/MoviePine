@@ -1,250 +1,268 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { TMDBAPI } from '@/lib/api/tmdb'
-import { MoviepireMovieGrid } from '@/components/moviepire-movie-grid'
-import { Search, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import MoviepireGrid, { MoviepireGridItem } from '@/components/moviepire-grid'
+import { Search, X, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-interface SearchMovie {
-  id: string
-  title: string
-  poster: string
-  year?: number
-  genre?: string[]
+interface SearchMovie extends MoviepireGridItem {
+  type: 'movie' | 'tv'
 }
 
-interface RealTimeSearchPageProps {
-  initialQuery?: string
-  onMovieSelect: (movie: SearchMovie) => void
-  onPlay: (movieId: string, title: string) => void
-  onAddToList: (movie: SearchMovie) => void
-  onMoreInfo: (movie: SearchMovie) => void
-  onClose: () => void
+interface RealTimeSearchPageProps { 
+  initialQuery?: string; 
+  onMovieSelect: (movie: SearchMovie) => void; 
+  onPlay: (movieId: string, title: string) => void; 
+  onAddToList: (movie: SearchMovie) => void; 
+  onMoreInfo: (movie: SearchMovie) => void; 
+  onClose: () => void 
 }
 
-// Initialize TMDB API
-const tmdbApi = new TMDBAPI(process.env.NEXT_PUBLIC_TMDB_API_KEY || '')
+// ---- State Management (Reducer to avoid race conditions) ----
+interface State { query: string; results: SearchMovie[]; loading: boolean; error: string | null; touched: boolean; page: number; total: number }
+type Action =
+  | { type: 'SET_QUERY'; query: string }
+  | { type: 'START'; query: string }
+  | { type: 'SUCCESS'; query: string; results: SearchMovie[]; total: number }
+  | { type: 'ERROR'; query: string; error: string }
+  | { type: 'RESET' }
 
-export function RealTimeSearchPage({
-  initialQuery = '',
-  onMovieSelect,
-  onPlay,
-  onAddToList,
-  onMoreInfo,
-  onClose
-}: RealTimeSearchPageProps) {
-  const [searchQuery, setSearchQuery] = useState(initialQuery)
-  const [searchResults, setSearchResults] = useState<SearchMovie[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+const initialState: State = { query: '', results: [], loading: false, error: null, touched: false, page: 1, total: 0 }
+
+function reducer(state: State, action: Action): State {
+  switch(action.type) {
+    case 'SET_QUERY':
+      return { ...state, query: action.query }
+    case 'START':
+      return { ...state, query: action.query, loading: true, error: null, touched: true }
+    case 'SUCCESS':
+      if (action.query !== state.query) return state // stale
+      return { ...state, loading: false, error: null, results: action.results, total: action.total }
+    case 'ERROR':
+      if (action.query !== state.query) return state
+      return { ...state, loading: false, error: action.error, results: [] }
+    case 'RESET':
+      return { ...initialState }
+    default:
+      return state
+  }
+}
+
+// ---- Simple in-memory cache to avoid repeat fetches ----
+const resultCache = new Map<string, { results: SearchMovie[]; total: number; ts: number }>()
+
+// Helper: build TMDB multi search URL (client side; key is public NEXT_PUBLIC_ variant)
+function buildSearchUrl(apiKey: string, q: string, page=1) {
+  const url = new URL('https://api.themoviedb.org/3/search/multi')
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('query', q)
+  url.searchParams.set('page', page.toString())
+  url.searchParams.set('include_adult', 'false')
+  return url.toString()
+}
+
+export function RealTimeSearchPage({ initialQuery = '', onMovieSelect, onPlay, onAddToList, onMoreInfo, onClose }: RealTimeSearchPageProps) {
+  const [state, dispatch] = useReducer(reducer, { ...initialState, query: initialQuery })
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY || ''
 
   // Focus input on mount
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus()
-    }
-  }, [])
+  useEffect(()=>{ inputRef.current?.focus() }, [])
 
-  // (Removed local modal handling; now defers to parent modal logic)
-
-  // Real-time search as user types
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current)
-    }
-
-    if (searchQuery.trim().length > 0) {
-      setIsSearching(true)
-      setHasSearched(true)
-      
-      searchTimeoutRef.current = setTimeout(async () => {
-        try {
-          const results = await tmdbApi.searchMulti(searchQuery.trim(), 1)
-          const transformedResults: SearchMovie[] = results.results
-            .filter((item: any) => item.media_type === 'movie' || item.media_type === 'tv')
-            .map((item: any) => ({
-              id: item.id.toString(),
-              title: item.media_type === 'movie' ? item.title : item.name,
-              poster: item.poster_path
-                ? tmdbApi.getPosterUrl(item.poster_path, 'w500')
-                : '/placeholder-poster.svg',
-              year: item.media_type === 'movie' 
-                ? new Date(item.release_date || '').getFullYear() || undefined
-                : new Date(item.first_air_date || '').getFullYear() || undefined,
-              genre: item.genre_ids?.map((id: number) => `Genre ${id}`) || []
-            }))
-            .filter((item: SearchMovie) => item.title && item.poster)
-
-          setSearchResults(transformedResults)
-        } catch (error) {
-          console.error('Search error:', error)
-          setSearchResults([])
-        } finally {
-          setIsSearching(false)
-        }
-      }, 200) // Faster response for real-time feel
-    } else {
-      setSearchResults([])
-      setIsSearching(false)
-      setHasSearched(false)
-    }
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current)
+  // Core search effect (debounced, abortable, cached)
+  useEffect(()=>{
+    const q = state.query.trim()
+    if (debounceRef.current) window.clearTimeout(debounceRef.current)
+    if (!q) { dispatch({ type: 'RESET' }); return }
+    debounceRef.current = window.setTimeout(async () => {
+      // Cache hit
+      const cached = resultCache.get(q)
+      if (cached && Date.now() - cached.ts < 1000 * 60 * 5) { // 5 min freshness
+        dispatch({ type: 'SUCCESS', query: q, results: cached.results, total: cached.total })
+        return
       }
-    }
-  }, [searchQuery])
+      // Abort previous
+      if (abortRef.current) abortRef.current.abort()
+      const controller = new AbortController(); abortRef.current = controller
+      dispatch({ type: 'START', query: q })
+      try {
+        if (!apiKey) throw new Error('API key missing')
+        const res = await fetch(buildSearchUrl(apiKey, q), { signal: controller.signal })
+        if (!res.ok) {
+          if (res.status === 429) throw new Error('Rate limited. Slow down.')
+          throw new Error('Search failed ('+res.status+')')
+        }
+        const json = await res.json()
+        const raw: any[] = Array.isArray(json.results) ? json.results : []
+        const transformed: SearchMovie[] = raw
+          .filter(r => r && (r.media_type === 'movie' || r.media_type === 'tv'))
+          .map(r => {
+            const posterPath = r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : '/placeholder-poster.svg'
+            const backdropPath = r.backdrop_path ? `https://image.tmdb.org/t/p/w780${r.backdrop_path}` : undefined
+            const year = r.media_type === 'movie' ? (r.release_date ? new Date(r.release_date).getFullYear() : undefined) : (r.first_air_date ? new Date(r.first_air_date).getFullYear() : undefined)
+            return { 
+              id: String(r.id), 
+              title: r.media_type === 'movie' ? r.title : r.name, 
+              poster: posterPath,
+              backdrop: backdropPath,
+              year, 
+              type: r.media_type as 'movie' | 'tv',
+              rating: r.vote_average
+            }
+          })
+          .filter(m => !!m.title && !!m.poster)
+        resultCache.set(q, { results: transformed, total: json.total_results || transformed.length, ts: Date.now() })
+        dispatch({ type: 'SUCCESS', query: q, results: transformed, total: json.total_results || transformed.length })
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return
+        dispatch({ type: 'ERROR', query: q, error: e?.message || 'Unknown error' })
+      }
+    }, 240)
+    return () => { if (debounceRef.current) window.clearTimeout(debounceRef.current) }
+  }, [state.query, apiKey])
 
-  const handleClosePage = useCallback(() => {
-    onClose()
+  // Escape to close
+  useEffect(()=>{
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Handle escape key: closes modal first, then page if no modal
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        handleClosePage()
-      }
-    }
+  const statusText = useMemo(()=>{
+    if (!state.touched) return 'Type to search'
+    if (state.loading && !state.error) return 'Searching…'
+    if (state.error) return state.error
+    if (!state.results.length) return `No results for "${state.query}"`
+    return `Found ${state.total} results for "${state.query}"`
+  }, [state.touched, state.loading, state.error, state.results.length, state.total, state.query])
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleClosePage])
+  const handleInputChange = (val: string) => { dispatch({ type: 'SET_QUERY', query: val }) }
 
-  const handleInputChange = (value: string) => {
-    setSearchQuery(value)
+  const handlePlay = (id: string) => { 
+    const mv = state.results.find(r=>r.id===id); 
+    if (!mv) return; 
+    try { window.dispatchEvent(new CustomEvent('app:playMovie',{ detail:{ id: mv.id, title: mv.title }})) } catch {} 
+    onPlay(id, mv.title)
+    onClose() 
+  }
+  
+  const handleInfo = (id: string) => { 
+    const mv = state.results.find(r=>r.id===id); 
+    if (!mv) return;
+    try { window.dispatchEvent(new CustomEvent('app:openModal',{ detail:{ id }})) } catch {} 
+    onMoreInfo(mv)
+    onClose() 
+  }
+  
+  const handleAdd = (id: string) => { 
+    const mv = state.results.find(r=>r.id===id); 
+    if (mv) onAddToList(mv) 
   }
 
-  const handleMoviePlay = (movieId: string, title: string) => {
-    // New unified flow: broadcast play intent so parent closes overlay & opens player centrally
-    try {
-      window.dispatchEvent(new CustomEvent('app:playMovie', { detail: { id: movieId, title } }))
-    } catch (e) {
-      console.warn('Failed dispatch app:playMovie', e)
-      // Fallback to direct invocation if dispatch fails
-      onClose()
-      onPlay(movieId, title)
-      return
-    }
-    // Still close immediately for perceived responsiveness (parent also sets state but this is idempotent)
-    onClose()
-  }
+  // Skeleton items for loading state
+  const skeletonItems = useMemo(() => {
+    if (!state.loading || state.results.length > 0) return []
+    return Array.from({ length: 18 }, (_, i) => ({
+      id: `skeleton-${i}`,
+      title: '',
+      poster: '',
+      year: undefined,
+      type: 'movie' as const
+    }))
+  }, [state.loading, state.results.length])
 
-  const handleMovieMoreInfo = (movie: SearchMovie) => {
-    // Radically different: broadcast intent first so parent (global listener) closes & opens modal
-    try {
-      window.dispatchEvent(new CustomEvent('app:openModal', { detail: { id: movie.id } }))
-    } catch (e) {
-      console.warn('Failed dispatch app:openModal', e)
-    }
-    // Still invoke local close as fallback
-    onClose()
-  }
-
-  const handleMovieAddToList = (movie: SearchMovie) => {
-    onAddToList(movie)
-  }
+  const showGrid = state.touched || state.loading
+  const displayItems = state.loading && state.results.length === 0 ? skeletonItems : state.results
 
   return (
-  <div className="fixed inset-0 z-50 bg-[rgb(18,18,18)] text-white overflow-hidden">
-      {/* Search Header */}
-      <div className="sticky top-0 z-10 bg-[rgb(18,18,18)]/95 backdrop-blur-sm border-b border-gray-800/50">
-        <div className="flex items-center px-6 py-4">
-          {/* Search Input */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-6 w-6" />
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Search for movies and TV shows..."
-              value={searchQuery}
-              onChange={(e) => handleInputChange(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 text-lg bg-gray-900/50 border border-gray-700/50 text-white placeholder-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600/50 focus:border-red-600/50"
-            />
+    <div className="fixed inset-0 z-50 bg-gradient-to-b from-[rgb(10,10,10)] via-[rgb(14,14,14)] to-[rgb(10,10,10)] text-white flex flex-col overflow-hidden">
+      {/* Header - same style as original search overlay */}
+      <div className="shrink-0 bg-[rgba(18,18,18,0.9)] backdrop-blur-md border-b border-zinc-800/60 shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+        <div className="flex items-start gap-6 px-8 pt-6 pb-5">
+          <div className="flex-1">
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-gray-300 h-5 w-5 transition-colors" />
+              <input
+                ref={inputRef}
+                value={state.query}
+                onChange={e=>handleInputChange(e.target.value)}
+                placeholder="Start typing to search the catalog..."
+                className="w-full pl-12 pr-4 py-4 rounded-lg bg-zinc-900/70 border border-zinc-700/60 focus:border-red-600/70 focus:ring-2 focus:ring-red-600/30 outline-none text-[17px] tracking-wide placeholder-gray-500 transition-colors"
+                aria-label="Search titles"
+              />
+              <div className="absolute -bottom-1 left-3 right-3 h-px bg-gradient-to-r from-transparent via-zinc-600/40 to-transparent pointer-events-none" />
+            </div>
+            <div className="mt-3 h-5 text-[13px] font-normal tracking-wide text-gray-400" aria-live="polite">
+              {state.loading && <span className="flex items-center gap-2 text-gray-300"><Loader2 className="animate-spin w-3.5 h-3.5" /> {statusText}</span>}
+              {!state.loading && <span className={state.error ? 'text-red-400' : ''}>{statusText}</span>}
+            </div>
           </div>
-
-          {/* Close Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClosePage}
-            className="ml-4 text-gray-400 hover:text-white hover:bg-gray-800/50"
-          >
-            <X className="w-6 h-6" />
-          </Button>
-        </div>
-
-        {/* Search Status */}
-        <div className="px-6 pb-4">
-          {isSearching && (
-            <p className="text-gray-400 text-sm">Searching...</p>
-          )}
-          {!isSearching && hasSearched && searchQuery.trim() && (
-            <p className="text-gray-400 text-sm">
-              {searchResults.length > 0 
-                ? `Found ${searchResults.length} results for "${searchQuery}"`
-                : `No results found for "${searchQuery}"`
-              }
-            </p>
-          )}
-          {!hasSearched && (
-            <p className="text-gray-400 text-sm">Start typing to search for movies and TV shows</p>
-          )}
+          <div className="flex gap-2 pt-1">
+            {state.error && (
+              <Button variant="ghost" size="icon" onClick={()=>dispatch({ type:'SET_QUERY', query: state.query })} className="text-gray-400 hover:text-white hover:bg-gray-800/60"><RefreshCw className="w-5 h-5" /></Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-gray-400 hover:text-white hover:bg-gray-800/60"><X className="w-6 h-6" /></Button>
+          </div>
         </div>
       </div>
-
-      {/* Search Results */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-6 py-6">
-          {searchResults.length > 0 ? (
-            <MoviepireMovieGrid
-              title=""
-              movies={searchResults.map(r => ({
-                id: r.id,
-                title: r.title,
-                poster: r.poster,
-                year: r.year,
-                genre: r.genre
-              }))}
-              onPlay={(m) => handleMoviePlay(m.id, m.title)}
-              onAddToList={(m) => handleMovieAddToList({
-                id: m.id,
-                title: m.title,
-                poster: m.poster || '/placeholder-poster.svg',
-                year: m.year,
-                genre: m.genre
-              })}
-              onMoreInfo={(m) => handleMovieMoreInfo({
-                id: m.id,
-                title: m.title,
-                poster: m.poster || '/placeholder-poster.svg',
-                year: m.year,
-                genre: m.genre
-              })}
-              showMovieTitles={true}
-            />
-          ) : hasSearched && !isSearching && searchQuery.trim() ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Search className="w-16 h-16 text-gray-600 mb-4" />
-              <h2 className="text-2xl font-semibold text-gray-400 mb-2">No results found</h2>
-              <p className="text-gray-500">Try searching with different keywords</p>
+      
+      {/* Body with grid layout */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* Sticky side rail (future filters) - same as original */}
+        <aside className="hidden lg:block w-64 border-r border-zinc-800/60 bg-[rgba(20,20,20,0.55)] backdrop-blur-md p-6 overflow-y-auto">
+          <h3 className="text-xs uppercase tracking-widest text-zinc-500 mb-4 font-semibold">Filters</h3>
+          <p className="text-[13px] text-zinc-500 leading-relaxed">Coming soon: refine by genre, year, rating. Current build focuses on stability.</p>
+        </aside>
+        
+        {/* Main content area with MoviepireGrid */}
+        <main className="flex-1 overflow-y-auto px-4 sm:px-8 pb-16">
+          {!showGrid && (
+            <div className="flex flex-col items-center justify-center h-full opacity-70">
+              <Search className="w-20 h-20 text-gray-600 mb-6" />
+              <h2 className="text-3xl font-semibold text-gray-300 mb-3 tracking-tight">Instant Search</h2>
+              <p className="text-gray-500 max-w-md text-center text-sm leading-relaxed">A lean, resilient search surface. Start typing above to stream results without flicker or layout jumps.</p>
             </div>
-          ) : !hasSearched ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Search className="w-16 h-16 text-gray-600 mb-4" />
-              <h2 className="text-2xl font-semibold text-gray-400 mb-2">Search for content</h2>
-              <p className="text-gray-500">Start typing to find movies and TV shows</p>
+          )}
+          
+          {showGrid && (
+            <div className="mt-6">
+              {state.loading && state.results.length === 0 && (
+                <div className="grid gap-6 sm:gap-7 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+                  {Array.from({length:18}).map((_,i)=>(
+                    <div key={i} className="aspect-[2/3] rounded-md bg-zinc-800/50 animate-pulse" />
+                  ))}
+                </div>
+              )}
+              
+              {state.results.length > 0 && (
+                <MoviepireGrid
+                  items={state.results}
+                  browseReplication
+                  intentDelayMs={70}
+                  prefetchNeighbors
+                  enableKeyboardNav
+                  showMetadata
+                  minCardWidth={140}
+                  gap={24}
+                  className="rounded-lg ring-1 ring-white/5 bg-black/10 backdrop-blur-sm max-h-[70vh]"
+                  onPlay={handlePlay}
+                  onAdd={handleAdd}
+                  onInfo={handleInfo}
+                />
+              )}
+              
+              {!state.loading && state.results.length === 0 && state.touched && (
+                <div className="py-24 flex flex-col items-center gap-4 opacity-70">
+                  <Search className="w-16 h-16 text-gray-600" />
+                  <p className="text-gray-400 text-lg">No results</p>
+                </div>
+              )}
             </div>
-          ) : null}
-        </div>
+          )}
+        </main>
       </div>
-
-  {/* Local modal removed; parent handles modal display */}
     </div>
   )
 }

@@ -75,6 +75,7 @@ export class StreamingService {
   private torbox?: TorboxAPI
   private realdebrid?: RealDebridAPI
   private config: StreamingConfig
+  private isSafariRuntime?: boolean
 
   constructor(config: StreamingConfig) {
     this.config = config
@@ -104,6 +105,20 @@ export class StreamingService {
       this.realdebrid.testConnection().catch(error => {
         console.warn('Real-Debrid connection test failed:', error)
       })
+    }
+
+    // Attempt asynchronous runtime codec capability detection on client
+    if (typeof window !== 'undefined') {
+      // Detect Safari once (simple UA check) for scoring/filter adjustments
+      try {
+        this.isSafariRuntime = /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
+      } catch { this.isSafariRuntime = false }
+      // Defer to next tick to avoid blocking constructor
+      setTimeout(() => {
+        this.detectRuntimeCodecSupport().catch(err => {
+          console.debug('Runtime codec capability detection skipped:', err)
+        })
+      }, 0)
     }
   }
 
@@ -161,6 +176,63 @@ export class StreamingService {
       )
     } catch (error) {
       console.error('Error fetching trending series:', error)
+      return []
+    }
+  }
+
+  /** Fetch popular TV series (separate from popular movies) */
+  async getPopularSeries(): Promise<StreamingSeries[]> {
+    if (!this.config.tmdbApiKey) {
+      console.warn('TMDB API key not configured')
+      return []
+    }
+
+    try {
+      const popularResult = await this.tmdb.getPopularTVShows()
+      const genres = await this.tmdb.getTVGenres()
+      return popularResult.results.map(series =>
+        this.convertToSeries(series as TMDBTVShow, genres.genres)
+      )
+    } catch (error) {
+      console.error('Error fetching popular series:', error)
+      return []
+    }
+  }
+
+  /** Fetch top rated TV series */
+  async getTopRatedSeries(): Promise<StreamingSeries[]> {
+    if (!this.config.tmdbApiKey) {
+      console.warn('TMDB API key not configured')
+      return []
+    }
+
+    try {
+      const topRatedResult = await this.tmdb.getTopRatedTVShows()
+      const genres = await this.tmdb.getTVGenres()
+      return topRatedResult.results.map(series =>
+        this.convertToSeries(series as TMDBTVShow, genres.genres)
+      )
+    } catch (error) {
+      console.error('Error fetching top rated series:', error)
+      return []
+    }
+  }
+
+  /** Fetch currently airing TV series */
+  async getOnTheAirSeries(): Promise<StreamingSeries[]> {
+    if (!this.config.tmdbApiKey) {
+      console.warn('TMDB API key not configured')
+      return []
+    }
+
+    try {
+      const onAirResult = await this.tmdb.getOnTheAirTVShows()
+      const genres = await this.tmdb.getTVGenres()
+      return onAirResult.results.map(series =>
+        this.convertToSeries(series as TMDBTVShow, genres.genres)
+      )
+    } catch (error) {
+      console.error('Error fetching on-the-air series:', error)
       return []
     }
   }
@@ -533,10 +605,68 @@ export class StreamingService {
 
   async getStreamingResult(movieId: string, preferredQuality?: string): Promise<StreamingResult | null> {
     try {
-      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}`)
+  // Parse inline token after # (supports multiple tokens separated by '+', e.g. #safari+h264+1080p)
+      let rawToken: string | undefined
+      let tokens: string[] = []
+      if (movieId.includes('#')) {
+        const parts = movieId.split('#')
+        movieId = parts[0]
+        rawToken = parts[1]
+        if (rawToken) tokens = rawToken.toLowerCase().split('+').filter(Boolean)
+        // If a recognized quality appears among tokens and caller didn't provide preferredQuality, use it
+        const qualityToken = tokens.find(t => /(4k|2160|1080|720|480|360)p?/.test(t))
+        if (qualityToken && !preferredQuality) preferredQuality = qualityToken
+      }
+      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}${tokens.length ? ' (tokens '+tokens.join(',')+')' : ''}`)
+  // Automatic safari detection (tokens can still force behavior, but runtime Safari always enabled)
+  const safariRuntime = (this as any).isSafariRuntime === true
+  const safariLike = safariRuntime || tokens.includes('safari')
+      const h264Only = tokens.includes('h264') || tokens.includes('h264only')
+
+      const filterSafariSources = <T extends { name: string }>(list: T[]): T[] => {
+        if (!safariLike) return list
+        const decisions: { kept: number; dropped: number; reasons: Record<string, number> } = { kept: 0, dropped: 0, reasons: {} }
+        const filtered = list.filter(s => {
+          const raw = s.name
+          const n = raw.toLowerCase()
+          const isMkv = /\.mkv\b|\bmkv\b/.test(n)
+          const isRemux = /remux/.test(n)
+          const unsupportedCodec = /(av1|vp9|vvc)/.test(n)
+          if (unsupportedCodec) { decisions.dropped++; decisions.reasons['codec']=(decisions.reasons['codec']||0)+1; return false }
+          if (isMkv) { decisions.dropped++; decisions.reasons['mkv']=(decisions.reasons['mkv']||0)+1; return false }
+          if (isRemux) { decisions.dropped++; decisions.reasons['remux']=(decisions.reasons['remux']||0)+1; return false }
+          // Allowed indicators
+          const hasMp4 = /\.mp4\b/.test(n)
+          const hasH264 = /(x264|h264|avc)/.test(n)
+          const hasHevc = /(hevc|x265|h\.265)/.test(n)
+          if (h264Only && !hasH264) { decisions.dropped++; decisions.reasons['force-h264']=(decisions.reasons['force-h264']||0)+1; return false }
+          // Accept order: explicit mp4 + (h264|hevc) > h264 label > hevc label (if not forcing h264)
+          const accept = (hasMp4 && (hasH264 || (!h264Only && hasHevc))) || hasH264 || (!h264Only && hasHevc)
+          if (accept) { decisions.kept++; return true }
+          decisions.dropped++; decisions.reasons['ambiguous']=(decisions.reasons['ambiguous']||0)+1; return false
+        })
+        console.log(`🧪 Safari filter pass: kept=${decisions.kept} dropped=${decisions.dropped} reasons=`, decisions.reasons)
+        // Secondary preference pass: if we have any clear H.264 candidates, drop HEVC/x265 to reduce unsupported/decode errors on some Safari setups
+        if (filtered.length) {
+          const h264Preferred = filtered.filter(s => {
+            const n = s.name.toLowerCase()
+            return /(x264|h264)/.test(n) || (n.includes('.mp4') && !/(hevc|x265)/.test(n))
+          })
+          if (h264Preferred.length) {
+            console.log(`🧪 Safari post-filter preferring H.264 set ${h264Preferred.length} of ${filtered.length}`)
+            return h264Preferred
+          }
+        }
+        if (filtered.length === 0) {
+          console.log('⚠️ Safari filter eliminated all sources; falling back to original list length', list.length)
+          return list
+        }
+        console.log(`🧪 Safari filtering reduced sources ${list.length} -> ${filtered.length}`)
+        return filtered
+      }
 
       // Series episode composite ID pattern: baseId:S<season>E<episode>
-      const seriesMatch = movieId.match(/^(tmdb_tv_\d+|tt\d+|tmdb_\d+):S(\d+)E(\d+)(?:#([A-Za-z0-9]+))?$/i)
+  const seriesMatch = movieId.match(/^(tmdb_tv_\d+|tt\d+|tmdb_\d+):S(\d+)E(\d+)$/i)
       if (seriesMatch) {
         const baseId = seriesMatch[1]
         const seasonNum = parseInt(seriesMatch[2], 10)
@@ -564,16 +694,22 @@ export class StreamingService {
             console.log('❌ No series streams found')
             return null
           }
-          const sources = streams.map(s => ({
-            name: s.name,
-            quality: this.inferQuality(s.name),
-            size: '-',
-            infoHash: s.infoHash,
-            url: s.url,
-            isReady: true,
-            subtitles: s.subtitles
-          }))
-          let sorted = sources.sort((a, b) => this.getQualityScore(b.quality) - this.getQualityScore(a.quality))
+          const sources = streams.map(s => {
+            const quality = this.inferQuality(s.name)
+            const codecScore = this.computeCodecCompatibilityScore(s.name)
+            const audioScore = this.getAudioCompatibilityScore(s.name)
+            return {
+              name: s.name,
+              quality,
+              size: '-',
+              infoHash: s.infoHash,
+              url: s.url,
+              isReady: true,
+              subtitles: s.subtitles,
+              _score: this.weightedStreamScore({ quality, codecScore, audioScore })
+            }
+          })
+          let sorted = sources.sort((a, b) => b._score - a._score)
           if (forcedQuality) {
             // Bring preferred quality to front while preserving relative order among equals
             sorted = sorted.sort((a, b) => {
@@ -584,13 +720,14 @@ export class StreamingService {
               return 0
             })
           }
-          for (const source of sorted) {
+          sorted = filterSafariSources(sorted)
+      for (const source of sorted) {
             const streamingUrl = await this.prepareStream(source)
             if (streamingUrl) {
               return {
                 url: streamingUrl,
                 subtitles: source.subtitles || [],
-                source,
+                source: { ...source },
                 movieTitle: `${baseId} S${seasonNum}E${episodeNum}${forcedQuality ? ' ' + forcedQuality : ''}`
               }
             }
@@ -621,7 +758,8 @@ export class StreamingService {
         }
       }
 
-      const sources = await this.getMovieStreams(movieId)
+  let sources = await this.getMovieStreams(movieId)
+  sources = filterSafariSources(sources)
 
       if (sources.length === 0) {
         console.log(`❌ No streams found for ${movieId}`)
@@ -630,80 +768,66 @@ export class StreamingService {
 
       console.log(`📊 Found ${sources.length} total streams, checking for Torrentio resolve URLs...`)
 
-      // STREMIO MODE: Look for Torrentio resolve URLs with audio compatibility prioritization
-      const torrentioSources = sources.filter(source =>
-        source.url && source.url.includes('/resolve/realdebrid/')
-      )
-
-      if (torrentioSources.length > 0) {
-        console.log(`🎵 Found ${torrentioSources.length} Torrentio streams, prioritizing by audio compatibility...`)
-
-        // Sort Torrentio sources by audio compatibility first, then by quality
-        const sortedTorrentioSources = torrentioSources.sort((a, b) => {
-          // Priority 1: Audio compatibility (browser-supported codecs first)
-          const aAudioScore = this.getAudioCompatibilityScore(a.name)
-          const bAudioScore = this.getAudioCompatibilityScore(b.name)
-          if (aAudioScore !== bAudioScore) {
-            console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
-            return bAudioScore - aAudioScore
-          }
-
-          // Priority 2: Quality (4K > 1080p > 720p)
-          const aQualityScore = this.getQualityScore(a.quality)
-          const bQualityScore = this.getQualityScore(b.quality)
-          if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
-
-          // Priority 3: Seeders/peers (higher is better)
-          const aSeeders = this.extractSeeders(a.name)
-          const bSeeders = this.extractSeeders(b.name)
-          return bSeeders - aSeeders
+      // Apply unified weighted scoring (quality dominant) including Torrentio resolve URLs
+      const scoringDetails: Array<{ src: StreamingSource; score: number; parts: { quality: number; codec: number; audio: number; readiness: number; preferred: number; seeders: number } }> = []
+      for (const s of sources) {
+        const baseQuality = this.getQualityScore(s.quality)
+        const codecScore = this.computeCodecCompatibilityScore(s.name)
+        const audioScore = this.getAudioCompatibilityScore(s.name)
+        const readiness = s.isReady ? 0.3 : 0 // converted later into weighted addition
+        const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
+        const seedBoost = Math.min((s.seeders || 0) / 200, 0.4) // cap influence
+        let composite: number
+        if (safariLike) {
+          // Safari priority: codec > quality > seeders (audio minor)
+            composite = (codecScore * 120) + (baseQuality * 80) + (seedBoost * 60) + (audioScore * 5) + (readiness * 40) + (preferred * 150)
+        } else {
+          composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
+            + (readiness * 100) + (preferred * 200) + (seedBoost * 100)
+        }
+        scoringDetails.push({
+          src: s,
+          score: composite,
+          parts: { quality: baseQuality, codec: codecScore, audio: audioScore, readiness: readiness * 100, preferred: preferred * 200, seeders: seedBoost * 100 }
         })
+      }
+      scoringDetails.sort((a, b) => b.score - a.score)
+      console.log('🧮 Top 5 scored movie sources (unified weighting):')
+      scoringDetails.slice(0, 5).forEach((d, i) => {
+        console.log(`${i + 1}. Q=${d.src.quality} Name=${d.src.name.substring(0, 70)}... score=${d.score.toFixed(1)} parts`, d.parts)
+      })
 
-        // Try each Torrentio source in audio-compatibility order
-        for (const source of sortedTorrentioSources) {
-          const audioScore = this.getAudioCompatibilityScore(source.name)
-          console.log(`✅ TRYING TORRENTIO STREAM! 🎯`)
-          console.log(`🎵 Stream: ${source.name} (Audio Score: ${audioScore})`)
-          console.log(`📊 Quality: ${source.quality}, Seeders: ${this.extractSeeders(source.name)}`)
-
-          try {
-            const streamingUrl = await this.prepareStream(source)
-            if (streamingUrl) {
-              console.log(`✅ Success! Stream prepared with subtitles: ${source.quality} quality`)
-
-              // Fetch real subtitles from SubDL API
-              let realSubtitles: ProcessedSubtitle[] = []
-              try {
-                console.log(`🎬 Fetching real subtitles using movie metadata...`)
-                realSubtitles = await fetchMovieSubtitles(
-                  movieMetadata?.title || source.name, // Use movie title or stream name as fallback
-                  movieMetadata?.year,
-                  movieMetadata?.imdbId,
-                  movieMetadata?.tmdbId,
-                  ['en', 'es', 'fr', 'de', 'it'] // Default languages
-                )
-                console.log(`✅ Found ${realSubtitles.length} real subtitle tracks`)
-              } catch (error) {
-                console.warn(`⚠️ Subtitle fetching failed, continuing without subtitles:`, error)
-                // Don't let subtitle errors break the streaming experience
-                realSubtitles = []
-              }
-
-              return {
-                url: streamingUrl,
-                subtitles: source.subtitles || [],
-                realSubtitles,
-                source
-              }
+      for (const { src } of scoringDetails) {
+        try {
+          const streamingUrl = await this.prepareStream(src)
+          if (streamingUrl) {
+            // Fetch real subtitles from SubDL API
+            let realSubtitles: ProcessedSubtitle[] = []
+            try {
+              realSubtitles = await fetchMovieSubtitles(
+                movieMetadata?.title || src.name,
+                movieMetadata?.year,
+                movieMetadata?.imdbId,
+                movieMetadata?.tmdbId,
+                ['en', 'es', 'fr', 'de', 'it']
+              )
+            } catch (error) {
+              console.warn('⚠️ Subtitle fetch failed (continuing):', error)
+              realSubtitles = []
             }
-          } catch (error) {
-            console.log(`❌ Torrentio stream failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-            // Continue to next stream
+            return {
+              url: streamingUrl,
+              subtitles: src.subtitles || [],
+              realSubtitles,
+              source: src
+            }
           }
+        } catch (err) {
+          console.warn('⚠️ Scored movie source failed, trying next:', err instanceof Error ? err.message : err)
         }
       }
 
-      console.log(`⚠️ No Torrentio resolve URLs found, falling back to traditional method...`)
+      console.log('❌ All scored movie sources failed to prepare stream')
 
       // Enhanced priority algorithm with fallback logic
       const result = await this.selectOptimalStreamWithFallbackResult(sources, preferredQuality, movieMetadata)
@@ -734,80 +858,30 @@ export class StreamingService {
 
       console.log(`📊 Found ${sources.length} total streams, checking for Torrentio resolve URLs...`)
 
-      // STREMIO MODE: Look for Torrentio resolve URLs with audio compatibility prioritization
-      const torrentioSources = sources.filter(source =>
-        source.url && source.url.includes('/resolve/realdebrid/')
-      )
-
-      if (torrentioSources.length > 0) {
-        console.log(`🎵 Found ${torrentioSources.length} Torrentio streams, prioritizing by audio compatibility...`)
-
-        // Sort Torrentio sources by audio compatibility first, then by quality
-        const sortedTorrentioSources = torrentioSources.sort((a, b) => {
-          // Priority 1: Audio compatibility (browser-supported codecs first)
-          const aAudioScore = this.getAudioCompatibilityScore(a.name)
-          const bAudioScore = this.getAudioCompatibilityScore(b.name)
-          if (aAudioScore !== bAudioScore) {
-            console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
-            return bAudioScore - aAudioScore
-          }
-
-          // Priority 2: Quality (4K > 1080p > 720p)
-          const aQualityScore = this.getQualityScore(a.quality)
-          const bQualityScore = this.getQualityScore(b.quality)
-          if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
-
-          // Priority 3: Seeders/peers (higher is better)
-          const aSeeders = this.extractSeeders(a.name)
-          const bSeeders = this.extractSeeders(b.name)
-          return bSeeders - aSeeders
-        })
-
-        console.log(`🎵 Top 3 audio-prioritized streams:`)
-        sortedTorrentioSources.slice(0, 3).forEach((source, index) => {
-          const audioScore = this.getAudioCompatibilityScore(source.name)
-          console.log(`  ${index + 1}. ${source.name} (Audio: ${audioScore}, Quality: ${source.quality})`)
-        })
-
-        // Try each Torrentio source in audio-compatibility order
-        for (const source of sortedTorrentioSources) {
-          const audioScore = this.getAudioCompatibilityScore(source.name)
-          console.log(`✅ TRYING TORRENTIO STREAM! 🎯`)
-          console.log(`🎵 Audio compatibility score: ${audioScore}`)
-          console.log(`🔗 RESOLVE URL: ${source.url}`)
-          console.log(`📊 Quality: ${source.quality}, Size: ${source.size}`)
-
-          try {
-            // Use a server-side proxy to resolve the URL and follow redirects
-            const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url || '')}`
-            const response = await fetch(proxyUrl)
-
-            if (response.ok) {
-              const data = await response.json()
-              if (data.success && data.resolvedUrl) {
-                console.log(`🚀 RESOLVED VIDEO URL: ${data.resolvedUrl.substring(0, 100)}...`)
-                console.log(`🎵 Selected stream with audio score: ${audioScore}`)
-
-                // Use video proxy to bypass CORS issues
-                const proxyUrl = `/api/stream-proxy?url=${encodeURIComponent(data.resolvedUrl)}`
-                console.log(`🎬 Using video proxy for CORS-free streaming`)
-                return proxyUrl
-              } else {
-                console.log(`❌ Failed to resolve stream: ${data.error || 'Unknown error'}`)
-                continue
-              }
-            } else {
-              console.log(`❌ Proxy request failed: ${response.status} ${response.statusText}`)
-              continue
-            }
-          } catch (error) {
-            console.error(`❌ Error resolving Torrentio URL:`, error)
-            continue
-          }
+      // Unified weighted scoring path
+      const scored = sources.map(s => {
+        const codecScore = this.computeCodecCompatibilityScore(s.name)
+        const audioScore = this.getAudioCompatibilityScore(s.name)
+        const readiness = s.isReady ? 0.3 : 0
+        const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
+        const seedBoost = Math.min((s.seeders || 0) / 200, 0.4)
+        const composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
+          + readiness * 100 + preferred * 200 + seedBoost * 100
+        return { s, composite }
+      }).sort((a, b) => b.composite - a.composite)
+      console.log('🧮 Top 5 scored movie sources (URL only path):')
+      scored.slice(0, 5).forEach((d, i) => {
+        console.log(`${i + 1}. Q=${d.s.quality} Name=${d.s.name.substring(0, 70)}... score=${d.composite.toFixed(1)}`)
+      })
+      for (const { s } of scored) {
+        try {
+          const streamingUrl = await this.prepareStream(s)
+          if (streamingUrl) return streamingUrl
+        } catch (err) {
+          console.warn('⚠️ Scored movie URL source failed, trying next:', err instanceof Error ? err.message : err)
         }
       }
-
-      console.log(`⚠️ No Torrentio resolve URLs found, falling back to traditional method...`)
+      console.log('❌ All scored movie URL sources failed, falling back to legacy fallback method...')
 
       // Enhanced priority algorithm with fallback logic
       const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality)
@@ -1075,46 +1149,21 @@ export class StreamingService {
   }
 
   private sortSourcesByPriority(sources: StreamingSource[], preferredQuality?: string): StreamingSource[] {
-    return sources.sort((a, b) => {
-      // Priority 1: Preferred quality (if specified)
-      if (preferredQuality) {
-        const aMatchesPreferred = a.quality.toLowerCase().includes(preferredQuality.toLowerCase())
-        const bMatchesPreferred = b.quality.toLowerCase().includes(preferredQuality.toLowerCase())
-        if (aMatchesPreferred && !bMatchesPreferred) return -1
-        if (!aMatchesPreferred && bMatchesPreferred) return 1
-      }
-
-      // Priority 2: Cache status (ready streams first)
-      if (a.isReady && !b.isReady) return -1
-      if (!a.isReady && b.isReady) return 1
-
-      // Priority 3: Audio compatibility (browser-supported codecs first)
-      const aAudioScore = this.getAudioCompatibilityScore(a.name)
-      const bAudioScore = this.getAudioCompatibilityScore(b.name)
-      if (aAudioScore !== bAudioScore) {
-        console.log(`🎵 Audio priority: "${a.name}" (score: ${aAudioScore}) vs "${b.name}" (score: ${bAudioScore})`)
-        return bAudioScore - aAudioScore
-      }
-
-      // Priority 4: Quality priority (4K > 2160p > 1080p > 720p > 480p)
-      const qualityScore = (quality: string): number => {
-        const q = quality.toLowerCase()
-        if (q.includes('4k') || q.includes('2160p')) return 5
-        if (q.includes('1080p')) return 4
-        if (q.includes('720p')) return 3
-        if (q.includes('480p')) return 2
-        return 1
-      }
-
-      const aQualityScore = qualityScore(a.quality)
-      const bQualityScore = qualityScore(b.quality)
-      if (aQualityScore !== bQualityScore) return bQualityScore - aQualityScore
-
-      // Priority 5: Seeders/peers (higher is better)
-      const aSeeders = a.seeders || 0
-      const bSeeders = b.seeders || 0
-      return bSeeders - aSeeders
+    const scored = sources.map(s => {
+      const codecScore = this.computeCodecCompatibilityScore(s.name)
+      const audioScore = this.getAudioCompatibilityScore(s.name)
+      const readiness = s.isReady ? 0.3 : 0
+      const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
+      const seedBoost = Math.min((s.seeders || 0) / 200, 0.4)
+      const composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
+        + readiness * 100 + preferred * 200 + seedBoost * 100
+      return { s, composite }
+    }).sort((a, b) => b.composite - a.composite)
+    console.log('🧮 sortSourcesByPriority top 5:')
+    scored.slice(0, 5).forEach((d, i) => {
+      console.log(`${i + 1}. Q=${d.s.quality} Name=${d.s.name.substring(0, 60)} score=${d.composite.toFixed(1)}`)
     })
+    return scored.map(d => d.s)
   }
 
   private getAudioCompatibilityScore(streamName: string): number {
@@ -1162,6 +1211,37 @@ export class StreamingService {
     if (q.includes('720p')) return 3
     if (q.includes('480p')) return 2
     return 1
+  }
+
+  private runtimeCodecSupport?: { h264?: boolean; hevc?: boolean; vp9?: boolean; av1?: boolean }
+
+  private computeCodecCompatibilityScore(name: string): number {
+    const n = name.toLowerCase()
+  let base = 5
+  const safariRuntime = this.isSafariRuntime === true
+  // Safari prefers efficient HEVC if hardware-supported; user requested h265 first then h264
+  if (/(hevc|x265|h\.265)/.test(n)) base = safariRuntime ? 12 : 9
+  else if (/(h\.264|x264|avc)/.test(n)) base = safariRuntime ? 11 : 10
+  else if (/vp9/.test(n)) base = 6
+  else if (/(av1)/.test(n)) base = 5
+  else if (/(mpeg2|mpeg-2)/.test(n)) base = 3
+
+    // Adjust with runtime capabilities if detected
+    if (this.runtimeCodecSupport) {
+  if (/(h\.264|x264|avc)/.test(n) && this.runtimeCodecSupport.h264 === false) base -= 4
+  if (/(hevc|x265|h\.265)/.test(n) && this.runtimeCodecSupport.hevc === false) base -= 5
+      if (/vp9/.test(n) && this.runtimeCodecSupport.vp9 === false) base -= 2
+      if (/(av1)/.test(n) && this.runtimeCodecSupport.av1 === false) base -= 2
+      // Small positive reinforcement for supported high-efficiency codecs
+      if (/(hevc|x265|h\.265)/.test(n) && this.runtimeCodecSupport.hevc) base += 1
+      if (/(av1)/.test(n) && this.runtimeCodecSupport.av1) base += 1
+    }
+    return base
+  }
+
+  private weightedStreamScore(params: { quality: string; codecScore: number; audioScore: number }): number {
+    const qualityScore = this.getQualityScore(params.quality)
+    return qualityScore * 100 + params.codecScore * 10 + params.audioScore
   }
 
   private inferQuality(name: string): string {
@@ -1234,6 +1314,38 @@ export class StreamingService {
     }
 
     return results
+  }
+
+  // Runtime codec capability detection (client-side only). Safe to call multiple times.
+  async detectRuntimeCodecSupport(): Promise<void> {
+    if (typeof window === 'undefined') return
+    if (this.runtimeCodecSupport && Object.values(this.runtimeCodecSupport).some(v => v !== undefined)) return
+    const nav: any = (typeof navigator !== 'undefined') ? navigator : null
+    if (!nav || !('mediaCapabilities' in nav)) {
+      this.runtimeCodecSupport = {}
+      return
+    }
+    try {
+      const mc: any = nav.mediaCapabilities
+      const test = async (contentType: string): Promise<boolean> => {
+        try {
+          const config = { type: 'file', video: { contentType, width: 1920, height: 1080, bitrate: 8000000, framerate: 30 } }
+          const result = await mc.decodingInfo(config)
+          return !!result?.supported
+        } catch { return false }
+      }
+      const [h264, hevc, vp9, av1] = await Promise.all([
+        test('video/mp4; codecs="avc1.42E01E"'),
+        test('video/mp4; codecs="hvc1.1.6.L93.B0"'),
+        test('video/webm; codecs="vp9"'),
+        test('video/mp4; codecs="av01.0.08M.08"')
+      ])
+      this.runtimeCodecSupport = { h264, hevc, vp9, av1 }
+      console.log('🧪 Runtime codec support detected:', this.runtimeCodecSupport)
+    } catch (err) {
+      console.debug('MediaCapabilities detection failed:', err)
+      this.runtimeCodecSupport = {}
+    }
   }
 }
 

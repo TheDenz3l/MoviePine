@@ -28,6 +28,10 @@ export class TorrentioAPI {
   private baseUrl: string
   private providers: string[]
   private debridService?: string
+  // Static/shared manifest cache & in-flight promise to dedupe concurrent requests
+  private static manifestCache: { data: any; timestamp: number } | null = null
+  private static manifestPromise: Promise<any> | null = null
+  private static readonly MANIFEST_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
   constructor(options: {
     providers?: string[]
@@ -202,24 +206,88 @@ export class TorrentioAPI {
 
   // Get manifest for service validation
   async getManifest(): Promise<any> {
-    try {
-      const manifestUrl = `${this.baseUrl}/manifest.json`
-      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(manifestUrl)}`
+    // Serve fresh (non-expired) cache immediately
+    const now = Date.now()
+    if (TorrentioAPI.manifestCache && (now - TorrentioAPI.manifestCache.timestamp) < TorrentioAPI.MANIFEST_TTL_MS) {
+      return TorrentioAPI.manifestCache.data
+    }
 
-      const response = await fetch(proxyUrl, {
-        headers: {
-          'Accept': 'application/json',
+    // If a request is already in flight, await it (prevents stampede)
+    if (TorrentioAPI.manifestPromise) {
+      try {
+        const data = await TorrentioAPI.manifestPromise
+        return data
+      } catch (e) {
+        // Fall through to a new attempt below only if no valid cache
+        if (TorrentioAPI.manifestCache) {
+          console.warn('⚠️ Using stale Torrentio manifest due to concurrent fetch failure')
+          return TorrentioAPI.manifestCache.data
         }
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch manifest: ${response.statusText}`)
       }
+    }
 
-      return await response.json()
+    const manifestUrl = `${this.baseUrl}/manifest.json`
+    const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(manifestUrl)}`
+
+    const fetchWithRetry = async () => {
+      const maxAttempts = 3
+      let attempt = 0
+      let lastError: any = null
+      while (attempt < maxAttempts) {
+        attempt++
+        try {
+          const response = await fetch(proxyUrl, {
+            headers: { 'Accept': 'application/json' },
+          })
+
+            // Handle rate limiting or transient errors with retry
+          if (!response.ok) {
+            if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+              const retryAfter = parseInt(response.headers.get('retry-after') || '0', 10)
+              const backoffBase = Math.pow(2, attempt - 1) * 500
+              const delayMs = (retryAfter * 1000) || backoffBase + Math.floor(Math.random() * 400)
+              console.warn(`⚠️ Manifest fetch attempt ${attempt} failed with ${response.status}. Retrying in ${delayMs}ms...`)
+              await new Promise(res => setTimeout(res, delayMs))
+              continue
+            }
+            // Non-retryable error
+            throw new Error(`Failed to fetch manifest: ${response.status} ${response.statusText}`)
+          }
+
+          const data = await response.json()
+          // Update cache
+          TorrentioAPI.manifestCache = { data, timestamp: Date.now() }
+          return data
+        } catch (err) {
+          lastError = err
+          if (attempt >= maxAttempts) {
+            break
+          }
+          // Exponential backoff for network-level failures
+          const delayMs = Math.pow(2, attempt - 1) * 500 + Math.floor(Math.random() * 300)
+          console.warn(`⚠️ Manifest fetch network error on attempt ${attempt}. Retrying in ${delayMs}ms...`, err)
+          await new Promise(res => setTimeout(res, delayMs))
+        }
+      }
+      throw lastError || new Error('Failed to fetch manifest after retries')
+    }
+
+    TorrentioAPI.manifestPromise = fetchWithRetry()
+    try {
+      const data = await TorrentioAPI.manifestPromise
+      return data
     } catch (error) {
-      console.error('Error fetching Torrentio manifest:', error)
+      console.error('❌ Error fetching Torrentio manifest after retries:', error)
+      // Serve stale cache if present
+      if (TorrentioAPI.manifestCache) {
+        console.warn('⚠️ Returning stale Torrentio manifest due to fetch failure')
+        return TorrentioAPI.manifestCache.data
+      }
+      // Propagate if nothing to fall back to
       throw error
+    } finally {
+      // Clear the in-flight promise reference (cache stays)
+      TorrentioAPI.manifestPromise = null
     }
   }
 

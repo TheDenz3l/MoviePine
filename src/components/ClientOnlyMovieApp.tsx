@@ -19,14 +19,11 @@ import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
 // Removed CinematicRail in favor of unified NetflixCarousel styling everywhere
 // import CinematicRail from '@/components/cinematic/CinematicRail'
-import NetflixPosterGrid from '@/components/cinematic/NetflixPosterGrid'
-import NetflixCarousel from '@/components/cinematic/NetflixCarousel'
-import ModernNetflixGrid from '@/components/cinematic/ModernNetflixGrid'
+import { NetflixGrid, NetflixCarousel as NewNetflixCarousel } from '@/components/netflix-style'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
 import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
-import { RealTimeSearchPage } from '@/components/real-time-search-page'
-import { SeamlessSearchOverlay } from '@/components/seamless-search-overlay'
+import { RealTimeSearchOverlay } from '@/components/search'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
@@ -71,6 +68,7 @@ export default function ClientOnlyMovieApp() {
   const [seamlessSearchResults, setSeamlessSearchResults] = useState<any[]>([])
   const [seamlessSearchQuery, setSeamlessSearchQuery] = useState("")
   const [isSeamlessSearching, setIsSeamlessSearching] = useState(false)
+  // Remove legacy overlay state
   const [recentlyPlayedMovies, setRecentlyPlayedMovies] = useState<RecentlyPlayedMovie[]>([])
   const [playingMovieData, setPlayingMovieData] = useState<{
     id: string
@@ -489,7 +487,7 @@ export default function ClientOnlyMovieApp() {
   const handleNavigateToSearch = (query: string) => {
     setShowSearchResults(true)
     // Update URL to include search query
-  const params = new URLSearchParams(searchParams?.toString() || '')
+    const params = new URLSearchParams(searchParams?.toString() || '')
     params.set('q', query)
     router.push(`?${params.toString()}`)
   }
@@ -739,12 +737,13 @@ export default function ClientOnlyMovieApp() {
   // Show real-time search page
   if (showRealTimeSearch) {
     return (
-      <RealTimeSearchPage
-  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
-        onPlay={handlePlay}
-  onAddToList={(movie) => handleAddToList(movie.id)}
-  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+      <RealTimeSearchOverlay
+        initialQuery={''}
         onClose={handleCloseRealTimeSearch}
+        onResultClick={id => {
+          // For now, just open modal with ID. We can enhance this later if needed
+          handleMoreInfo(id)
+        }}
       />
     )
   }
@@ -771,91 +770,61 @@ export default function ClientOnlyMovieApp() {
         )}
 
         {/* Movie Grids / Rails */}
-        <div className="relative z-10 space-y-0 pb-16 bg-[rgb(18,18,18)] overflow-visible">
-          <div className="pointer-events-none absolute -top-24 left-0 right-0 h-24 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
+        <div className="relative z-10 space-y-0 pb-20 bg-[rgb(18,18,18)] overflow-visible">
+          <div className="pointer-events-none absolute -top-40 left-0 right-0 h-40 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
           {activeCategory === 'home' && (
             <>
-              {/* Moviepire Browse Replication Grid */}
-              <section className="px-2 md:px-6 mb-16" aria-label="Browse Carousel">
-                <NetflixCarousel
-                  id="carousel-browse"
-                  title="Browse"
-                  items={movies.slice(0,36).map(transformMovie)}
-                  onPlay={id=>handlePlay(id)}
-                  onAdd={id=>handleAddToList(id)}
-                  onInfo={id=>handleMoreInfo(id)}
-                  browseReplication
-                  titlePopOut
-                  intentDelayMs={70}
-                  prefetchNeighbors
-                  showMetadata={false}
-                  showTitle={false}
-                  actionButtonSize={40}
-                  frameLift
-                  frameLiftScale={1.045}
-                  frameLiftTranslateY={-8}
-                />
-              </section>
               {/* Replacing all legacy rails with categorized poster grids */}
-              <div className="space-y-12">
-                <section className="px-2 md:px-6" aria-label="Trending This Week Carousel">
-                  <NetflixCarousel
-                    id="carousel-trending"
+              <div className="space-y-6">
+                <section className="px-6 md:px-12" aria-label="Trending This Week Carousel">
+                  <NewNetflixCarousel
                     title="Trending This Week"
-                    items={effectiveTrending.slice(0,36).map(transformMovie)}
-                    onPlay={id=>handlePlay(id)}
-                    onAdd={id=>handleAddToList(id)}
-                    onInfo={id=>handleMoreInfo(id)}
-                    browseReplication
-                    titlePopOut
-                    intentDelayMs={70}
-                    prefetchNeighbors
-                    showMetadata={false}
-                    showTitle={false}
-                    actionButtonSize={40}
-                    frameLift
-                    frameLiftScale={1.045}
-                    frameLiftTranslateY={-8}
+                    movies={effectiveTrending.slice(0,36).map(movie => ({
+                      id: movie.id,
+                      title: movie.title,
+                      poster: movie.poster,
+                      backdrop: movie.backdrop,
+                      year: movie.year,
+                      rating: movie.rating,
+                      genre: movie.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
-                <section className="px-2 md:px-6" aria-label="Popular Movies Carousel">
-                  <NetflixCarousel
-                    id="carousel-popular"
+                <section className="px-6 md:px-12" aria-label="Popular Movies Carousel">
+                  <NewNetflixCarousel
                     title="Popular Movies"
-                    items={movies.slice(0,36).map(transformMovie)}
-                    onPlay={id=>handlePlay(id)}
-                    onAdd={id=>handleAddToList(id)}
-                    onInfo={id=>handleMoreInfo(id)}
-                    browseReplication
-                    titlePopOut
-                    intentDelayMs={70}
-                    prefetchNeighbors
-                    showMetadata={false}
-                    showTitle={false}
-                    actionButtonSize={40}
-                    frameLift
-                    frameLiftScale={1.045}
-                    frameLiftTranslateY={-8}
+                    movies={movies.slice(0,36).map(movie => ({
+                      id: movie.id,
+                      title: movie.title,
+                      poster: movie.poster,
+                      backdrop: movie.backdrop,
+                      year: movie.year,
+                      rating: movie.rating,
+                      genre: movie.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
-                <section className="px-2 md:px-6" aria-label="Series Picks Carousel">
-                  <NetflixCarousel
-                    id="carousel-series"
+                <section className="px-6 md:px-12" aria-label="Series Picks Carousel">
+                  <NewNetflixCarousel
                     title="Series Picks"
-                    items={trendingSeries.slice(0,30).map(transformSeries)}
-                    onPlay={id=>handlePlay(id)}
-                    onAdd={id=>handleAddToList(id)}
-                    onInfo={id=>handleMoreInfo(id)}
-                    browseReplication
-                    titlePopOut
-                    intentDelayMs={70}
-                    prefetchNeighbors
-                    showMetadata={false}
-                    showTitle={false}
-                    actionButtonSize={40}
-                    frameLift
-                    frameLiftScale={1.045}
-                    frameLiftTranslateY={-8}
+                    movies={trendingSeries.slice(0,30).map(series => ({
+                      id: series.id,
+                      title: series.title,
+                      poster: series.poster,
+                      backdrop: series.backdrop,
+                      year: series.year,
+                      rating: series.rating,
+                      genre: series.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
               </div>
@@ -863,80 +832,59 @@ export default function ClientOnlyMovieApp() {
           )}
           {/* Unified NetflixCarousel style for category pages */}
           {activeCategory === 'trending' && (
-            <section className="px-2 md:px-6" aria-label="Trending Category Carousel">
-              <NetflixCarousel
-                id="category-trending"
+            <section className="px-6 md:px-12" aria-label="Trending Category Carousel">
+              <NewNetflixCarousel
                 title="Trending This Week"
-                items={effectiveTrending.slice(0,36).map(transformMovie)}
-                onPlay={id=>handlePlay(id)}
-                onAdd={id=>handleAddToList(id)}
-                onInfo={id=>handleMoreInfo(id)}
-                browseReplication
-                titlePopOut
-                intentDelayMs={70}
-                prefetchNeighbors
-                showMetadata={false}
-                showTitle={false}
-                actionButtonSize={40}
-                frameLift
-                frameLiftScale={1.045}
-                frameLiftTranslateY={-8}
+                movies={effectiveTrending.slice(0,36).map(movie => ({
+                  id: movie.id,
+                  title: movie.title,
+                  poster: movie.poster,
+                  backdrop: movie.backdrop,
+                  year: movie.year,
+                  rating: movie.rating,
+                  genre: movie.genre
+                }))}
+                onPlay={(movie) => handlePlay(movie.id)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </section>
           )}
           {activeCategory === 'popular' && (
-            <section className="px-2 md:px-6" aria-label="Popular Category Carousel">
-              <NetflixCarousel
-                id="category-popular"
+            <section className="px-6 md:px-12" aria-label="Popular Category Carousel">
+              <NewNetflixCarousel
                 title="Popular Movies"
-                items={movies.slice(0,36).map(transformMovie)}
-                onPlay={id=>handlePlay(id)}
-                onAdd={id=>handleAddToList(id)}
-                onInfo={id=>handleMoreInfo(id)}
-                browseReplication
-                titlePopOut
-                intentDelayMs={70}
-                prefetchNeighbors
-                showMetadata={false}
-                showTitle={false}
-                actionButtonSize={40}
-                frameLift
-                frameLiftScale={1.045}
-                frameLiftTranslateY={-8}
+                movies={movies.slice(0,36).map(movie => ({
+                  id: movie.id,
+                  title: movie.title,
+                  poster: movie.poster,
+                  backdrop: movie.backdrop,
+                  year: movie.year,
+                  rating: movie.rating,
+                  genre: movie.genre
+                }))}
+                onPlay={(movie) => handlePlay(movie.id)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </section>
           )}
           {activeCategory === 'recently-played' && recentlyPlayedMovies.length > 0 && (
-            <section className="px-2 md:px-6" aria-label="Continue Watching Carousel">
-              <NetflixCarousel
-                id="category-recently-played"
+            <section className="px-6 md:px-12" aria-label="Continue Watching Carousel">
+              <NewNetflixCarousel
                 title="Continue Watching"
-                items={recentlyPlayedMovies.slice(0,36).map(r => transformMovie({
+                movies={recentlyPlayedMovies.slice(0,36).map(r => ({
                   id: r.id,
                   title: r.title,
                   poster: r.poster,
                   backdrop: r.poster,
                   year: r.year,
                   rating: 0,
-                  genre: r.genre,
-                  description: '',
-                  runtime: undefined,
-                  imdbId: undefined,
-                  tmdbId: undefined
-                } as StreamingMovie))}
-                onPlay={id=>handlePlay(id)}
-                onAdd={id=>handleAddToList(id)}
-                onInfo={id=>handleMoreInfo(id)}
-                browseReplication
-                titlePopOut
-                intentDelayMs={70}
-                prefetchNeighbors
-                showMetadata={false}
-                showTitle={false}
-                actionButtonSize={40}
-                frameLift
-                frameLiftScale={1.045}
-                frameLiftTranslateY={-8}
+                  genre: r.genre
+                }))}
+                onPlay={(movie) => handlePlay(movie.id)}
+                onAddToList={(movie) => handleAddToList(movie.id)}
+                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </section>
           )}
@@ -1015,28 +963,6 @@ export default function ClientOnlyMovieApp() {
         }}
       />
 
-      {/* Seamless Search Overlay */}
-      <SeamlessSearchOverlay
-        searchResults={seamlessSearchResults}
-        searchQuery={seamlessSearchQuery}
-        isSearching={isSeamlessSearching}
-        onPlay={handlePlay}
-        onAddToList={(movie) => {
-          handleAddToList(movie.id)
-        }}
-        onMoreInfo={(movie) => {
-          // Convert search result to movie format and show SEARCH modal
-          const movieData = {
-            id: movie.id,
-            title: movie.title,
-            poster: movie.poster,
-            backdrop: movie.backdrop,
-            year: movie.year ?? new Date().getFullYear(),
-            type: movie.type
-          }
-          handleSearchResultSelect(movieData)
-        }}
-      />
     </div>
   )
 }

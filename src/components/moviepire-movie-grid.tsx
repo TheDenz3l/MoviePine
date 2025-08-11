@@ -1,10 +1,9 @@
 "use client"
 
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { ChevronRight } from "lucide-react"
-import { MoviepireMovieCard } from "./moviepire-movie-card"
-import { useRef } from "react"
+import { Play, Plus, Info, ChevronRight } from "lucide-react"
+import CinematicRail from "@/components/cinematic/CinematicRail"
+import PosterImage from "@/components/hover/PosterImage"
 
 interface Movie {
   id: string
@@ -33,55 +32,28 @@ export function MoviepireMovieGrid({
   onMoreInfo,
   showMovieTitles = false 
 }: MoviepireMovieGridProps) {
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-
-  const scrollRight = () => {
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]')
-      if (scrollContainer) {
-        scrollContainer.scrollBy({ left: 400, behavior: 'smooth' })
-      }
-    }
-  }
-
-  if (!movies || movies.length === 0) {
-    return null
-  }
+  if (!movies || movies.length === 0) return null
 
   return (
-    <section className="moviepire-section px-4">
-      <h2 className="section-title text-2xl font-semibold text-white mb-0">
-        {title}
-      </h2>
-      <div className="relative group">
-        <ScrollArea className="w-full whitespace-nowrap" ref={scrollAreaRef}>
-          <div className="flex space-x-3 pb-0">
-            {movies.map((movie) => (
-              <MoviepireMovieCard
-                key={movie.id}
-                movie={movie}
-                onPlay={onPlay}
-                onAddToList={onAddToList}
-                onMoreInfo={onMoreInfo}
-                showTitle={showMovieTitles}
-              />
-            ))}
+    <div className="px-4">
+      <CinematicRail
+        id={title.replace(/\s+/g, '-').toLowerCase() + '-rail'}
+        title={title}
+        items={movies as any}
+        onPlay={(id)=>{ const m = movies.find(x=>x.id===id); if(m) onPlay?.(m) }}
+        onAdd={(id)=>{ const m = movies.find(x=>x.id===id); if(m) onAddToList?.(m) }}
+        onInfo={(id)=>{ const m = movies.find(x=>x.id===id); if(m) onMoreInfo?.(m) }}
+        renderMeta={(m: any)=> (
+          <div className="space-y-1 text-xs">
+            <h4 className="font-semibold leading-tight line-clamp-2">{m.title}</h4>
+            <div className="flex items-center gap-2 text-[10px] text-white/70">
+              {m.year && <span>{m.year}</span>}
+              {m.rating && <span className="text-green-500">{m.rating}%</span>}
+            </div>
           </div>
-          <ScrollBar orientation="horizontal" className="h-2" />
-        </ScrollArea>
-        
-        {/* Scroll Arrow - Only show on hover and when there are enough movies */}
-        {movies.length > 6 && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="scroll-arrow absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-            onClick={scrollRight}
-          >
-            <ChevronRight className="w-6 h-6 text-white" />
-          </Button>
         )}
-      </div>
-    </section>
+        config={{ preview: { activationDelay: 50, animationMs: 0, enlarge: 1.14, elevation: 22, dimOpacity: 0.72 } }}
+      />
+    </div>
   )
 }

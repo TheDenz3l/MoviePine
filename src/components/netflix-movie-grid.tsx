@@ -3,7 +3,7 @@ import { Play, Plus, ThumbsUp, ChevronDown } from "lucide-react"
 import { ImdbRating } from '@/components/imdb-rating'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import HoverPreviewGrid from "@/components/hover/hover-preview-grid"
+import CinematicGrid from '@/components/cinematic/CinematicGrid'
 import PosterImage from "@/components/hover/PosterImage"
 
 interface Movie {
@@ -37,13 +37,12 @@ function BaseCard({ movie, onPlay }: { movie: Movie; onPlay: (movieId: string) =
 
 export function NetflixMovieGrid({ movies, onPlay, onAddToList, onMoreInfo, onMovieSelect }: NetflixMovieGridProps) {
   return (
-    <HoverPreviewGrid
+    <CinematicGrid
       items={movies}
-      containerClassName="relative grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 md:gap-3"
-      itemWrapperClassName=""
+      containerClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 md:gap-3"
       renderBase={(movie) => <BaseCard movie={movie} onPlay={onPlay} />}
       renderPreview={(movie) => (
-        <div className="relative w-full h-full rounded-md overflow-hidden bg-gray-800">
+        <div className="relative w-full h-full">
           <PosterImage src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-4">

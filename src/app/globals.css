@@ -252,6 +252,18 @@
     background-color: rgb(var(--moviepire-bg));
     color: rgb(var(--moviepire-text));
   }
+  /* Ensure all obvious interactive elements show pointer cursor */
+  button,
+  [role="button"],
+  a[href],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  summary,
+  label[for],
+  details[open] > summary {
+    cursor: pointer;
+  }
 }
 
 @layer utilities {
@@ -368,7 +380,7 @@
   }
 
   .hero-section {
-    background: linear-gradient(to bottom, transparent, rgba(18, 18, 18, 0.8));
+  background: none;
   }
 
   .section-title {

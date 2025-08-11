@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { SeasonSelect } from "./season-select"
 import { X, Play, Plus, ThumbsUp } from "lucide-react"
 import { ImdbRating } from '@/components/imdb-rating'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { TMDBAPI, TMDBCastMember } from "@/lib/api/tmdb"
 import { fetchSeriesProgress } from '@/lib/services/episode-progress'
+import { safeParse } from '@/lib/utils/safe-json'
 
 interface Movie {
   id: string
@@ -35,6 +37,23 @@ interface MovieDetailModalProps {
 }
 
 export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, onMovieSelect }: MovieDetailModalProps) {
+  // Debug logging
+  useEffect(() => {
+    console.log('[MovieDetailModal] Props changed:', { 
+      movieId: movie?.id, 
+      movieTitle: movie?.title, 
+      isOpen 
+    })
+  }, [movie, isOpen])
+
+  // Additional debug logging for when the component mounts/unmounts
+  useEffect(() => {
+    console.log('[MovieDetailModal] Component mounted/unmounted', { isOpen })
+    return () => {
+      console.log('[MovieDetailModal] Component will unmount', { isOpen })
+    }
+  }, [])
+
   const [isLiked, setIsLiked] = useState<boolean | null>(null)
   const [cast, setCast] = useState<TMDBCastMember[]>([])
   const [isLoadingCast, setIsLoadingCast] = useState(false)
@@ -149,7 +168,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
           const key = `series-progress:${activeMovie.id}`
           const raw = localStorage.getItem(key)
           if (raw) {
-            const parsed = JSON.parse(raw)
+            const parsed = safeParse<any>(raw, null, 'series-progress')
             if (parsed && parsed.season && parsed.episode) {
               setLastWatched({ season: parsed.season, episode: parsed.episode })
               setSelectedSeason(parsed.season)
@@ -170,7 +189,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                   const raw = localStorage.getItem(k)
                   if (!raw) continue
                   try {
-                    const parsed = JSON.parse(raw)
+                    const parsed = safeParse<any>(raw, null, 'episode-progress')
                     if (parsed && typeof parsed.seconds === 'number') {
                       const fraction = parsed.fraction ?? (parsed.duration ? parsed.seconds / parsed.duration : 0)
                       local[match[1]] = { fraction, seconds: parsed.seconds }
@@ -371,9 +390,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
   <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         key={activeMovie.id}
-        className="pointer-events-auto w-[62vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 z-50 shadow-2xl"
+        className="pointer-events-auto w-[62vw] max-w-none h-[95vh] bg-black text-white border-0 p-0 overflow-hidden rounded-lg fixed top-[5vh] left-1/2 transform -translate-x-1/2 translate-y-0 shadow-2xl"
         showCloseButton={false}
-        style={{ width: '62vw', maxWidth: 'none' }}
+        style={{ width: '62vw', maxWidth: 'none', zIndex: 1200 }}
       >
   <DialogTitle className="sr-only">{activeMovie.title}</DialogTitle>
   <DialogDescription className="sr-only">Movie details for {activeMovie.title}</DialogDescription>
@@ -502,15 +521,11 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                     </div>
                     <div className="flex items-center space-x-2">
                       <label className="text-xs text-gray-300">Season</label>
-                      <select
+                      <SeasonSelect
+                        seasons={availableSeasons}
                         value={selectedSeason}
-                        onChange={(e) => setSelectedSeason(parseInt(e.target.value))}
-                        className="bg-zinc-800/80 text-white text-sm rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-white/20 border border-white/10"
-                      >
-                        {availableSeasons.map(season => (
-                          <option key={season} value={season}>S{season}</option>
-                        ))}
-                      </select>
+                        onChange={(s) => setSelectedSeason(s)}
+                      />
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -614,7 +629,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
           similarMovies.map(similarMovie => (
                       <div
                         key={similarMovie.id}
-            className="group relative aspect-[2/3] cursor-pointer outline-none transform-gpu rounded-md overflow-hidden bg-zinc-800/40 shadow-md focus-visible:ring-2 focus-visible:ring-white/40 [contain:paint_layout_size]"
+                        className="group relative aspect-[2/3] cursor-pointer outline-none rounded-md overflow-hidden bg-zinc-900/60 ring-1 ring-zinc-800 shadow-sm focus-visible:ring-2 focus-visible:ring-white/40 transform-gpu transition-transform duration-300 will-change-transform hover:scale-[1.045] hover:-translate-y-2"
                         tabIndex={0}
                         aria-label={`Open details for ${similarMovie.title}`}
                         data-testid="more-like-tile"
@@ -625,7 +640,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           <img
                             src={similarMovie.poster}
                             alt={similarMovie.title}
-              className="absolute inset-0 w-full h-full object-cover select-none will-change-opacity [backface-visibility:hidden]"
+                            className="absolute inset-0 w-full h-full object-cover select-none will-change-transform"
                             draggable={false}
                             loading="lazy"
                           />
@@ -634,26 +649,11 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                             <span className="text-gray-300 text-[11px] text-center leading-tight line-clamp-3">{similarMovie.title}</span>
                           </div>
                         )}
-                        {/* Overlay (hidden until hover) */}
-            <div className="absolute inset-0 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-out will-change-opacity pointer-events-none [transform:translateZ(0)] bg-[linear-gradient(to_top,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.7)_25%,rgba(0,0,0,0.35)_55%,rgba(0,0,0,0)_100%)] after:content-[''] after:absolute after:inset-x-0 after:bottom-0 after:h-[1px] after:bg-black/90">
-                          {/* content block pinned to bottom with consistent inner padding */}
-              <div className="mt-auto px-2.5 pt-3 pb-2 select-none">
-                            <div className="space-y-0.5 mb-1.5">
-                              <h4 className="text-white font-semibold text-[12px] leading-snug line-clamp-2" title={similarMovie.title}>{similarMovie.title}</h4>
-                              <span className="block text-[10px] text-gray-300 leading-tight">{similarMovie.year || ''}</span>
-                            </div>
-                            <div className="flex items-center justify-between pointer-events-auto">
-                              <ImdbRating rating={similarMovie.rating} size="compact" showSlashTen={false} className="space-x-1" />
-                              <button
-                                type="button"
-                                aria-label={`Play ${similarMovie.title}`}
-                                onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
-                                className="bg-white/95 text-black hover:bg-white h-5 w-5 rounded-full flex items-center justify-center shadow-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                                data-testid="tile-play"
-                              >
-                                <Play className="h-2.5 w-2.5" />
-                              </button>
-                            </div>
+                        <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2">
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden="true">
+                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }} className="pointer-events-auto h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
+                            <button type="button" onClick={(e)=>{ e.stopPropagation(); onAddToList(similarMovie.id) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">+</button>
+                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">i</button>
                           </div>
                         </div>
                       </div>

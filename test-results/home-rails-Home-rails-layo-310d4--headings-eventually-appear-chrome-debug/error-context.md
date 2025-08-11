@@ -1,0 +1,119 @@
+# Page snapshot
+
+```yaml
+- alert: Bmar Movies
+- navigation:
+  - text: Bmar Movies
+  - button "Browse"
+  - button "Movies"
+  - button "Series"
+  - button "My List"
+  - button
+- heading "Ne Zha 2" [level=1]
+- paragraph: After a catastrophic event leaves their bodies destroyed, Ne Zha and Ao Bing are granted a fragile second chance at life. As tensions rise between the dragon clans and celestial forces, the two must undergo a series of perilous trials that will test their bond, challenge their identities, and decide the fate of both mortals and immortals.
+- text: 80 % 2025 Action, Adventure, Animation
+- button "Play"
+- button "More Info"
+- paragraph: If the movies aren't working, try turning off your VPN. You don't need a VPN to access this site, so feel free to ignore any messages suggesting otherwise.
+- region "Browse Carousel":
+  - heading "Browse" [level=2]
+  - button
+  - button
+  - img "War of the Worlds"
+  - img "Jurassic World Rebirth"
+  - img "The Pickup"
+  - 'img "Creation of the Gods II: Demon Force"'
+  - img "Night Carnage"
+  - img "William Tell"
+  - img "How to Train Your Dragon"
+  - 'img "Demon Slayer: Kimetsu no Yaiba — Infinity Castle"'
+  - 'img "Legends of the Condor Heroes: The Gallants"'
+  - img "Ne Zha 2"
+  - img "28 Years Later"
+  - img "My Oxford Year"
+  - img "M3GAN 2.0"
+  - img "Lilo & Stitch"
+  - img "Weapons"
+  - img "Superman"
+  - 'img "The Fantastic 4: First Steps"'
+  - 'img "Karate Kid: Legends"'
+  - img "Phantom"
+  - 'img "Ice Road: Vengeance"'
+- region "Trending This Week Carousel":
+  - heading "Trending This Week" [level=2]
+  - button
+  - button
+  - img "Jurassic World Rebirth"
+  - img "Weapons"
+  - img "The Pickup"
+  - img "28 Years Later"
+  - img "xXx"
+  - img "Superman"
+  - img "War of the Worlds"
+  - img "How to Train Your Dragon"
+  - 'img "The Fantastic 4: First Steps"'
+  - img "Freakier Friday"
+  - img "Thunderbolts*"
+  - img "M3GAN 2.0"
+  - img "The Naked Gun"
+  - img "Together"
+  - img "Ballerina"
+  - img "F1"
+  - img "Ne Zha 2"
+  - img "Sinners"
+  - img "Materialists"
+  - img "The Bad Guys 2"
+- region "Popular Movies Carousel":
+  - heading "Popular Movies" [level=2]
+  - button
+  - button
+  - img "War of the Worlds"
+  - img "Jurassic World Rebirth"
+  - img "The Pickup"
+  - 'img "Creation of the Gods II: Demon Force"'
+  - img "Night Carnage"
+  - img "William Tell"
+  - img "How to Train Your Dragon"
+  - 'img "Demon Slayer: Kimetsu no Yaiba — Infinity Castle"'
+  - 'img "Legends of the Condor Heroes: The Gallants"'
+  - img "Ne Zha 2"
+  - img "28 Years Later"
+  - img "My Oxford Year"
+  - img "M3GAN 2.0"
+  - img "Lilo & Stitch"
+  - img "Weapons"
+  - img "Superman"
+  - 'img "The Fantastic 4: First Steps"'
+  - 'img "Karate Kid: Legends"'
+  - img "Phantom"
+  - 'img "Ice Road: Vengeance"'
+- region "Series Picks Carousel":
+  - heading "Series Picks" [level=2]
+  - button
+  - button
+  - img "Wednesday"
+  - img "One Piece"
+  - img "Chief of War"
+  - 'img "Outlander: Blood of My Blood"'
+  - img "South Park"
+  - 'img "Dexter: Resurrection"'
+  - img "Twisted Metal"
+  - img "Eyes of Wakanda"
+  - img "Foundation"
+  - img "Dan Da Dan"
+  - img "Duel on Mount Hua"
+  - img "Gachiakuta"
+  - img "The Immortal Ascension"
+  - img "A Record of a Mortal's Journey to Immortality"
+  - 'img "Star Trek: Strange New Worlds"'
+  - img "The Institute"
+  - img "Platonic"
+  - img "ONE PIECE"
+  - img "King of the Hill"
+  - img "Squid Game"
+- contentinfo:
+  - text: Bmar Movies
+  - paragraph: Designed with love.
+  - paragraph: This website "Bmar Movies" is a temporary streaming platform. Enjoy your movies!
+  - paragraph: © Bmar Movies. We do not store any media.
+```

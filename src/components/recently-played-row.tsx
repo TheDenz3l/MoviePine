@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Trash2, Play, X, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import HoverPreviewGrid from "@/components/hover/hover-preview-grid"
+import CinematicGrid from '@/components/cinematic/CinematicGrid'
 import PosterImage from "@/components/hover/PosterImage"
 import { RecentlyPlayedMovie, RecentlyPlayedService } from "@/lib/services/recently-played-service"
 
@@ -99,11 +99,10 @@ export function RecentlyPlayedRow({
       </div>
 
       <div className="px-12">
-        <HoverPreviewGrid
-          items={movies}
-          containerClassName="relative grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
-          itemWrapperClassName=""
-          renderBase={(movie) => {
+        <CinematicGrid
+          items={movies as any}
+          containerClassName="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
+          renderBase={(movie: any) => {
             const progressPercentage = movie.progress * 100
             const isCompleted = movie.isCompleted
             const resumeTime = RecentlyPlayedService.getResumeTime(movie.id)
@@ -150,7 +149,7 @@ export function RecentlyPlayedRow({
               </div>
             )
           }}
-          renderPreview={(movie) => {
+          renderPreview={(movie: any) => {
             const progressPercentage = movie.progress * 100
             const isCompleted = movie.isCompleted
             const resumeTime = RecentlyPlayedService.getResumeTime(movie.id)
@@ -184,7 +183,7 @@ export function RecentlyPlayedRow({
               </div>
             )
           }}
-        />
+  />
       </div>
 
       {/* Helper Text */}
