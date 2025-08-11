@@ -59,9 +59,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
 
       // Don't close if clicking on any search overlay
       const searchOverlay = document.querySelector('[data-search-overlay]')
-      const gridOverlay = document.querySelector('.fixed.inset-0.z-50')
-      if ((searchOverlay && searchOverlay.contains(target)) || 
-          (gridOverlay && gridOverlay.contains(target))) {
+      if (searchOverlay && searchOverlay.contains(target)) {
         return
       }
 
@@ -75,7 +73,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, []) // Remove onSearchResults from dependencies
+  }, [onSearchResults])
 
   // Real-time search as user types
   useEffect(() => {
@@ -138,10 +136,18 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
 
   const handleSearchClick = () => {
     setShowSearch(true)
+    // Dispatch a global event to open the real-time search overlay
+    window.dispatchEvent(new CustomEvent('app:openRealTimeSearch'))
   }
 
   const handleInputChange = (value: string) => {
     setSearchQuery(value)
+    // If we have a query and search isn't already open, open the real-time search
+    if (value.trim() && !showSearch) {
+      setShowSearch(true)
+      // Dispatch a global event to open the real-time search overlay
+      window.dispatchEvent(new CustomEvent('app:openRealTimeSearch'))
+    }
   }
 
   const handleSearchSubmit = (e: React.FormEvent) => {

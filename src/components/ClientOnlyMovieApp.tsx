@@ -23,7 +23,7 @@ import { NetflixGrid, NetflixCarousel as NewNetflixCarousel } from '@/components
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
 import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
-import { RealTimeSearchOverlay } from '@/components/search'
+import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
@@ -131,6 +131,7 @@ export default function ClientOnlyMovieApp() {
       setTimeout(() => { openingModalRef.current = false }, 400)
     }
     window.addEventListener('app:openModal', handleGlobalOpenModal)
+    
     // Global play listener for unified event-driven Play action
     const handleGlobalPlayMovie = (e: Event) => {
       const custom = e as CustomEvent<any>
@@ -147,9 +148,17 @@ export default function ClientOnlyMovieApp() {
       }, playDelay)
     }
     window.addEventListener('app:playMovie', handleGlobalPlayMovie)
+    
+    // Global event to open real-time search
+    const handleOpenRealTimeSearch = () => {
+      setShowRealTimeSearch(true)
+    }
+    window.addEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
+    
     return () => {
       window.removeEventListener('app:openModal', handleGlobalOpenModal)
       window.removeEventListener('app:playMovie', handleGlobalPlayMovie)
+      window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
     }
   }, [showRealTimeSearch, isModalOpen])
 
@@ -737,13 +746,12 @@ export default function ClientOnlyMovieApp() {
   // Show real-time search page
   if (showRealTimeSearch) {
     return (
-      <RealTimeSearchOverlay
+      <RealTimeSearchGridOverlay
         initialQuery={''}
         onClose={handleCloseRealTimeSearch}
-        onResultClick={id => {
-          // For now, just open modal with ID. We can enhance this later if needed
-          handleMoreInfo(id)
-        }}
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMoreInfo={handleMoreInfo}
       />
     )
   }
