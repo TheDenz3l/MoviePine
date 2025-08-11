@@ -65,6 +65,7 @@ export default function ClientOnlyMovieApp() {
   const [playingMovieTitle, setPlayingMovieTitle] = useState<string>('')
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
   const [seamlessSearchResults, setSeamlessSearchResults] = useState<any[]>([])
   const [seamlessSearchQuery, setSeamlessSearchQuery] = useState("")
   const [isSeamlessSearching, setIsSeamlessSearching] = useState(false)
@@ -150,15 +151,37 @@ export default function ClientOnlyMovieApp() {
     window.addEventListener('app:playMovie', handleGlobalPlayMovie)
     
     // Global event to open real-time search
-    const handleOpenRealTimeSearch = () => {
-      setShowRealTimeSearch(true)
+    const handleOpenRealTimeSearch = (e?: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom?.detail || {}
+      const initialQuery = typeof detail.query === 'string' ? detail.query : ''
+      
+      // Only open if not already open to prevent double-opening
+      if (!showRealTimeSearch) {
+        setShowRealTimeSearch(true)
+        // Set the initial search query if provided
+        if (initialQuery) {
+          setSeamlessSearchQuery(initialQuery)
+        }
+      }
     }
     window.addEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
+    
+    // Global navigation event from search overlay
+    const handleGlobalNavigate = (e: Event) => {
+      const custom = e as CustomEvent<any>
+      const detail = custom.detail || {}
+      if (detail.category) {
+        handleNavigate(detail.category)
+      }
+    }
+    window.addEventListener('app:navigate', handleGlobalNavigate)
     
     return () => {
       window.removeEventListener('app:openModal', handleGlobalOpenModal)
       window.removeEventListener('app:playMovie', handleGlobalPlayMovie)
       window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
+      window.removeEventListener('app:navigate', handleGlobalNavigate)
     }
   }, [showRealTimeSearch, isModalOpen])
 
@@ -491,6 +514,7 @@ export default function ClientOnlyMovieApp() {
     setSeamlessSearchResults(results)
     setSeamlessSearchQuery(query)
     setIsSeamlessSearching(isSearching)
+    setSearchQuery(query) // Track the search query for overlay
   }, [])
 
   const handleNavigateToSearch = (query: string) => {
@@ -747,7 +771,8 @@ export default function ClientOnlyMovieApp() {
   if (showRealTimeSearch) {
     return (
       <RealTimeSearchGridOverlay
-        initialQuery={''}
+        initialQuery={seamlessSearchQuery}
+        activeCategory={activeCategory}
         onClose={handleCloseRealTimeSearch}
         onPlay={handlePlay}
         onAddToList={handleAddToList}

@@ -28,6 +28,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
   const [showSearch, setShowSearch] = useState(false)
   const [scrollOpacity, setScrollOpacity] = useState(0)
   const [isSearching, setIsSearching] = useState(false)
+  const [overlayTriggered, setOverlayTriggered] = useState(false)
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
@@ -66,6 +67,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
       // Close search if clicking outside
       setShowSearch(false)
       setSearchQuery("")
+      setOverlayTriggered(false)
       if (onSearchResults) {
         onSearchResults([], "", false)
       }
@@ -122,6 +124,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
       }, 200) // Fast response for real-time feel
     } else {
       setIsSearching(false)
+      setOverlayTriggered(false)
       if (onSearchResults) {
         onSearchResults([], "", false)
       }
@@ -136,17 +139,27 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
 
   const handleSearchClick = () => {
     setShowSearch(true)
-    // Dispatch a global event to open the real-time search overlay
-    window.dispatchEvent(new CustomEvent('app:openRealTimeSearch'))
+    setOverlayTriggered(false) // Reset overlay trigger state
+    // Don't immediately open overlay, just show the search input
+    // Focus will be handled automatically by autoFocus on input
   }
 
   const handleInputChange = (value: string) => {
     setSearchQuery(value)
-    // If we have a query and search isn't already open, open the real-time search
-    if (value.trim() && !showSearch) {
-      setShowSearch(true)
-      // Dispatch a global event to open the real-time search overlay
-      window.dispatchEvent(new CustomEvent('app:openRealTimeSearch'))
+    
+    // Close overlay when search is cleared
+    if (!value.trim()) {
+      setOverlayTriggered(false)
+      // Close the overlay by dispatching a close event
+      window.dispatchEvent(new CustomEvent('app:closeRealTimeSearch'))
+    }
+    // Only open the overlay when user actually starts typing and it hasn't been triggered yet
+    else if (value.trim() && !isSearching && !overlayTriggered) {
+      setOverlayTriggered(true)
+      // Pass the search query to the overlay so user doesn't have to retype
+      window.dispatchEvent(new CustomEvent('app:openRealTimeSearch', { 
+        detail: { query: value.trim() } 
+      }))
     }
   }
 
@@ -214,14 +227,14 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
         </Button>
 
         {showSearch && (
-          <div className="absolute right-0 top-0 z-50">
+          <div className="absolute right-0 top-0 z-50 transform transition-all duration-300 ease-out animate-in slide-in-from-right-4">
             <form onSubmit={handleSearchSubmit} className="flex items-center">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleInputChange(e.target.value)}
                 placeholder="Search for movies and TV shows..."
-                className="bg-[rgb(18,18,18)] text-white px-4 py-2 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-red-600/50 border border-gray-600/50 backdrop-blur-sm shadow-lg"
+                className="bg-[rgb(18,18,18)] text-white px-4 py-2 rounded-md w-80 min-w-0 focus:outline-none border border-gray-600/50 backdrop-blur-sm shadow-lg transition-all duration-200 placeholder:text-gray-400"
                 autoFocus
               />
             </form>

@@ -1,0 +1,33 @@
+{
+  "copilot-mcp.mcpServers": {
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--mode",
+        "planning",
+        "--mode",
+        "interactive",
+        "--project",
+        "/Users/bmar/Documents/movieplayer"
+      ],
+      "description": "Serena analysis and planning toolkit - handles everything except code writing"
+    }
+  },
+  "files.exclude": {
+    "**/.serena": false
+  },
+  "search.exclude": {
+    "**/.serena/logs": true
+  },
+  "copilot.enable": {
+    "*": true,
+    "plaintext": false,
+    "markdown": false
+  }
+}
