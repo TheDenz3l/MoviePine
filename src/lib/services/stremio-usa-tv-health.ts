@@ -211,7 +211,7 @@ export class StremioUSATVService {
           // Register streams but don't wait for health checks
           this.registerStreamsForHealthMonitoring(networks)
         } else {
-          // Do full health filtering (wait for health checks)
+          // Do fast health filtering to avoid long delays
           networks = await this.filterNetworksByHealth(networks)
         }
       }
@@ -394,69 +394,58 @@ export class StremioUSATVService {
    * Filter networks by stream health
    */
   private async filterNetworksByHealth(networks: USATVNetwork[]): Promise<USATVNetwork[]> {
-    console.log(`🩺 Checking health for ${networks.length} networks...`)
-    
+    console.log(`🩺 Fast-checking health for ${networks.length} networks...`)
+
     const healthyNetworks: USATVNetwork[] = []
-    
-    // Check networks in batches to avoid overwhelming the system
-    const batchSize = 3
+
+    // Lighter batching and smaller sample for speed
+    const batchSize = 6
     for (let i = 0; i < networks.length; i += batchSize) {
       const batch = networks.slice(i, i + batchSize)
-      
+
       const healthChecks = await Promise.allSettled(
         batch.map(async (network) => {
-          const streams = await this.getStreamsByNetworkId(network.id)
-          const streamUrls = streams.map(s => s.url).filter(Boolean)
-          
+          const rawStreams = await this.getStreamsForNetwork(network.id)
+          const streamUrls = rawStreams.map(s => s.url).filter(Boolean)
+
           if (streamUrls.length === 0) {
+            // Update health with empty list
+            streamHealthMonitor.updateNetworkHealth(network.id, network.name, [])
             return { network, isHealthy: false }
           }
 
-          // Add streams to health monitor
-          streamUrls.forEach(url => {
-            streamHealthMonitor.addStream(url, network.id)
-          })
+          // Register streams for monitoring
+          streamUrls.forEach(url => streamHealthMonitor.addStream(url, network.id))
 
-          // Check health of first few streams (sample check)
-          const sampleSize = Math.min(streamUrls.length, 2)
-          const sampleUrls = streamUrls.slice(0, sampleSize)
-          
-          const healthResults = await Promise.allSettled(
-            sampleUrls.map(url => streamHealthMonitor.checkStreamHealth(url))
-          )
+          // Tiny sample: check just the first URL for fast feedback
+          const firstUrl = streamUrls[0]
+          const health = await streamHealthMonitor.checkStreamHealth(firstUrl)
 
-          const healthyStreams = healthResults
-            .filter(result => result.status === 'fulfilled' && result.value.isActive)
-            .length
-
-          // Update network health
+          // Update network health (counts only checked/registered)
           const networkHealth = streamHealthMonitor.updateNetworkHealth(
             network.id,
             network.name,
             streamUrls
           )
 
-          return {
-            network,
-            isHealthy: networkHealth.isHealthy && healthyStreams > 0
-          }
+          const isHealthy = (health?.isActive ?? false) || networkHealth.isHealthy
+          return { network, isHealthy }
         })
       )
 
-      // Add healthy networks to results
       healthChecks.forEach(result => {
         if (result.status === 'fulfilled' && result.value.isHealthy) {
           healthyNetworks.push(result.value.network)
         }
       })
 
-      // Small delay between batches
+      // Very small delay to yield to UI thread
       if (i + batchSize < networks.length) {
-        await new Promise(resolve => setTimeout(resolve, 500))
+        await new Promise(resolve => setTimeout(resolve, 50))
       }
     }
 
-    console.log(`🩺 Health check complete: ${healthyNetworks.length}/${networks.length} networks have active streams`)
+    console.log(`🩺 Fast health check complete: ${healthyNetworks.length}/${networks.length} networks have active streams`)
     return healthyNetworks
   }
 

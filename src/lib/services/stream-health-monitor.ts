@@ -21,10 +21,11 @@ export interface NetworkHealthStatus {
 export class StreamHealthMonitor {
   private streamHealth = new Map<string, StreamHealthStatus>()
   private networkHealth = new Map<string, NetworkHealthStatus>()
+  private networkStreams = new Map<string, Set<string>>()
   private checkInterval: NodeJS.Timeout | null = null
   private readonly MAX_CONSECUTIVE_FAILURES = 3
   private readonly CHECK_INTERVAL = 60000 // 1 minute
-  private readonly TIMEOUT_MS = 5000 // 5 seconds (reduced for faster checks)
+  private readonly TIMEOUT_MS = 3000 // 3 seconds to speed up perceived responsiveness
 
   constructor() {
     this.startHealthChecking()
@@ -63,12 +64,18 @@ export class StreamHealthMonitor {
     if (!this.streamHealth.has(url)) {
       this.streamHealth.set(url, {
         url,
-        isActive: true, // Assume active until proven otherwise
+        // Don’t assume active before first check; mark unknown until checked
+        isActive: false,
         lastChecked: 0,
         consecutiveFailures: 0
       })
       console.log(`🩺 Added stream to monitor: ${url}`)
     }
+    // Track association for accurate per-network totals
+    if (!this.networkStreams.has(networkId)) {
+      this.networkStreams.set(networkId, new Set())
+    }
+    this.networkStreams.get(networkId)!.add(url)
   }
 
   /**
@@ -76,6 +83,10 @@ export class StreamHealthMonitor {
    */
   public removeStream(url: string): void {
     this.streamHealth.delete(url)
+    // Also remove from any network sets
+    for (const set of this.networkStreams.values()) {
+      set.delete(url)
+    }
     console.log(`🩺 Removed stream from monitor: ${url}`)
   }
 
@@ -144,10 +155,16 @@ export class StreamHealthMonitor {
     } catch (error) {
       const existingStatus = this.streamHealth.get(url)
       const consecutiveFailures = (existingStatus?.consecutiveFailures || 0) + 1
-      
+      const wasEverChecked = !!existingStatus && existingStatus.lastChecked > 0
+      const previouslyActive = !!existingStatus?.isActive
+
+      // If we've never had a successful check, do NOT mark as active on failure.
+      // If we had previous successes, allow a couple transient failures before flipping inactive.
+      const isActive = wasEverChecked ? (previouslyActive && consecutiveFailures < this.MAX_CONSECUTIVE_FAILURES) : false
+
       const status: StreamHealthStatus = {
         url,
-        isActive: consecutiveFailures < this.MAX_CONSECUTIVE_FAILURES,
+        isActive,
         lastChecked: Date.now(),
         error: error instanceof Error ? error.message : 'Unknown error',
         consecutiveFailures
@@ -189,20 +206,20 @@ export class StreamHealthMonitor {
    * Update network health based on stream health
    */
   public updateNetworkHealth(networkId: string, networkName: string, streamUrls: string[]): NetworkHealthStatus {
+    // Only count streams that have been registered and checked at least once
     const activeStreams = streamUrls.filter(url => {
       const health = this.streamHealth.get(url)
-      return health?.isActive ?? true // Assume active until proven otherwise (consistent with addStream)
+      return !!health && health.lastChecked > 0 && health.isActive
     }).length
 
-    const registeredStreams = streamUrls.filter(url => {
-      return this.streamHealth.has(url)
-    }).length
+    const registeredStreams = streamUrls.filter(url => this.streamHealth.has(url)).length
 
     const status: NetworkHealthStatus = {
       networkId,
       networkName,
       activeStreams,
-      totalStreams: streamUrls.length,
+      // Report total as the number of registered streams we are monitoring
+      totalStreams: registeredStreams || streamUrls.length,
       isHealthy: activeStreams > 0,
       lastUpdated: Date.now()
     }
@@ -299,8 +316,10 @@ export class StreamHealthMonitor {
     healthyNetworks: number
     lastUpdated: number
   } {
-    const totalStreams = this.streamHealth.size
-    const healthyStreams = this.getHealthyStreams().length
+  // Only include streams that have been checked at least once in totals
+  const checkedStreams = Array.from(this.streamHealth.values()).filter(s => s.lastChecked > 0)
+  const totalStreams = checkedStreams.length
+  const healthyStreams = checkedStreams.filter(s => s.isActive).length
     const healthyNetworks = this.getHealthyNetworks().length
     
     // Debug logging
@@ -309,9 +328,9 @@ export class StreamHealthMonitor {
       healthyStreams,
       totalNetworks: this.networkHealth.size,
       healthyNetworks,
-      streamHealthSize: this.streamHealth.size,
+  streamHealthSize: this.streamHealth.size,
       networkHealthSize: this.networkHealth.size,
-      sampleStreams: Array.from(this.streamHealth.entries()).slice(0, 3),
+  sampleStreams: checkedStreams.slice(0, 3),
       sampleNetworks: Array.from(this.networkHealth.values()).slice(0, 3)
     })
     

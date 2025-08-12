@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { Zap, Play, Users, Calendar, Clock, Loader2, AlertCircle, Activity, Wifi, WifiOff } from "lucide-react"
 import { createStremioUSATVService, USATVNetwork, USATVStream } from '@/lib/services/stremio-usa-tv-health'
 import { streamHealthMonitor } from '@/lib/services/stream-health-monitor'
 import { getConfigOrDefault } from '@/lib/config'
+import { MoviepireFooter } from '@/components/moviepire-footer'
 
 interface LiveTVPageProps {
   onPlay: (streamId: string, title: string) => void
@@ -48,7 +49,8 @@ export function LiveTVPage({
     healthyStreams: number
     totalStreams: number
   }>({ healthyNetworks: 0, totalNetworks: 0, healthyStreams: 0, totalStreams: 0 })
-  const [showHealthyOnly, setShowHealthyOnly] = useState(false)
+  const [showHealthyOnly, setShowHealthyOnly] = useState(true)
+  const networksLoadIdRef = useRef(0)
 
   useEffect(() => {
     // Initialize Stremio service with the same Real-Debrid config used for movies/TV
@@ -125,19 +127,23 @@ export function LiveTVPage({
   useEffect(() => {
     if (stremioService) {
       console.log('🔄 Health filter changed, reloading networks. showHealthyOnly:', showHealthyOnly)
-      loadNetworks(stremioService)
+      loadNetworks(stremioService, showHealthyOnly)
     }
   }, [showHealthyOnly, stremioService])
 
-  const loadNetworks = async (service: ReturnType<typeof createStremioUSATVService>) => {
+  const loadNetworks = async (
+    service: ReturnType<typeof createStremioUSATVService>,
+    healthyOnlyParam: boolean = showHealthyOnly
+  ) => {
     try {
+      const requestId = ++networksLoadIdRef.current
       setIsLoading(true)
       console.log('🔍 Loading TV networks from Stremio USA TV addon...')
-      console.log('🔍 showHealthyOnly:', showHealthyOnly)
+      console.log('🔍 showHealthyOnly (param):', healthyOnlyParam)
       
       let networksData: USATVNetwork[]
       
-      if (showHealthyOnly) {
+      if (healthyOnlyParam) {
         // Get only healthy networks
         console.log('🩺 Getting healthy networks only...')
         networksData = await service.getHealthyNetworksByCategory()
@@ -151,8 +157,13 @@ export function LiveTVPage({
       
       console.log('🔍 Network data sample:', networksData.slice(0, 3))
       
-      console.log('📊 Setting networks state with:', networksData)
-      setNetworks(networksData)
+      // Only apply if this is the latest request
+      if (requestId === networksLoadIdRef.current) {
+        console.log('📊 Setting networks state with:', networksData)
+        setNetworks(networksData)
+      } else {
+        console.log('⏭️ Skipping stale networks response')
+      }
       
       // Update health stats
       const stats = service.getHealthStats()
@@ -167,7 +178,7 @@ export function LiveTVPage({
       console.log('✅ Networks loaded successfully. Final state:', {
         networksCount: networksData.length,
         isLoading: false,
-        showHealthyOnly
+        showHealthyOnly: healthyOnlyParam
       })
     } catch (error) {
       console.error('❌ Error loading networks:', error)
@@ -411,10 +422,8 @@ export function LiveTVPage({
                   type="checkbox"
                   checked={showHealthyOnly}
                   onChange={(e) => {
+                    // Only update the preference; a separate effect will reload networks
                     setShowHealthyOnly(e.target.checked)
-                    if (stremioService) {
-                      loadNetworks(stremioService)
-                    }
                   }}
                   className="rounded"
                 />
@@ -457,7 +466,7 @@ export function LiveTVPage({
           {!selectedNetwork ? (
           // Network Selection View
           <div>
-            <h2 className="text-2xl font-bold mb-8">Choose a Network</h2>
+            <h2 className="mt-4 text-2xl md:text-3xl font-bold tracking-tight mb-6">Choose a Network</h2>
             
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-16">
@@ -495,7 +504,7 @@ export function LiveTVPage({
                     className="bg-gray-900 rounded-lg p-6 cursor-pointer hover:bg-gray-800 transition-all duration-200 hover:scale-105 relative"
                   >
                     {/* Health Status Indicator */}
-                    <div className="absolute top-3 right-3 flex items-center gap-1">
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/70 px-2 py-1 rounded">
                       {networkHealth?.isHealthy ? (
                         <div className="flex items-center gap-1">
                           <Wifi className="w-4 h-4 text-green-500" />
@@ -539,15 +548,15 @@ export function LiveTVPage({
           </div>
         ) : (
           <div>
-            <div className="flex items-center space-x-4 mb-8">
+            <div className="flex items-center justify-between mt-5 md:mt-6 mb-3 md:mb-6">
               <button
                 onClick={handleBackToNetworks}
-                className="text-red-600 hover:text-red-500 transition-colors"
+                className="text-red-500 hover:text-red-400 transition-colors text-sm md:text-base"
               >
                 ← Back to Networks
               </button>
-              <h2 className="text-2xl font-bold">{selectedNetwork.name} Live Streams</h2>
             </div>
+            <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-8">{selectedNetwork.name} Live Streams</h2>
             
             {isLoadingStreams ? (
               <div className="flex items-center justify-center py-16">
@@ -565,19 +574,19 @@ export function LiveTVPage({
                       className="bg-gray-900 rounded-lg overflow-hidden hover:bg-gray-800 transition-all duration-200 hover:scale-105 relative"
                     >
                       {/* Stream Health Indicator */}
-                      <div className="absolute top-4 right-4 z-10 flex items-center gap-1 bg-black/70 px-2 py-1 rounded">
+                      <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/70 px-3 py-1.5 rounded-md">
                         {streamHealth?.isActive !== false ? (
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-xs text-green-500 font-medium">Active</span>
+                            <span className="text-xs md:text-sm text-green-500 font-medium">Active</span>
                             {streamHealth?.responseTime && (
-                              <span className="text-xs text-gray-400">({streamHealth.responseTime}ms)</span>
+                              <span className="text-xs md:text-sm text-gray-300">({streamHealth.responseTime}ms)</span>
                             )}
                           </div>
                         ) : (
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                            <span className="text-xs text-red-500 font-medium">Offline</span>
+                            <span className="text-xs md:text-sm text-red-500 font-medium">Offline</span>
                           </div>
                         )}
                       </div>
@@ -626,22 +635,9 @@ export function LiveTVPage({
         )}
       </div>
 
-      {/* Integration Info */}
-      <div className="px-6 md:px-12 pb-16">
-        <div className="bg-gray-900 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-3">Powered by Stremio USA TV Addon</h3>
-          <p className="text-sm text-gray-400 mb-4">
-            This Live TV feature integrates with the Stremio USA TV addon to provide access to live television streams.
-          </p>
-          <a
-            href="https://stremio-addons.com/usa-tv.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-red-600 hover:text-red-500 text-sm transition-colors"
-          >
-            Learn more about the USA TV addon →
-          </a>
-        </div>
+      {/* Footer */}
+      <div className="px-6 md:px-12 pb-10">
+        <MoviepireFooter />
       </div>
       </div>
     </div>
