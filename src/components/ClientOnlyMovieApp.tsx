@@ -52,6 +52,9 @@ export default function ClientOnlyMovieApp() {
   const [movies, setMovies] = useState<StreamingMovie[]>([])
   const [trendingMovies, setTrendingMovies] = useState<StreamingMovie[]>([])
   const [trendingSeries, setTrendingSeries] = useState<StreamingSeries[]>([])
+  const [popularSeries, setPopularSeries] = useState<StreamingSeries[]>([])
+  const [topRatedMovies, setTopRatedMovies] = useState<StreamingMovie[]>([])
+  const [topRatedSeries, setTopRatedSeries] = useState<StreamingSeries[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -393,7 +396,10 @@ export default function ClientOnlyMovieApp() {
     // First, try to find the movie in existing arrays (current behavior)
     const movie = movies.find(m => m.id === movieId) || 
                   trendingMovies.find(m => m.id === movieId) || 
-                  trendingSeries.find(s => s.id === movieId)
+                  trendingSeries.find(s => s.id === movieId) ||
+                  popularSeries.find(s => s.id === movieId) ||
+                  topRatedMovies.find(m => m.id === movieId) ||
+                  topRatedSeries.find(s => s.id === movieId)
     
     if (movie) {
       console.log('✅ [HANDLER] Found movie in existing arrays:', movie.title)
@@ -520,7 +526,10 @@ export default function ClientOnlyMovieApp() {
     const movie = movies.find(m => m.id === movieId)
     const trendingMovie = trendingMovies.find(m => m.id === movieId)
     const series = trendingSeries.find(s => s.id === movieId)
-    const selectedItem = movie || trendingMovie || series
+    const popularSeriesItem = popularSeries.find(s => s.id === movieId)
+    const topRatedMovie = topRatedMovies.find(m => m.id === movieId)
+    const topRatedSeriesItem = topRatedSeries.find(s => s.id === movieId)
+    const selectedItem = movie || trendingMovie || series || popularSeriesItem || topRatedMovie || topRatedSeriesItem
 
     if (selectedItem) {
       setSelectedMoviepireMovie(selectedItem)
@@ -807,18 +816,27 @@ export default function ClientOnlyMovieApp() {
 
         if (status.tmdb) {
           console.log('🎬 TMDB is working, fetching real movies and series...')
-          // Fetch popular (main grids), trending weekly movies (for hero), and trending series in parallel
-          const [popularMovies, trendingMoviesData, trendingSeriesData] = await Promise.all([
+          // Fetch popular (main grids), trending weekly movies (for hero), trending series, and additional content in parallel
+          const [popularMovies, trendingMoviesData, trendingSeriesData, popularSeriesData, topRatedMoviesData, topRatedSeriesData] = await Promise.all([
             service.getPopularMovies(),
             service.getTrendingMovies(), // weekly by default in wrapper
-            service.getTrendingSeries()
+            service.getTrendingSeries(),
+            service.getPopularSeries(),
+            service.getTopRatedMovies(),
+            service.getTopRatedSeries()
           ])
           console.log('📽️ Fetched movies:', popularMovies.length)
           console.log('🔥 Fetched trending movies:', trendingMoviesData.length)
           console.log('📺 Fetched trending series:', trendingSeriesData.length)
+          console.log('🌟 Fetched popular series:', popularSeriesData.length)
+          console.log('🏆 Fetched top-rated movies:', topRatedMoviesData.length)
+          console.log('👑 Fetched top-rated series:', topRatedSeriesData.length)
           setMovies(popularMovies)
           setTrendingMovies(trendingMoviesData)
           setTrendingSeries(trendingSeriesData)
+          setPopularSeries(popularSeriesData)
+          setTopRatedMovies(topRatedMoviesData)
+          setTopRatedSeries(topRatedSeriesData)
           // Hero logic: always show the single most popular/highest vote trending movie (weekly) with a backdrop
           const sortedTrending = [...trendingMoviesData].filter(m => !!m.backdrop).sort((a, b) => (b.rating || 0) - (a.rating || 0))
           const hero = sortedTrending[0] || popularMovies.find(m => m.backdrop) || popularMovies[0]
@@ -994,10 +1012,61 @@ export default function ClientOnlyMovieApp() {
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
+                <section className="px-6 md:px-12" aria-label="Popular Series Carousel">
+                  <NewNetflixCarousel
+                    title="Popular Series"
+                    movies={popularSeries.slice(0,30).map(series => ({
+                      id: series.id,
+                      title: series.title,
+                      poster: series.poster,
+                      backdrop: series.backdrop,
+                      year: series.year,
+                      rating: series.rating,
+                      genre: series.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+                  />
+                </section>
                 <section className="px-6 md:px-12" aria-label="Series Picks Carousel">
                   <NewNetflixCarousel
                     title="Series Picks"
                     movies={trendingSeries.slice(0,30).map(series => ({
+                      id: series.id,
+                      title: series.title,
+                      poster: series.poster,
+                      backdrop: series.backdrop,
+                      year: series.year,
+                      rating: series.rating,
+                      genre: series.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+                  />
+                </section>
+                <section className="px-6 md:px-12" aria-label="Top Rated Movies Carousel">
+                  <NewNetflixCarousel
+                    title="Top Rated Movies"
+                    movies={topRatedMovies.slice(0,30).map(movie => ({
+                      id: movie.id,
+                      title: movie.title,
+                      poster: movie.poster,
+                      backdrop: movie.backdrop,
+                      year: movie.year,
+                      rating: movie.rating,
+                      genre: movie.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+                  />
+                </section>
+                <section className="px-6 md:px-12" aria-label="Top Rated Series Carousel">
+                  <NewNetflixCarousel
+                    title="Top Rated Series"
+                    movies={topRatedSeries.slice(0,30).map(series => ({
                       id: series.id,
                       title: series.title,
                       poster: series.poster,
