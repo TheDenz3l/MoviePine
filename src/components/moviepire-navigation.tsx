@@ -171,7 +171,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
   const navItems = [
     { id: 'home', label: 'Browse', icon: Home },
     { id: 'explore-movies', label: 'Movies', icon: Film },
-    { id: 'explore-series', label: 'Series', icon: Tv },
+    { id: 'tv-series', label: 'TV Series', icon: Tv },
     { id: 'recently-played', label: 'My List', icon: Bookmark },
   ]
 

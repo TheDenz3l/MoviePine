@@ -10,6 +10,7 @@ interface MoviepireHeroSectionProps {
     title: string
     description?: string
     backdrop?: string
+    poster?: string
     year?: number
     rating?: number
     genre?: string[]
@@ -20,70 +21,75 @@ interface MoviepireHeroSectionProps {
 
 export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHeroSectionProps) {
   return (
-    <section
-  className="hero-section relative min-h-[82vh] flex items-start pt-20 pb-28 md:pb-36"
+    <div
+      className="relative h-screen overflow-hidden animate-fade-in bg-cover bg-center bg-no-repeat"
       style={{
-        backgroundImage: movie.backdrop ? `url("${movie.backdrop}")` : 'none',
-        backgroundSize: 'cover',
-        backgroundPosition: '50% 50%',
-        backgroundRepeat: 'no-repeat'
+        backgroundImage: `url(${movie.backdrop || movie.poster || 'https://images.unsplash.com/photo-1489599735734-79b4169c2a78?w=1920&h=1080&fit=crop'})`,
       }}
     >
-      {/* Dark overlay for text readability - exactly like moviepire.net */}
-      <div className="absolute inset-0 bg-black/40" />
+      {/* Gradient Overlays - Netflix style */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black via-black/50 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20" />
+      {/* Bottom gradient height reduced to reveal more backdrop while retaining legibility */}
+      <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-black via-black/70 via-black/40 to-transparent" />
 
-      {/* Bottom gradient fade (height reduced to show more backdrop while keeping readability) */}
-      <div
-        className="absolute bottom-0 left-0 right-0 h-16 md:h-20 bg-gradient-to-t from-[rgba(18,18,18,0.82)] via-[rgba(18,18,18,0.55)] via-[rgba(18,18,18,0.3)] to-transparent z-5 transition-colors"
-      />
+      {/* Content - Netflix positioning */}
+      <div className="relative z-10 flex items-center h-full px-4 sm:px-8 lg:px-16 pt-24">
+        <div className="max-w-2xl">
+          {/* Netflix-style Film Badge */}
+          <div className="flex items-center space-x-2 mb-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 bg-red-600 flex items-center justify-center text-white font-bold text-xs">
+                N
+              </div>
+              <span className="text-gray-300 text-sm font-medium tracking-wider">ФИЛЬМ</span>
+            </div>
+          </div>
 
-      <div className="relative z-10 w-full px-8 md:px-16">
-        <div className="hero-content space-y-6 max-w-2xl">
-          <h1 className="hero-title text-5xl font-bold text-white leading-tight">
+          {/* Movie Title - Netflix style */}
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-6 text-white leading-none">
             {movie.title}
           </h1>
 
-          {movie.description && (
-            <p className="hero-description text-lg font-medium text-gray-200 line-clamp-3">
-              {movie.description}
-            </p>
-          )}
-
-          {/* Movie Info */}
-          <div className="flex items-center space-x-4 text-base font-medium text-gray-300">
-            {movie.rating && <ImdbRating rating={movie.rating} size="md" />}
-            {movie.year && <span>{movie.year}</span>}
-            {movie.genre && movie.genre.length > 0 && (
-              <span>{movie.genre.slice(0, 3).join(', ')}</span>
+          {/* Netflix-style description */}
+          <div className="mb-6 max-w-lg">
+            {movie.description && (
+              <p className="text-lg text-white leading-relaxed line-clamp-3 mb-4">
+                {movie.description}
+              </p>
             )}
+            <div className="flex items-center space-x-4 text-white">
+              {movie.rating && <ImdbRating rating={movie.rating} size="md" />}
+              {movie.year && <span className="text-gray-300 text-sm">{movie.year}</span>}
+              {movie.genre && movie.genre.slice(0, 3).map(g => (
+                <span key={g} className="text-gray-300 text-sm">{g}</span>
+              ))}
+            </div>
           </div>
 
-          <div className="hero-actions flex space-x-4">
+          {/* Action Buttons - Netflix style */}
+          <div className="flex items-center space-x-4">
             <Button
-              className="moviepire-btn-play"
-              size="lg"
               onClick={() => onPlay(movie.id)}
-            >
-              <Play className="w-5 h-5 mr-2 fill-current" />
-              Play
-            </Button>
-            <Button
-              variant="secondary"
-              className="moviepire-btn-info"
+              className="bg-white text-black hover:bg-gray-200 px-8 py-3 text-lg font-semibold flex items-center space-x-3 rounded-md"
               size="lg"
-              onClick={() => onMoreInfo(movie.id)}
             >
-              <Info className="w-5 h-5 mr-2" />
-              More Info
+              <Play className="h-6 w-6 fill-current" />
+              <span>Watch</span>
+            </Button>
+
+            <Button
+              onClick={() => onMoreInfo(movie.id)}
+              variant="outline"
+              className="bg-gray-600/70 border-0 text-white hover:bg-gray-500/70 px-8 py-3 text-lg font-semibold flex items-center space-x-3 rounded-md"
+              size="lg"
+            >
+              <Info className="h-6 w-6" />
+              <span>More details</span>
             </Button>
           </div>
-
-          <p className="hero-notice text-sm text-gray-400">
-            If the movies aren't working, try turning off your VPN.
-            You don't need a VPN to access this site, so feel free to ignore any messages suggesting otherwise.
-          </p>
         </div>
       </div>
-    </section>
+    </div>
   )
 }

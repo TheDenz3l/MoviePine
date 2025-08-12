@@ -23,6 +23,7 @@ import { NetflixGrid, NetflixCarousel as NewNetflixCarousel } from '@/components
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
 import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
+import { TVSeriesPage } from '@/components/tv-series-page'
 import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
@@ -914,6 +915,19 @@ export default function ClientOnlyMovieApp() {
         onPlay={handlePlay}
   onAddToList={(movie) => handleAddToList(movie.id)}
   onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+        onNavigate={handleNavigate}
+        onSearch={handleSearch}
+        activeCategory={activeCategory}
+      />
+    )
+  }
+
+  if (activeCategory === 'tv-series') {
+    return (
+      <TVSeriesPage
+        onPlay={handlePlay}
+        onAddToList={handleAddToList}
+        onMoreInfo={handleMoreInfo}
         onNavigate={handleNavigate}
         onSearch={handleSearch}
         activeCategory={activeCategory}

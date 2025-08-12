@@ -237,6 +237,26 @@ export class StreamingService {
     }
   }
 
+  /** Fetch TV series by genre */
+  async getSeriesByGenre(genreId: number): Promise<StreamingSeries[]> {
+    if (!this.config.tmdbApiKey) {
+      console.warn('TMDB API key not configured')
+      return []
+    }
+
+    try {
+      const discoverResult = await this.tmdb.getTVByGenre(genreId)
+      const genres = await this.tmdb.getTVGenres()
+
+      return discoverResult.results.map(series =>
+        this.convertToSeries(series as TMDBTVShow, genres.genres)
+      )
+    } catch (error) {
+      console.error('Error fetching series by genre:', error)
+      return []
+    }
+  }
+
   async getNowPlayingMovies(): Promise<StreamingMovie[]> {
     if (!this.config.tmdbApiKey) {
       console.warn('TMDB API key not configured')
