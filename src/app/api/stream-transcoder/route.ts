@@ -94,6 +94,7 @@ export async function GET(request: NextRequest) {
     isSafari,
     isChrome,
     optimize,
+  force,
     userAgent: request.headers.get('user-agent')?.substring(0, 100)
   })
 
@@ -114,8 +115,20 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // Detect M3U8 streams for universal optimization
-  const isM3U8 = sourceUrl.includes('.m3u8') || sourceUrl.includes('m3u8')
+  // Detect M3U8 streams for universal optimization (basic heuristic)
+  let isM3U8 = sourceUrl.includes('.m3u8') || sourceUrl.toLowerCase().includes('m3u8')
+  // If force or uncertain, do a quick probe to detect HLS by content-type or signature
+  if (!isM3U8 && (force || optimize)) {
+    try {
+      const hlsLikely = await isLikelyHls(sourceUrl)
+      if (hlsLikely) {
+        console.log('🔎 Probe indicates HLS stream despite missing \'m3u8\' token')
+        isM3U8 = true
+      }
+    } catch (e) {
+      console.warn('🔎 HLS probe failed, continuing with heuristics:', (e as Error).message)
+    }
+  }
 
   try {
     if (isM3U8 && !isSafari) {
@@ -125,8 +138,8 @@ export async function GET(request: NextRequest) {
       return await convertM3U8ToMP4Stream(sourceUrl, request)
     } else if (isSafari && isM3U8) {
       // Safari can handle M3U8 natively, but also offer conversion option
-      if (optimize) {
-        console.log('🍎 Safari M3U8 optimization requested')
+      if (optimize || force) {
+        console.log('🍎 Safari M3U8 optimization/force requested → converting to MP4')
         return await convertM3U8ToMP4Stream(sourceUrl, request)
       } else {
         console.log('🍎 Safari native M3U8 support - proxying original')
@@ -137,12 +150,41 @@ export async function GET(request: NextRequest) {
       return await provideSafariCompatibleStream(sourceUrl, request, { force })
     } else {
       // For other formats, proxy the original stream
+      if (force) {
+        // As a last resort under force, attempt an MP4 remux/transcode
+        console.log('🛠️ Force flag set on non-HLS; attempting ffmpeg MP4 transcode')
+        try { return await transcodeToH264Mp4(sourceUrl, request, { preferCopy: true }) } catch {}
+      }
       return proxyOriginalStream(sourceUrl, request)
     }
   } catch (error) {
     console.error('❌ Stream transcoding error:', error)
     // Fallback to original stream if processing fails
     return proxyOriginalStream(sourceUrl, request)
+  }
+}
+
+// Quick probe to check if a URL is likely an HLS playlist without relying on filename
+async function isLikelyHls(url: string): Promise<boolean> {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), 8000)
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Range': 'bytes=0-1023', 'User-Agent': 'Mozilla/5.0 (compatible; MoviePine/1.0)' },
+      redirect: 'follow',
+      signal: controller.signal
+    })
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (ct.includes('application/vnd.apple.mpegurl') || ct.includes('application/x-mpegurl')) return true
+    // Peek first KB for #EXTM3U signature
+    const buf = new Uint8Array(await res.arrayBuffer())
+    const text = new TextDecoder().decode(buf)
+    return text.trimStart().toUpperCase().startsWith('#EXTM3U')
+  } catch {
+    return false
+  } finally {
+    clearTimeout(id)
   }
 }
 
@@ -183,6 +225,11 @@ async function proxyOriginalStream(sourceUrl: string, request: NextRequest) {
       responseHeaders.set(key, value)
     }
   })
+
+  // Always include permissive CORS for in-app playback
+  responseHeaders.set('Access-Control-Allow-Origin', '*')
+  responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+  responseHeaders.set('Access-Control-Allow-Headers', 'Range, Content-Type')
 
   return new Response(upstream.body, {
     status: upstream.status,

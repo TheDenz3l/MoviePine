@@ -1065,7 +1065,7 @@ export default function ClientOnlyMovieApp() {
             const alreadyWrapped = typeof streamUrl === 'string' && streamUrl.startsWith('/api/stream-transcoder')
             const targetUrl = alreadyWrapped
               ? streamUrl
-              : `/api/stream-transcoder?url=${encodeURIComponent(streamUrl)}&safari=true&force=1`
+              : `/api/stream-transcoder?url=${encodeURIComponent(streamUrl)}&safari=true&optimize=true&force=1`
             console.log('� Live TV resolved target URL:', targetUrl.substring(0, 100) + (targetUrl.length > 100 ? '...' : ''))
             handlePlay(targetUrl, title)
           }}

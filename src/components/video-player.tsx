@@ -100,15 +100,49 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
   const log = (...args: any[]) => { if (process.env.NODE_ENV !== 'production') console.log('[VideoPlayer]', ...args) }
   const isSafari = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
   const attemptedH264FallbackRef = useRef(false)
+  const attemptedTranscoderWrapRef = useRef(false)
 
   // Source (re)initialization logic encapsulated for retries
-  const initializeSource = useCallback((reason: string) => {
+  const probeIsHls = async (url: string): Promise<boolean> => {
+    try {
+      const controller = new AbortController()
+      const t = setTimeout(() => controller.abort(), 5000)
+      const res = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-1023' }, signal: controller.signal })
+      clearTimeout(t)
+      const ct = (res.headers.get('content-type') || '').toLowerCase()
+      if (ct.includes('application/vnd.apple.mpegurl') || ct.includes('application/x-mpegurl')) return true
+      const buf = new Uint8Array(await res.arrayBuffer())
+      const text = new TextDecoder().decode(buf)
+      return text.trimStart().toUpperCase().startsWith('#EXTM3U')
+    } catch {
+      return false
+    }
+  }
+
+  const initializeSource = useCallback(async (reason: string) => {
     const video = videoRef.current
     if (!video) return
     setIsLoading(true)
     setPlaybackError(null)
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
-    const isHls = src.endsWith('.m3u8')
+    // Treat our server transcoder endpoint as progressive MP4, never HLS
+    const isTranscoder = src.startsWith('/api/stream-transcoder') || src.includes('/api/stream-transcoder?')
+    // Determine if HLS by pathname, not query, and avoid treating transcoder as HLS
+    let isHls = false
+    if (!isTranscoder) {
+      try {
+        const urlObj = new URL(src, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+        const pathname = urlObj.pathname.toLowerCase()
+        isHls = pathname.endsWith('.m3u8') || pathname.includes('m3u8')
+      } catch {
+        // Fallback to simple heuristic if URL parsing fails
+        isHls = src.toLowerCase().endsWith('.m3u8')
+      }
+    }
+    if (!isHls && !isSafari && Hls.isSupported() && src.startsWith('http') && !isTranscoder) {
+      // Quick probe for ambiguous URLs (no .m3u8 in path)
+      isHls = await probeIsHls(src)
+    }
     if (isHls) {
       // Choose strategy: alternate between hls.js and native when retrying
   let useHlsJs = Hls.isSupported() && !isSafari
@@ -119,9 +153,9 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
       }
       if (useHlsJs) {
         lastStrategyRef.current = 'hlsjs'
-        const h = new Hls({ enableWorker: true, startLevel: 0, progressive: true })
+        const h = new Hls({ enableWorker: true, startLevel: 0, progressive: true, manifestLoadingTimeOut: 15000, fragLoadingTimeOut: 15000 })
         hlsRef.current = h
-        h.on(Hls.Events.ERROR, (_, data) => {
+        h.on(Hls.Events.ERROR, async (_, data) => {
           const detail = data.details || 'Unknown HLS error'
           emitPlayerError('HLS_ERROR', detail, { fatal: data.fatal, type: data.type })
           if (data.fatal) {
@@ -129,6 +163,21 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
               try { h.recoverMediaError() } catch { setPlaybackError({ code: 'HLS_FATAL', message: detail }) }
             } else {
               setPlaybackError({ code: 'HLS_FATAL', message: detail })
+              // Network/manifest issues: try server transcoder fallback to MP4 once
+              if (!attemptedTranscoderWrapRef.current && src.startsWith('http') && !src.startsWith('/api/stream-transcoder')) {
+                attemptedTranscoderWrapRef.current = true
+                const wrapped = `/api/stream-transcoder?url=${encodeURIComponent(src)}${isSafari ? '&safari=true' : ''}&optimize=true&force=1`
+                try {
+                  h.destroy(); hlsRef.current = null
+                } catch {}
+                if (videoRef.current) {
+                  lastStrategyRef.current = 'direct'
+                  setRetryCount(c => c + 1)
+                  videoRef.current.src = wrapped
+                  videoRef.current.load()
+                  videoRef.current.play().catch(() => {/* ignore */})
+                }
+              }
             }
           }
         })
@@ -217,7 +266,7 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
     const handleVolumeChangeEv = () => { setVolume(video.volume); setIsMuted(video.muted) }
     const handleFullscreenChange = () => { setIsFullscreen(!!document.fullscreenElement) }
     const handleLoadedData = () => { if (video.textTracks && video.textTracks.length > 0) discoverTracks() }
-    const handleError = (e: Event) => {
+  const handleError = (e: Event) => {
       setIsLoading(false); setIsPlaying(false)
       const ve = e.target as HTMLVideoElement | null; const err = ve?.error
       let code = 'PLAYER_UNKNOWN'; let msg = 'Playback failed.'
@@ -265,6 +314,28 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
       // For decode / unsupported errors flag for UI retry
       if (code === 'PLAYER_DECODE' || code === 'PLAYER_SRC_UNSUPPORTED') {
         setPlaybackError({ code, message: msg })
+        // Auto-fallback: if not already wrapped and not Safari, try server transcoder to MP4
+        if (code === 'PLAYER_SRC_UNSUPPORTED' && !attemptedTranscoderWrapRef.current) {
+          attemptedTranscoderWrapRef.current = true
+          const alreadyWrapped = src.startsWith('/api/stream-transcoder')
+          if (!alreadyWrapped && src.startsWith('http')) {
+            const wrapped = `/api/stream-transcoder?url=${encodeURIComponent(src)}${isSafari ? '&safari=true' : ''}&optimize=true&force=1`
+            console.log('[VideoPlayer] Auto-wrapping unsupported source via transcoder:', wrapped.substring(0, 120))
+            if (hlsRef.current) { try { hlsRef.current.destroy() } catch {} hlsRef.current = null }
+            lastStrategyRef.current = 'direct'
+            try {
+              // Force a retry with wrapped URL
+              // Using location of element rather than prop to avoid parent involvement
+              if (video) {
+                setRetryCount(c => c + 1)
+                video.src = wrapped
+                video.load()
+                video.play().catch(() => {/* ignore */})
+                return
+              }
+            } catch {}
+          }
+        }
           // Safari specific auto-fallback: request a re-fetch with h264-only token once
           if (isSafari && !attemptedH264FallbackRef.current && onError) {
             console.log('🍎 [SAFARI FALLBACK] Requesting H.264-only stream...')

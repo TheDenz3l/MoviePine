@@ -40,9 +40,9 @@ export function MoviepireHeroSection({ movie, onPlay, onMoreInfo }: MoviepireHer
           <div className="flex items-center space-x-2 mb-6">
             <div className="flex items-center space-x-2">
               <div className="w-6 h-6 bg-red-600 flex items-center justify-center text-white font-bold text-xs">
-                N
+                B
               </div>
-              <span className="text-gray-300 text-sm font-medium tracking-wider">ФИЛЬМ</span>
+              <span className="text-gray-300 text-sm font-medium tracking-wider">movies</span>
             </div>
           </div>
 
