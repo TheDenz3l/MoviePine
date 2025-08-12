@@ -41,6 +41,7 @@ export interface StreamingSource {
   name: string
   quality: string
   size: string
+  format?: string // Video format (MP4, MKV, WebM, etc.)
   seeders?: number
   infoHash: string
   url?: string
@@ -76,6 +77,24 @@ export class StreamingService {
   private realdebrid?: RealDebridAPI
   private config: StreamingConfig
   private isSafariRuntime?: boolean
+  private safariVersion?: { major: number; minor: number }
+  
+  // Enhanced runtime codec capability detection
+  private runtimeCodecSupport: {
+    h264: boolean
+    hevc: boolean
+    av1: boolean
+    aac: boolean
+    mp3: boolean
+    opus: boolean
+  } = {
+    h264: true,  // Assume basic support
+    hevc: false,
+    av1: false,
+    aac: true,   // Assume basic support
+    mp3: true,   // Assume basic support
+    opus: false
+  }
 
   constructor(config: StreamingConfig) {
     this.config = config
@@ -107,16 +126,42 @@ export class StreamingService {
       })
     }
 
-    // Attempt asynchronous runtime codec capability detection on client
+    // Enhanced Safari detection and codec capability detection
     if (typeof window !== 'undefined') {
-      // Detect Safari once (simple UA check) for scoring/filter adjustments
+      // Detect Safari and version with enhanced precision
       try {
-        this.isSafariRuntime = /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
-      } catch { this.isSafariRuntime = false }
-      // Defer to next tick to avoid blocking constructor
+        const ua = navigator.userAgent
+        this.isSafariRuntime = /Safari\//.test(ua) && !/Chrome\//.test(ua)
+        
+        if (this.isSafariRuntime) {
+          // Parse Safari version more accurately
+          const versionMatch = ua.match(/Version\/(\d+)\.(\d+)/)
+          if (versionMatch) {
+            this.safariVersion = {
+              major: parseInt(versionMatch[1]),
+              minor: parseInt(versionMatch[2])
+            }
+            console.log(`🍎 Safari detected: v${this.safariVersion.major}.${this.safariVersion.minor}`)
+            
+            // Log Safari-specific compatibility info
+            if (this.safariVersion.major < 11) {
+              console.warn('🍎 Old Safari detected - HEVC support may be limited')
+            }
+            if (this.safariVersion.major >= 14) {
+              console.log('🍎 Modern Safari - good codec support expected')
+            }
+          } else {
+            console.log('🍎 Safari detected but version could not be parsed')
+          }
+        }
+      } catch { 
+        this.isSafariRuntime = false 
+      }
+      
+      // Defer codec detection to next tick to avoid blocking constructor
       setTimeout(() => {
         this.detectRuntimeCodecSupport().catch(err => {
-          console.debug('Runtime codec capability detection skipped:', err)
+          console.debug('Runtime codec capability detection failed:', err)
         })
       }, 0)
     }
@@ -350,9 +395,12 @@ export class StreamingService {
   }
 
   // Streaming methods
-  async getMovieStreams(movieId: string): Promise<StreamingSource[]> {
+  async getMovieStreams(movieId: string, isSafari?: boolean): Promise<StreamingSource[]> {
     try {
       console.log(`🎬 Starting enhanced stream search for movie ID: ${movieId}`)
+      if (isSafari) {
+        console.log(`🍎 Safari browser detected - Safari-compatible streams will be prioritized`)
+      }
 
       // Enhanced ID conversion with multiple fallback strategies
       const searchIds = await this.getSearchIds(movieId)
@@ -364,7 +412,7 @@ export class StreamingService {
       for (const searchId of searchIds) {
         console.log(`🔄 Searching streams with ID: ${searchId.id} (${searchId.type})`)
 
-        const streams = await this.torrentio.getMovieStreams(searchId.id)
+        const streams = await this.torrentio.getMovieStreams(searchId.id, isSafari)
         console.log(`📊 Found ${streams.length} streams for ${searchId.id} (${searchId.type})`)
 
         if (streams.length > 0) {
@@ -381,7 +429,7 @@ export class StreamingService {
 
         // Final fallback: Try alternative search methods
         console.log(`🔄 Attempting alternative search methods...`)
-        allStreams = await this.alternativeStreamSearch(movieId)
+        allStreams = await this.alternativeStreamSearch(movieId, isSafari)
 
         if (allStreams.length === 0) {
           console.log(`❌ No streams found after all fallback attempts for ${movieId}`)
@@ -453,6 +501,7 @@ export class StreamingService {
           name: stream.title,
           quality: quality.quality,
           size: quality.size,
+          format: quality.format,
           seeders: quality.seeders,
           infoHash: stream.infoHash,
           url: stream.url,
@@ -475,10 +524,40 @@ export class StreamingService {
     }
   }
 
-  async prepareStream(source: StreamingSource): Promise<string | null> {
+  async prepareStream(source: StreamingSource, isSafariBrowser?: boolean): Promise<string | null> {
     try {
+      const safariRuntime = this.isSafariRuntime === true
+      const safariFromClient = isSafariBrowser === true
+      const isSafari = safariRuntime || safariFromClient
+      console.log(`🔗 Safari detection in prepareStream: runtime=${safariRuntime}, client=${safariFromClient}, final=${isSafari}`)
+      
       console.log(`🔗 PREPARING STREAM: ${source.name}`)
       console.log(`📊 SOURCE URL: ${source.url}`)
+      
+      if (isSafari) {
+        console.log(`🍎 [SAFARI] Preparing stream for Safari browser`)
+        const validation = this.validateSafariStream(source.name)
+        console.log(`🍎 [SAFARI] Stream validation:`, validation)
+        
+        if (!validation.isCompatible) {
+          console.log(`🍎 [SAFARI TRANSCODING] Stream incompatible, routing to transcoder:`, validation.issues)
+          console.log(`🍎 [SAFARI TRANSCODING] Processing stream: ${source.name}`)
+          
+          // Route to transcoding system instead of rejecting
+          if (!source.url) {
+            console.warn(`🍎 [SAFARI TRANSCODING] No URL available for transcoding`)
+            return null
+          }
+          console.log(`🍎 [SAFARI TRANSCODING] Building transcoder URL for: ${source.url}`)
+          const transcodedUrl = this.buildTranscoderUrl(source.url)
+          console.log(`🍎 [SAFARI TRANSCODING] Successfully created transcoded URL`)
+          return transcodedUrl
+        }
+        
+        if (validation.confidence === 'low') {
+          console.warn(`🍎 [SAFARI WARNING] Low confidence stream, may need transcoding:`, validation.issues)
+        }
+      }
 
       // STREMIO MODE: If this is a Torrentio resolve URL, resolve it to get the actual video URL
       if (source.url && source.url.includes('/resolve/realdebrid/')) {
@@ -505,10 +584,31 @@ export class StreamingService {
               if (data.resolvedUrl.includes('real-debrid.com') || data.resolvedUrl.includes('download.')) {
                 const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(data.resolvedUrl)}`
                 console.log(`🔄 Using stream proxy for Real-Debrid URL: ${proxiedUrl.substring(0, 100)}...`)
+                
+                if (isSafari) {
+                  console.log(`🍎 [SAFARI] Using proxied Real-Debrid URL for Safari compatibility`)
+                }
+                
                 return proxiedUrl
               }
 
               // Return the actual video URL for other sources
+              if (isSafari) {
+                console.log(`🍎 [SAFARI] Returning direct URL: ${data.resolvedUrl.substring(0, 100)}...`)
+                // For Safari, we might want to check the URL format/headers
+                try {
+                  const testResponse = await fetch(data.resolvedUrl, { method: 'HEAD' })
+                  const contentType = testResponse.headers.get('content-type')
+                  console.log(`🍎 [SAFARI] Stream content-type: ${contentType}`)
+                  
+                  if (contentType && !contentType.includes('video/mp4')) {
+                    console.warn(`🍎 [SAFARI WARNING] Non-MP4 content-type: ${contentType}`)
+                  }
+                } catch (error) {
+                  console.warn(`🍎 [SAFARI WARNING] Could not test stream headers:`, error)
+                }
+              }
+              
               return data.resolvedUrl
             } else {
               console.log(`❌ Failed to resolve Torrentio URL: ${data.error || 'Unknown error'}`)
@@ -623,7 +723,7 @@ export class StreamingService {
     }
   }
 
-  async getStreamingResult(movieId: string, preferredQuality?: string): Promise<StreamingResult | null> {
+  async getStreamingResult(movieId: string, preferredQuality?: string, isSafariBrowser?: boolean): Promise<StreamingResult | null> {
     try {
   // Parse inline token after # (supports multiple tokens separated by '+', e.g. #safari+h264+1080p)
       let rawToken: string | undefined
@@ -640,49 +740,107 @@ export class StreamingService {
       console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}${tokens.length ? ' (tokens '+tokens.join(',')+')' : ''}`)
   // Automatic safari detection (tokens can still force behavior, but runtime Safari always enabled)
   const safariRuntime = (this as any).isSafariRuntime === true
-  const safariLike = safariRuntime || tokens.includes('safari')
+  const safariFromClient = isSafariBrowser === true
+  const safariLike = safariRuntime || safariFromClient || tokens.includes('safari')
+      console.log(`🍎 Safari detection: runtime=${safariRuntime}, client=${safariFromClient}, tokens=${tokens.includes('safari')}, final=${safariLike}`)
       const h264Only = tokens.includes('h264') || tokens.includes('h264only')
 
       const filterSafariSources = <T extends { name: string }>(list: T[]): T[] => {
         if (!safariLike) return list
+        
+        console.log(`🍎 Safari filtering ${list.length} streams...`)
         const decisions: { kept: number; dropped: number; reasons: Record<string, number> } = { kept: 0, dropped: 0, reasons: {} }
-        const filtered = list.filter(s => {
+        
+        // Ultra-strict Safari compatibility filtering
+        const ultraSafeStreams = list.filter(s => {
           const raw = s.name
           const n = raw.toLowerCase()
+          
+          console.log(`🍎 [ANALYZING] ${raw.substring(0, 80)}...`)
+          
+          // PHASE 1: Absolute rejections (will never work in Safari)
           const isMkv = /\.mkv\b|\bmkv\b/.test(n)
-          const isRemux = /remux/.test(n)
-          const unsupportedCodec = /(av1|vp9|vvc)/.test(n)
-          if (unsupportedCodec) { decisions.dropped++; decisions.reasons['codec']=(decisions.reasons['codec']||0)+1; return false }
-          if (isMkv) { decisions.dropped++; decisions.reasons['mkv']=(decisions.reasons['mkv']||0)+1; return false }
-          if (isRemux) { decisions.dropped++; decisions.reasons['remux']=(decisions.reasons['remux']||0)+1; return false }
-          // Allowed indicators
-          const hasMp4 = /\.mp4\b/.test(n)
-          const hasH264 = /(x264|h264|avc)/.test(n)
-          const hasHevc = /(hevc|x265|h\.265)/.test(n)
-          if (h264Only && !hasH264) { decisions.dropped++; decisions.reasons['force-h264']=(decisions.reasons['force-h264']||0)+1; return false }
-          // Accept order: explicit mp4 + (h264|hevc) > h264 label > hevc label (if not forcing h264)
-          const accept = (hasMp4 && (hasH264 || (!h264Only && hasHevc))) || hasH264 || (!h264Only && hasHevc)
-          if (accept) { decisions.kept++; return true }
-          decisions.dropped++; decisions.reasons['ambiguous']=(decisions.reasons['ambiguous']||0)+1; return false
-        })
-        console.log(`🧪 Safari filter pass: kept=${decisions.kept} dropped=${decisions.dropped} reasons=`, decisions.reasons)
-        // Secondary preference pass: if we have any clear H.264 candidates, drop HEVC/x265 to reduce unsupported/decode errors on some Safari setups
-        if (filtered.length) {
-          const h264Preferred = filtered.filter(s => {
-            const n = s.name.toLowerCase()
-            return /(x264|h264)/.test(n) || (n.includes('.mp4') && !/(hevc|x265)/.test(n))
-          })
-          if (h264Preferred.length) {
-            console.log(`🧪 Safari post-filter preferring H.264 set ${h264Preferred.length} of ${filtered.length}`)
-            return h264Preferred
+          const isAvi = /\.avi\b|\bavi\b/.test(n)
+          const isWebm = /\.webm\b|\bwebm\b/.test(n)
+          const hasUnsupportedCodec = /(av1|vp9|vvc)/.test(n)
+          const hasUnsupportedAudio = /(dts|dts-hd|dts-ma|truehd|flac)/.test(n)
+          const isRemux = /remux/i.test(n)
+          const has10bit = /10bit|10-bit/i.test(n)
+          const hasHDR = /hdr|dolby.vision|dv/i.test(n)
+          
+          if (isMkv) { 
+            console.log(`🍎 [REJECT] MKV container: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['mkv-container']=(decisions.reasons['mkv-container']||0)+1; return false 
           }
+          if (isAvi) { 
+            console.log(`🍎 [REJECT] AVI container: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['avi-container']=(decisions.reasons['avi-container']||0)+1; return false 
+          }
+          if (isWebm) { 
+            console.log(`🍎 [REJECT] WebM container: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['webm-container']=(decisions.reasons['webm-container']||0)+1; return false 
+          }
+          if (hasUnsupportedCodec) { 
+            console.log(`🍎 [REJECT] Unsupported codec: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['unsupported-codec']=(decisions.reasons['unsupported-codec']||0)+1; return false 
+          }
+          if (hasUnsupportedAudio) { 
+            console.log(`🍎 [REJECT] Unsupported audio: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['unsupported-audio']=(decisions.reasons['unsupported-audio']||0)+1; return false 
+          }
+          if (isRemux) { 
+            console.log(`🍎 [REJECT] Remux: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['remux']=(decisions.reasons['remux']||0)+1; return false 
+          }
+          if (has10bit) { 
+            console.log(`🍎 [REJECT] 10-bit: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['10bit']=(decisions.reasons['10bit']||0)+1; return false 
+          }
+          if (hasHDR) { 
+            console.log(`🍎 [REJECT] HDR: ${raw.substring(0, 60)}...`)
+            decisions.dropped++; decisions.reasons['hdr']=(decisions.reasons['hdr']||0)+1; return false 
+          }
+          
+          // PHASE 2: Positive requirements (must have these to work in Safari)
+          const hasMp4 = /\.mp4\b/.test(n)
+          const hasH264 = /(x264|h\.?264|avc)/i.test(n)
+          const hasCompatibleAudio = /(aac|mp3)/i.test(n) || !/(dts|ac3|eac3|opus)/.test(n) // Allow if no audio specified
+          
+          // Ultra-safe: Must be MP4 + H.264 + compatible audio
+          if (hasMp4 && hasH264 && hasCompatibleAudio) {
+            console.log(`🍎 [ACCEPT ULTRA-SAFE] ${raw.substring(0, 60)}...`)
+            decisions.kept++
+            decisions.reasons['ultra-safe']=(decisions.reasons['ultra-safe']||0)+1
+            return true
+          }
+          
+          // Force H.264 only mode
+          if (h264Only && !hasH264) {
+            console.log(`🍎 [REJECT] Force H.264 mode: ${raw.substring(0, 60)}...`)
+            decisions.dropped++
+            decisions.reasons['force-h264']=(decisions.reasons['force-h264']||0)+1
+            return false
+          }
+          
+          console.log(`🍎 [REJECT] Not ultra-safe: ${raw.substring(0, 60)}...`)
+          decisions.dropped++
+          decisions.reasons['not-ultra-safe']=(decisions.reasons['not-ultra-safe']||0)+1
+          return false
+        })
+        
+        console.log(`🍎 Safari ultra-safe filter: kept=${decisions.kept} dropped=${decisions.dropped}`)
+        console.log(`🍎 Rejection reasons:`, decisions.reasons)
+        
+        // If ultra-safe filtering gives us results, use them
+        if (ultraSafeStreams.length > 0) {
+          console.log(`🍎 Safari ultra-safe streams found: ${ultraSafeStreams.length}`)
+          return ultraSafeStreams
         }
-        if (filtered.length === 0) {
-          console.log('⚠️ Safari filter eliminated all sources; falling back to original list length', list.length)
-          return list
-        }
-        console.log(`🧪 Safari filtering reduced sources ${list.length} -> ${filtered.length}`)
-        return filtered
+        
+        // TRANSCODING SYSTEM: Since we have transcoding, return ALL streams and let transcoding handle compatibility
+        console.log(`🍎 No ultra-safe streams found, but transcoding system available`)
+        console.log(`🍎 Returning all ${list.length} streams for transcoding processing`)
+        return list
       }
 
       // Series episode composite ID pattern: baseId:S<season>E<episode>
@@ -718,6 +876,7 @@ export class StreamingService {
             const quality = this.inferQuality(s.name)
             const codecScore = this.computeCodecCompatibilityScore(s.name)
             const audioScore = this.getAudioCompatibilityScore(s.name)
+            const formatScore = this.getFormatCompatibilityScore(s.name)
             return {
               name: s.name,
               quality,
@@ -726,7 +885,7 @@ export class StreamingService {
               url: s.url,
               isReady: true,
               subtitles: s.subtitles,
-              _score: this.weightedStreamScore({ quality, codecScore, audioScore })
+              _score: this.weightedStreamScore({ quality, codecScore, audioScore, formatScore })
             }
           })
           let sorted = sources.sort((a, b) => b._score - a._score)
@@ -742,7 +901,7 @@ export class StreamingService {
           }
           sorted = filterSafariSources(sorted)
       for (const source of sorted) {
-            const streamingUrl = await this.prepareStream(source)
+            const streamingUrl = await this.prepareStream(source, isSafariBrowser)
             if (streamingUrl) {
               return {
                 url: streamingUrl,
@@ -778,7 +937,7 @@ export class StreamingService {
         }
       }
 
-  let sources = await this.getMovieStreams(movieId)
+  let sources = await this.getMovieStreams(movieId, isSafariBrowser)
   sources = filterSafariSources(sources)
 
       if (sources.length === 0) {
@@ -794,15 +953,16 @@ export class StreamingService {
         const baseQuality = this.getQualityScore(s.quality)
         const codecScore = this.computeCodecCompatibilityScore(s.name)
         const audioScore = this.getAudioCompatibilityScore(s.name)
+        const formatScore = this.getFormatCompatibilityScore(s.name, s.format)
         const readiness = s.isReady ? 0.3 : 0 // converted later into weighted addition
         const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
         const seedBoost = Math.min((s.seeders || 0) / 200, 0.4) // cap influence
         let composite: number
         if (safariLike) {
-          // Safari priority: codec > quality > seeders (audio minor)
-            composite = (codecScore * 120) + (baseQuality * 80) + (seedBoost * 60) + (audioScore * 5) + (readiness * 40) + (preferred * 150)
+          // Safari priority: format > codec > quality > seeders (audio minor)
+            composite = (formatScore * 150) + (codecScore * 120) + (baseQuality * 80) + (seedBoost * 60) + (audioScore * 5) + (readiness * 40) + (preferred * 150)
         } else {
-          composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
+          composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore, formatScore })
             + (readiness * 100) + (preferred * 200) + (seedBoost * 100)
         }
         scoringDetails.push({
@@ -819,7 +979,7 @@ export class StreamingService {
 
       for (const { src } of scoringDetails) {
         try {
-          const streamingUrl = await this.prepareStream(src)
+          const streamingUrl = await this.prepareStream(src, isSafariBrowser)
           if (streamingUrl) {
             // Fetch real subtitles from SubDL API
             let realSubtitles: ProcessedSubtitle[] = []
@@ -836,7 +996,7 @@ export class StreamingService {
               realSubtitles = []
             }
             return {
-              url: streamingUrl,
+              url: isSafariBrowser ? this.buildTranscoderUrl(streamingUrl) : streamingUrl,
               subtitles: src.subtitles || [],
               realSubtitles,
               source: src
@@ -850,7 +1010,7 @@ export class StreamingService {
       console.log('❌ All scored movie sources failed to prepare stream')
 
       // Enhanced priority algorithm with fallback logic
-      const result = await this.selectOptimalStreamWithFallbackResult(sources, preferredQuality, movieMetadata)
+      const result = await this.selectOptimalStreamWithFallbackResult(sources, preferredQuality, movieMetadata, isSafariBrowser)
 
       if (result) {
         console.log(`✅ Successfully prepared streaming URL with subtitles`)
@@ -866,10 +1026,32 @@ export class StreamingService {
     }
   }
 
-  async getStreamingUrl(movieId: string, preferredQuality?: string): Promise<string | null> {
+  async getStreamingUrl(movieId: string, preferredQuality?: string, isSafariBrowser?: boolean): Promise<string | null> {
+    console.log(`🎬 [STREAMING SERVICE] getStreamingUrl called with movieId: ${movieId}`)
     try {
-      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}`)
-      const sources = await this.getMovieStreams(movieId)
+      // Parse inline token after # (supports multiple tokens separated by '+', e.g. #safari+h264+1080p)
+      let rawToken: string | undefined
+      let tokens: string[] = []
+      if (movieId.includes('#')) {
+        const parts = movieId.split('#')
+        movieId = parts[0]
+        rawToken = parts[1]
+        if (rawToken) tokens = rawToken.toLowerCase().split('+').filter(Boolean)
+        // If a recognized quality appears among tokens and caller didn't provide preferredQuality, use it
+        const qualityToken = tokens.find(t => /(4k|2160|1080|720|480|360)p?/.test(t))
+        if (qualityToken && !preferredQuality) preferredQuality = qualityToken
+      }
+      
+      // Automatic safari detection (tokens can still force behavior, but runtime Safari always enabled)
+      const safariRuntime = (this as any).isSafariRuntime === true
+      const safariLike = safariRuntime || tokens.includes('safari') || isSafariBrowser === true
+      
+      console.log(`🎬 STREMIO MODE: Starting stream selection for ${movieId}${tokens.length ? ' (tokens '+tokens.join(',')+')' : ''}`)
+      if (safariLike) {
+        console.log(`🍎 Safari compatibility mode enabled for getStreamingUrl`)
+      }
+      
+      const sources = await this.getMovieStreams(movieId, safariLike)
 
       if (sources.length === 0) {
         console.log(`❌ No streams found for ${movieId}`)
@@ -878,24 +1060,163 @@ export class StreamingService {
 
       console.log(`📊 Found ${sources.length} total streams, checking for Torrentio resolve URLs...`)
 
-      // Unified weighted scoring path
-      const scored = sources.map(s => {
+      // Debug: Log all available streams to understand the format distribution
+      console.log(`\n🔍 [STREAM ANALYSIS] All available streams:`)
+      sources.forEach((s, i) => {
+        const format = s.name.toLowerCase().includes('.mp4') ? 'MP4' : 
+                       s.name.toLowerCase().includes('.mkv') ? 'MKV' : 
+                       s.name.toLowerCase().includes('.webm') ? 'WebM' : 'OTHER'
+        console.log(`  ${i+1}. ${format} | ${s.quality} | ${s.seeders || 0} seeders | ${s.name.substring(0, 80)}...`)
+      })
+      
+      const mp4Count = sources.filter(s => s.name.toLowerCase().includes('.mp4')).length
+      const mkvCount = sources.filter(s => s.name.toLowerCase().includes('.mkv')).length
+      console.log(`\n📊 Format distribution: ${mp4Count} MP4, ${mkvCount} MKV, ${sources.length - mp4Count - mkvCount} OTHER`)
+
+      // CRITICAL FIX: Apply Safari filtering BEFORE scoring to ensure MP4 prioritization
+      const isSafari = this.isSafariRuntime === true
+      let filteredSources = sources
+      
+      if (isSafari) {
+        console.log(`🍎 [SAFARI] Applying Safari filtering BEFORE scoring...`)
+        // Apply the same filterSafariSources logic here
+        const filterSafariSources = <T extends { name: string }>(list: T[]): T[] => {
+          console.log(`🍎 Safari filtering ${list.length} streams...`)
+          const decisions: { kept: number; dropped: number; reasons: Record<string, number> } = { kept: 0, dropped: 0, reasons: {} }
+          
+          // Ultra-strict Safari compatibility filtering
+          const ultraSafeStreams = list.filter(s => {
+            const raw = s.name
+            const n = raw.toLowerCase()
+            
+            console.log(`🍎 [PRE-SCORE ANALYZING] ${raw.substring(0, 80)}...`)
+            
+            // PHASE 1: Absolute rejections (will never work in Safari)
+            const isMkv = /\.mkv\b|\bmkv\b/.test(n)
+            const isAvi = /\.avi\b|\bavi\b/.test(n)
+            const isWebm = /\.webm\b|\bwebm\b/.test(n)
+            const hasUnsupportedCodec = /(av1|vp9|vvc)/.test(n)
+            const hasUnsupportedAudio = /(dts|dts-hd|dts-ma|truehd|flac)/.test(n)
+            const isRemux = /remux/i.test(n)
+            const has10bit = /10bit|10-bit/i.test(n)
+            const hasHDR = /hdr|dolby.vision|dv/i.test(n)
+            
+            if (isMkv) { 
+              console.log(`🍎 [PRE-SCORE REJECT] MKV container: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['mkv-container']=(decisions.reasons['mkv-container']||0)+1; return false 
+            }
+            if (isAvi) { 
+              console.log(`🍎 [PRE-SCORE REJECT] AVI container: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['avi-container']=(decisions.reasons['avi-container']||0)+1; return false 
+            }
+            if (isWebm) { 
+              console.log(`🍎 [PRE-SCORE REJECT] WebM container: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['webm-container']=(decisions.reasons['webm-container']||0)+1; return false 
+            }
+            if (hasUnsupportedCodec) { 
+              console.log(`🍎 [PRE-SCORE REJECT] Unsupported codec: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['unsupported-codec']=(decisions.reasons['unsupported-codec']||0)+1; return false 
+            }
+            if (hasUnsupportedAudio) { 
+              console.log(`🍎 [PRE-SCORE REJECT] Unsupported audio: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['unsupported-audio']=(decisions.reasons['unsupported-audio']||0)+1; return false 
+            }
+            if (isRemux) { 
+              console.log(`🍎 [PRE-SCORE REJECT] Remux: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['remux']=(decisions.reasons['remux']||0)+1; return false 
+            }
+            if (has10bit) { 
+              console.log(`🍎 [PRE-SCORE REJECT] 10-bit: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['10bit']=(decisions.reasons['10bit']||0)+1; return false 
+            }
+            if (hasHDR) { 
+              console.log(`🍎 [PRE-SCORE REJECT] HDR: ${raw.substring(0, 60)}...`)
+              decisions.dropped++; decisions.reasons['hdr']=(decisions.reasons['hdr']||0)+1; return false 
+            }
+            
+            // PHASE 2: Positive requirements (must have these to work in Safari)
+            const hasMp4 = /\.mp4\b/.test(n)
+            const hasH264 = /(x264|h\.?264|avc)/i.test(n)
+            const hasCompatibleAudio = /(aac|mp3)/i.test(n) || !/(dts|ac3|eac3|opus)/.test(n) // Allow if no audio specified
+            
+            // Ultra-safe: Must be MP4 + H.264 + compatible audio
+            if (hasMp4 && hasH264 && hasCompatibleAudio) {
+              console.log(`🍎 [PRE-SCORE ACCEPT ULTRA-SAFE] ${raw.substring(0, 60)}...`)
+              decisions.kept++
+              decisions.reasons['ultra-safe']=(decisions.reasons['ultra-safe']||0)+1
+              return true
+            }
+            
+            console.log(`🍎 [PRE-SCORE REJECT] Not ultra-safe: ${raw.substring(0, 60)}...`)
+            decisions.dropped++
+            decisions.reasons['not-ultra-safe']=(decisions.reasons['not-ultra-safe']||0)+1
+            return false
+          })
+          
+          console.log(`🍎 Safari pre-score filter: kept=${decisions.kept} dropped=${decisions.dropped}`)
+          console.log(`🍎 Pre-score rejection reasons:`, decisions.reasons)
+          
+          // If ultra-safe filtering gives us results, use them
+          if (ultraSafeStreams.length > 0) {
+            console.log(`🍎 Safari ultra-safe streams found for scoring: ${ultraSafeStreams.length}`)
+            return ultraSafeStreams
+          }
+          
+          // FALLBACK: More lenient Safari filtering if ultra-safe found nothing
+          console.log(`🍎 No ultra-safe streams found, trying lenient Safari filter...`)
+          const lenientStreams = list.filter(s => {
+            const n = s.name.toLowerCase()
+            
+            // Still reject absolute incompatibles
+            if (/\.mkv\b|\bmkv\b/.test(n)) return false
+            if (/(av1|vp9|vvc)/.test(n)) return false
+            if (/(dts|dts-hd|dts-ma|truehd)/.test(n)) return false
+            
+            // Accept MP4 with any codec (risky but might work)
+            const hasMp4 = /\.mp4\b/.test(n)
+            if (hasMp4) return true
+            
+            // Accept H.264 even without explicit MP4 (might be in MP4 container)
+            const hasH264 = /(x264|h\.?264|avc)/i.test(n)
+            if (hasH264) return true
+            
+            return false
+          })
+          
+          if (lenientStreams.length > 0) {
+            console.log(`🍎 Safari lenient filter found for scoring: ${lenientStreams.length} streams`)
+            return lenientStreams
+          }
+          
+          // LAST RESORT: Return original list with warning
+          console.log('⚠️ Safari filters eliminated all sources; falling back to original list (may cause playback errors)')
+          return list
+        }
+        
+        filteredSources = filterSafariSources(sources)
+        console.log(`🍎 [SAFARI] Post-filter: ${filteredSources.length} streams remaining for scoring`)
+      }
+
+      // Unified weighted scoring path (now on Safari-filtered streams)
+      const scored = filteredSources.map(s => {
         const codecScore = this.computeCodecCompatibilityScore(s.name)
         const audioScore = this.getAudioCompatibilityScore(s.name)
+        const formatScore = this.getFormatCompatibilityScore(s.name, s.format)
         const readiness = s.isReady ? 0.3 : 0
         const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
         const seedBoost = Math.min((s.seeders || 0) / 200, 0.4)
-        const composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
+        const composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore, formatScore })
           + readiness * 100 + preferred * 200 + seedBoost * 100
         return { s, composite }
       }).sort((a, b) => b.composite - a.composite)
-      console.log('🧮 Top 5 scored movie sources (URL only path):')
+      
+      console.log(`🧮 Top 5 scored ${isSafari ? 'Safari-filtered' : ''} movie sources:`)
       scored.slice(0, 5).forEach((d, i) => {
         console.log(`${i + 1}. Q=${d.s.quality} Name=${d.s.name.substring(0, 70)}... score=${d.composite.toFixed(1)}`)
       })
       for (const { s } of scored) {
         try {
-          const streamingUrl = await this.prepareStream(s)
+          const streamingUrl = await this.prepareStream(s, isSafariBrowser)
           if (streamingUrl) return streamingUrl
         } catch (err) {
           console.warn('⚠️ Scored movie URL source failed, trying next:', err instanceof Error ? err.message : err)
@@ -904,10 +1225,20 @@ export class StreamingService {
       console.log('❌ All scored movie URL sources failed, falling back to legacy fallback method...')
 
       // Enhanced priority algorithm with fallback logic
-      const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality)
+      const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality, isSafariBrowser)
 
       if (streamingUrl) {
         console.log(`✅ Successfully prepared streaming URL`)
+        
+        // 🍎 SAFARI TRANSCODER INTEGRATION
+        // If Safari user, always route through transcoder for safety
+        if (isSafariBrowser && streamingUrl) {
+          console.log(`🍎 Safari detected - routing through transcoder for compatibility`)
+          const transcodedUrl = this.buildTranscoderUrl(streamingUrl)
+          console.log(`🍎 Transcoded URL: ${transcodedUrl.substring(0, 100)}...`)
+          return transcodedUrl
+        }
+        
         return streamingUrl
       } else {
         console.log(`❌ Failed to prepare any streaming URL after trying all available streams`)
@@ -920,7 +1251,36 @@ export class StreamingService {
     }
   }
 
-  private async selectOptimalStreamWithFallback(sources: StreamingSource[], preferredQuality?: string): Promise<string | null> {
+  // 🍎 SAFARI TRANSCODER HELPER METHODS
+  
+  /**
+   * Builds a transcoder URL for Safari-compatible streaming
+   */
+  private buildTranscoderUrl(originalUrl: string): string {
+    // If it's already pointing to our transcoder, avoid nesting
+    try {
+      const urlObj = new URL(originalUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+      if (urlObj.pathname.startsWith('/api/stream-transcoder')) {
+        // Ensure safari=true is present
+        if (!urlObj.searchParams.get('safari')) {
+          urlObj.searchParams.set('safari', 'true')
+        }
+        return urlObj.toString()
+      }
+    } catch {
+      // fall through to normal construction
+    }
+
+    // Use our transcoder API endpoint
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+    const transcoderUrl = new URL('/api/stream-transcoder', baseUrl)
+    transcoderUrl.searchParams.set('url', originalUrl)
+    transcoderUrl.searchParams.set('safari', 'true')
+    
+    return transcoderUrl.toString()
+  }
+
+  private async selectOptimalStreamWithFallback(sources: StreamingSource[], preferredQuality?: string, isSafariBrowser?: boolean): Promise<string | null> {
     // Step 1: Sort all sources by our intelligent priority algorithm
     const sortedSources = this.sortSourcesByPriority(sources, preferredQuality)
 
@@ -932,7 +1292,7 @@ export class StreamingService {
       console.log(`🔄 Attempt ${i + 1}/${sortedSources.length}: ${source.quality} - ${source.name} (${source.seeders || 0} seeders)`)
 
       try {
-        const streamingUrl = await this.prepareStream(source)
+        const streamingUrl = await this.prepareStream(source, isSafariBrowser)
         if (streamingUrl) {
           console.log(`✅ Success! Stream prepared: ${source.quality} quality`)
           return streamingUrl
@@ -949,7 +1309,8 @@ export class StreamingService {
   private async selectOptimalStreamWithFallbackResult(
     sources: StreamingSource[],
     preferredQuality?: string,
-    movieMetadata?: { title?: string, year?: number, imdbId?: string, tmdbId?: string }
+    movieMetadata?: { title?: string, year?: number, imdbId?: string, tmdbId?: string },
+    isSafariBrowser?: boolean
   ): Promise<StreamingResult | null> {
     // Step 1: Sort sources by quality and readiness
     const sortedSources = this.sortSourcesByPriority(sources, preferredQuality)
@@ -960,7 +1321,7 @@ export class StreamingService {
       console.log(`🔄 Attempt ${i + 1}/${sortedSources.length}: ${source.quality} - ${source.name} (${source.seeders || 0} seeders)`)
 
       try {
-        const streamingUrl = await this.prepareStream(source)
+        const streamingUrl = await this.prepareStream(source, isSafariBrowser)
         if (streamingUrl) {
           console.log(`✅ Success! Stream prepared: ${source.quality} quality`)
 
@@ -1043,12 +1404,12 @@ export class StreamingService {
   }
 
   // Alternative stream search methods when primary search fails
-  private async alternativeStreamSearch(movieId: string): Promise<any[]> {
+  private async alternativeStreamSearch(movieId: string, isSafari?: boolean): Promise<any[]> {
     console.log(`🔍 Starting alternative stream search for ${movieId}`)
 
     try {
       // Method 1: Try with different Torrentio configurations
-      const alternativeStreams = await this.tryAlternativeTorrentioConfigs(movieId)
+      const alternativeStreams = await this.tryAlternativeTorrentioConfigs(movieId, isSafari)
       if (alternativeStreams.length > 0) {
         console.log(`✅ Found ${alternativeStreams.length} streams with alternative Torrentio config`)
         return alternativeStreams
@@ -1056,7 +1417,7 @@ export class StreamingService {
 
       // Method 2: If it's a TMDB ID, try searching by movie title and year
       if (movieId.startsWith('tmdb_')) {
-        const titleBasedStreams = await this.searchByTitleAndYear(movieId)
+        const titleBasedStreams = await this.searchByTitleAndYear(movieId, isSafari)
         if (titleBasedStreams.length > 0) {
           console.log(`✅ Found ${titleBasedStreams.length} streams by title search`)
           return titleBasedStreams
@@ -1064,7 +1425,7 @@ export class StreamingService {
       }
 
       // Method 3: Try with simplified search terms
-      const simplifiedStreams = await this.trySimplifiedSearch(movieId)
+      const simplifiedStreams = await this.trySimplifiedSearch(movieId, isSafari)
       if (simplifiedStreams.length > 0) {
         console.log(`✅ Found ${simplifiedStreams.length} streams with simplified search`)
         return simplifiedStreams
@@ -1078,7 +1439,7 @@ export class StreamingService {
   }
 
   // Try alternative Torrentio configurations
-  private async tryAlternativeTorrentioConfigs(movieId: string): Promise<any[]> {
+  private async tryAlternativeTorrentioConfigs(movieId: string, isSafari?: boolean): Promise<any[]> {
     // Create alternative Torrentio instance with different provider selection
     const alternativeProviders = ['1337x', 'rarbg', 'thepiratebay'] // Focus on most reliable providers
     const altTorrentio = new TorrentioAPI({
@@ -1088,7 +1449,7 @@ export class StreamingService {
     })
 
     // Try with the main ID first
-    let streams = await altTorrentio.getMovieStreams(movieId)
+    let streams = await altTorrentio.getMovieStreams(movieId, isSafari)
     if (streams.length > 0) return streams
 
     // If TMDB ID, try converting to IMDB and search again
@@ -1097,7 +1458,7 @@ export class StreamingService {
         const tmdbId = parseInt(movieId.replace('tmdb_', ''))
         const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
         if (externalIds.imdb_id) {
-          streams = await altTorrentio.getMovieStreams(externalIds.imdb_id)
+          streams = await altTorrentio.getMovieStreams(externalIds.imdb_id, isSafari)
         }
       } catch (error) {
         console.warn(`⚠️ Could not get external IDs for alternative search:`, error)
@@ -1108,7 +1469,7 @@ export class StreamingService {
   }
 
   // Search by movie title and year
-  private async searchByTitleAndYear(movieId: string): Promise<any[]> {
+  private async searchByTitleAndYear(movieId: string, isSafari?: boolean): Promise<any[]> {
     if (!movieId.startsWith('tmdb_')) return []
 
     try {
@@ -1161,29 +1522,240 @@ export class StreamingService {
   }
 
   // Try simplified search with basic terms
-  private async trySimplifiedSearch(movieId: string): Promise<any[]> {
+  private async trySimplifiedSearch(movieId: string, isSafari?: boolean): Promise<any[]> {
     // This could implement additional fallback search strategies
     // such as using different torrent search engines or APIs
     console.log(`🔍 Simplified search not yet implemented for ${movieId}`)
+    if (isSafari) {
+      console.log(`🍎 Simplified search would apply Safari filtering if implemented`)
+    }
     return []
   }
 
   private sortSourcesByPriority(sources: StreamingSource[], preferredQuality?: string): StreamingSource[] {
     const scored = sources.map(s => {
+      let composite = 0
+      
+      // PRIORITY 1: MP4 format detection (highest priority)
+      const mp4Score = this.getFormatCompatibilityScore(s.name, s.format)
+      composite += mp4Score * 1000 // MP4 gets massive priority
+      
+      // PRIORITY 2: Quality scoring
+      const qualityScore = this.getQualityScore(s.quality)
+      composite += qualityScore * 100
+      
+      // PRIORITY 3: Peer/seeder count (availability)
+      const seedBoost = Math.min((s.seeders || 0) / 50, 200) // More aggressive seeder weighting
+      composite += seedBoost
+      
+      // PRIORITY 4: Codec compatibility
       const codecScore = this.computeCodecCompatibilityScore(s.name)
+      composite += codecScore * 10
+      
+      // PRIORITY 5: Audio compatibility
       const audioScore = this.getAudioCompatibilityScore(s.name)
-      const readiness = s.isReady ? 0.3 : 0
-      const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 1 : 0
-      const seedBoost = Math.min((s.seeders || 0) / 200, 0.4)
-      const composite = this.weightedStreamScore({ quality: s.quality, codecScore, audioScore })
-        + readiness * 100 + preferred * 200 + seedBoost * 100
-      return { s, composite }
+      composite += audioScore * 5
+      
+      // PRIORITY 6: Readiness bonus
+      const readiness = s.isReady ? 50 : 0
+      composite += readiness
+      
+      // PRIORITY 7: User preferred quality bonus
+      const preferred = preferredQuality && s.quality.toLowerCase().includes(preferredQuality.toLowerCase()) ? 100 : 0
+      composite += preferred
+      
+      return { s, composite, mp4Score, qualityScore, seeders: s.seeders || 0 }
     }).sort((a, b) => b.composite - a.composite)
-    console.log('🧮 sortSourcesByPriority top 5:')
+    
+    console.log('🎯 [MP4 PRIORITY] Top 5 streams sorted by MP4 → Quality → Peers:')
     scored.slice(0, 5).forEach((d, i) => {
-      console.log(`${i + 1}. Q=${d.s.quality} Name=${d.s.name.substring(0, 60)} score=${d.composite.toFixed(1)}`)
+      const isMP4 = d.mp4Score > 50 ? '🎯 MP4' : '📁 Other'
+      console.log(`${i + 1}. ${isMP4} | Q=${d.s.quality} | P=${d.seeders} | ${d.s.name.substring(0, 50)}... | Score=${d.composite.toFixed(1)}`)
     })
+    
     return scored.map(d => d.s)
+  }
+
+  private getFormatCompatibilityScore(streamName: string, format?: string): number {
+    const isSafari = (this as any).isSafariRuntime === true
+    
+    // Use format field if available (more reliable than parsing name)
+    if (format) {
+      console.log(`🎯 [FORMAT FIELD] Using format field: ${format}`)
+      if (format.toLowerCase() === 'mp4') {
+        // For Safari, still need to check codec compatibility within MP4
+        if (isSafari) {
+          return this.getSafariMp4CompatibilityScore(streamName)
+        }
+        return 100
+      }
+      if (format.toLowerCase() === 'webm') return isSafari ? 0 : 60  // Safari doesn't support WebM
+      if (format.toLowerCase() === 'mkv') return isSafari ? 0 : 40   // Safari doesn't support MKV
+      if (format.toLowerCase() === 'avi') return isSafari ? 0 : 30   // Safari doesn't support AVI
+      return isSafari ? 0 : 20
+    }
+    
+    // Fallback to name parsing
+    const name = streamName.toLowerCase()
+    
+    // MP4 format indicators - but Safari needs codec verification too
+    if (name.includes('.mp4') || name.includes('mp4') || 
+        name.includes('h264.mp4') || name.includes('x264.mp4') ||
+        name.includes('hevc.mp4') || name.includes('x265.mp4')) {
+      console.log(`🎯 [MP4 DETECTED] ${streamName.substring(0, 60)}...`)
+      
+      if (isSafari) {
+        return this.getSafariMp4CompatibilityScore(streamName)
+      }
+      return 100 // Maximum score for MP4 on non-Safari browsers
+    }
+    
+    // For Safari, reject everything that's not MP4
+    if (isSafari) {
+      console.log(`🍎 [SAFARI REJECT] Non-MP4 format: ${streamName.substring(0, 60)}...`)
+      return 0
+    }
+    
+    // Non-Safari browsers can handle other formats
+    if (name.includes('.webm') || name.includes('webm')) {
+      return 60
+    }
+    
+    if (name.includes('.mkv') || name.includes('mkv')) {
+      return 40
+    }
+    
+    if (name.includes('.avi') || name.includes('avi')) {
+      return 30
+    }
+    
+    // Unknown or problematic formats
+    return 20
+  }
+
+  private getSafariMp4CompatibilityScore(streamName: string): number {
+    const name = streamName.toLowerCase()
+    
+    // Check for Safari-incompatible codecs within MP4
+    if (/(av1|vp9|vvc)/.test(name)) {
+      console.log(`🍎 [REJECT] Unsupported video codec in MP4: ${streamName.substring(0, 60)}...`)
+      return 0
+    }
+    
+    // Check for Safari-incompatible audio within MP4
+    if (/(dts|dts-hd|dts-ma|truehd|flac)/.test(name)) {
+      console.log(`🍎 [REJECT] Unsupported audio codec in MP4: ${streamName.substring(0, 60)}...`)
+      return 0
+    }
+    
+    // Check for problematic encoding parameters
+    if (/(10bit|10-bit|hdr|dolby.vision|dv)/i.test(name)) {
+      console.log(`🍎 [REJECT] Problematic encoding in MP4: ${streamName.substring(0, 60)}...`)
+      return 0
+    }
+    
+    // Check for remux (usually problematic)
+    if (/remux/i.test(name)) {
+      console.log(`🍎 [REJECT] Remux MP4: ${streamName.substring(0, 60)}...`)
+      return 0
+    }
+    
+    // Ultra-safe: H.264 + AAC
+    if (/(x264|h\.?264|avc)/i.test(name) && /(aac)/i.test(name)) {
+      console.log(`🍎 [ULTRA-SAFE] H.264 + AAC: ${streamName.substring(0, 60)}...`)
+      return 200 // Maximum score for ultra-safe Safari streams
+    }
+    
+    // Safe: H.264 without specified audio (assume AAC)
+    if (/(x264|h\.?264|avc)/i.test(name) && !/(ac3|eac3|dts|opus)/.test(name)) {
+      console.log(`🍎 [SAFE] H.264 assumed AAC: ${streamName.substring(0, 60)}...`)
+      return 150
+    }
+    
+    // Risky: HEVC (only works on newer Safari)
+    if (/(hevc|x265|h\.?265)/i.test(name) && /(aac)/i.test(name)) {
+      console.log(`🍎 [RISKY] HEVC + AAC: ${streamName.substring(0, 60)}...`)
+      return 75
+    }
+    
+    // Very risky: MP4 with unspecified codec
+    console.log(`🍎 [VERY-RISKY] MP4 unknown codec: ${streamName.substring(0, 60)}...`)
+    return 25
+  }
+
+  // Safari-specific stream validation
+  private validateSafariStream(streamName: string): { 
+    isCompatible: boolean; 
+    issues: string[]; 
+    confidence: 'high' | 'medium' | 'low' | 'unsupported' 
+  } {
+    const name = streamName.toLowerCase()
+    const issues: string[] = []
+    
+    // Check container
+    if (!name.includes('.mp4')) {
+      issues.push('Non-MP4 container not supported by Safari')
+      return { isCompatible: false, issues, confidence: 'unsupported' }
+    }
+    
+    // Check video codec
+    if (/(av1|vp9|vvc)/.test(name)) {
+      issues.push('Unsupported video codec (AV1/VP9/VVC)')
+      return { isCompatible: false, issues, confidence: 'unsupported' }
+    }
+    
+    // Check audio codec
+    if (/(dts|dts-hd|dts-ma|truehd|flac)/.test(name)) {
+      issues.push('Unsupported audio codec (DTS/TrueHD/FLAC)')
+      return { isCompatible: false, issues, confidence: 'unsupported' }
+    }
+    
+    // Check problematic encoding
+    if (/(10bit|10-bit)/.test(name)) {
+      issues.push('10-bit encoding may cause issues')
+    }
+    
+    if (/(hdr|dolby.vision|dv)/i.test(name)) {
+      issues.push('HDR metadata may cause compatibility issues')
+    }
+    
+    if (/remux/i.test(name)) {
+      issues.push('Remux files often have compatibility issues')
+    }
+    
+    // Determine confidence level
+    if (/(x264|h\.?264|avc)/i.test(name) && /(aac)/i.test(name)) {
+      return { 
+        isCompatible: true, 
+        issues, 
+        confidence: issues.length === 0 ? 'high' : 'medium' 
+      }
+    }
+    
+    if (/(x264|h\.?264|avc)/i.test(name)) {
+      return { 
+        isCompatible: true, 
+        issues, 
+        confidence: issues.length === 0 ? 'medium' : 'low' 
+      }
+    }
+    
+    if (/(hevc|x265|h\.?265)/i.test(name)) {
+      const safariVersion = this.safariVersion?.major ?? 0
+      if (safariVersion < 11) {
+        issues.push('HEVC not supported in Safari < 11')
+        return { isCompatible: false, issues, confidence: 'unsupported' }
+      }
+      return { 
+        isCompatible: true, 
+        issues: [...issues, 'HEVC may fail on older devices'], 
+        confidence: 'low' 
+      }
+    }
+    
+    // Unknown codec in MP4
+    issues.push('Unknown video codec compatibility')
+    return { isCompatible: true, issues, confidence: 'low' }
   }
 
   private getAudioCompatibilityScore(streamName: string): number {
@@ -1233,24 +1805,21 @@ export class StreamingService {
     return 1
   }
 
-  private runtimeCodecSupport?: { h264?: boolean; hevc?: boolean; vp9?: boolean; av1?: boolean }
-
   private computeCodecCompatibilityScore(name: string): number {
     const n = name.toLowerCase()
-  let base = 5
-  const safariRuntime = this.isSafariRuntime === true
-  // Safari prefers efficient HEVC if hardware-supported; user requested h265 first then h264
-  if (/(hevc|x265|h\.265)/.test(n)) base = safariRuntime ? 12 : 9
-  else if (/(h\.264|x264|avc)/.test(n)) base = safariRuntime ? 11 : 10
-  else if (/vp9/.test(n)) base = 6
-  else if (/(av1)/.test(n)) base = 5
-  else if (/(mpeg2|mpeg-2)/.test(n)) base = 3
+    let base = 5
+    const safariRuntime = this.isSafariRuntime === true
+    
+    // Safari prefers efficient HEVC if hardware-supported; user requested h265 first then h264
+    if (/(hevc|x265|h\.265)/.test(n)) base = safariRuntime ? 12 : 9
+    else if (/(h\.264|x264|avc)/.test(n)) base = safariRuntime ? 11 : 10
+    else if (/(av1)/.test(n)) base = 5
+    else if (/(mpeg2|mpeg-2)/.test(n)) base = 3
 
     // Adjust with runtime capabilities if detected
     if (this.runtimeCodecSupport) {
-  if (/(h\.264|x264|avc)/.test(n) && this.runtimeCodecSupport.h264 === false) base -= 4
-  if (/(hevc|x265|h\.265)/.test(n) && this.runtimeCodecSupport.hevc === false) base -= 5
-      if (/vp9/.test(n) && this.runtimeCodecSupport.vp9 === false) base -= 2
+      if (/(h\.264|x264|avc)/.test(n) && this.runtimeCodecSupport.h264 === false) base -= 4
+      if (/(hevc|x265|h\.265)/.test(n) && this.runtimeCodecSupport.hevc === false) base -= 5
       if (/(av1)/.test(n) && this.runtimeCodecSupport.av1 === false) base -= 2
       // Small positive reinforcement for supported high-efficiency codecs
       if (/(hevc|x265|h\.265)/.test(n) && this.runtimeCodecSupport.hevc) base += 1
@@ -1259,9 +1828,12 @@ export class StreamingService {
     return base
   }
 
-  private weightedStreamScore(params: { quality: string; codecScore: number; audioScore: number }): number {
+  private weightedStreamScore(params: { quality: string; codecScore: number; audioScore: number; formatScore?: number }): number {
     const qualityScore = this.getQualityScore(params.quality)
-    return qualityScore * 100 + params.codecScore * 10 + params.audioScore
+    const formatScore = params.formatScore || 0
+    
+    // MP4 format gets highest priority in weighted scoring
+    return (formatScore * 1000) + (qualityScore * 100) + (params.codecScore * 10) + params.audioScore
   }
 
   private inferQuality(name: string): string {
@@ -1340,32 +1912,161 @@ export class StreamingService {
   async detectRuntimeCodecSupport(): Promise<void> {
     if (typeof window === 'undefined') return
     if (this.runtimeCodecSupport && Object.values(this.runtimeCodecSupport).some(v => v !== undefined)) return
+    
     const nav: any = (typeof navigator !== 'undefined') ? navigator : null
     if (!nav || !('mediaCapabilities' in nav)) {
-      this.runtimeCodecSupport = {}
+      // Fallback to basic assumptions
+      this.runtimeCodecSupport = {
+        h264: true,
+        hevc: this.isSafariRuntime ? (this.safariVersion?.major ?? 0) >= 11 : false,
+        av1: false,
+        aac: true,
+        mp3: true,
+        opus: !this.isSafariRuntime
+      }
       return
     }
+    
     try {
       const mc: any = nav.mediaCapabilities
-      const test = async (contentType: string): Promise<boolean> => {
+      const testVideo = async (contentType: string): Promise<boolean> => {
         try {
-          const config = { type: 'file', video: { contentType, width: 1920, height: 1080, bitrate: 8000000, framerate: 30 } }
+          const config = { 
+            type: 'file', 
+            video: { contentType, width: 1920, height: 1080, bitrate: 8000000, framerate: 30 } 
+          }
           const result = await mc.decodingInfo(config)
           return !!result?.supported
         } catch { return false }
       }
-      const [h264, hevc, vp9, av1] = await Promise.all([
-        test('video/mp4; codecs="avc1.42E01E"'),
-        test('video/mp4; codecs="hvc1.1.6.L93.B0"'),
-        test('video/webm; codecs="vp9"'),
-        test('video/mp4; codecs="av01.0.08M.08"')
+      
+      const testAudio = async (contentType: string): Promise<boolean> => {
+        try {
+          const config = { 
+            type: 'file', 
+            audio: { contentType, channels: 2, bitrate: 128000, samplerate: 48000 } 
+          }
+          const result = await mc.decodingInfo(config)
+          return !!result?.supported
+        } catch { return false }
+      }
+      
+      const [h264, hevc, av1, aac, mp3, opus] = await Promise.all([
+        testVideo('video/mp4; codecs="avc1.42E01E"'),
+        testVideo('video/mp4; codecs="hvc1.1.6.L93.B0"'),
+        testVideo('video/mp4; codecs="av01.0.08M.08"'),
+        testAudio('audio/mp4; codecs="mp4a.40.2"'),
+        testAudio('audio/mpeg'),
+        testAudio('audio/ogg; codecs="opus"')
       ])
-      this.runtimeCodecSupport = { h264, hevc, vp9, av1 }
+      
+      this.runtimeCodecSupport = { h264, hevc, av1, aac, mp3, opus }
       console.log('🧪 Runtime codec support detected:', this.runtimeCodecSupport)
     } catch (err) {
       console.debug('MediaCapabilities detection failed:', err)
-      this.runtimeCodecSupport = {}
+      // Fallback to basic assumptions
+      this.runtimeCodecSupport = {
+        h264: true,
+        hevc: this.isSafariRuntime ? (this.safariVersion?.major ?? 0) >= 11 : false,
+        av1: false,
+        aac: true,
+        mp3: true,
+        opus: !this.isSafariRuntime
+      }
     }
+  }
+
+  // Apply Safari-specific filtering if needed
+  async applySafariFiltering(movieId: string, type: 'movie' | 'series', seasonNumber?: number, episodeNumber?: number): Promise<TorrentioStream[]> {
+    console.log('🍎 Applying Safari filtering for:', { movieId, type, seasonNumber, episodeNumber })
+    
+    try {
+      let streams: TorrentioStream[]
+      
+      if (type === 'movie') {
+        streams = await this.torrentio.getMovieStreams(movieId, true)
+      } else {
+        if (seasonNumber === undefined || episodeNumber === undefined) {
+          throw new Error('Season and episode numbers required for series')
+        }
+        streams = await this.torrentio.getSeriesStreams(movieId, seasonNumber, episodeNumber, true)
+      }
+      
+      // Filter for Safari-compatible formats
+      const safariCompatible = streams.filter((stream: TorrentioStream) => {
+        const title = stream.title.toLowerCase()
+        
+        // Look for MP4 containers and H.264 video
+        const hasCompatibleContainer = /mp4|m4v/.test(title)
+        const hasCompatibleVideo = /h\.?264|x264|avc/.test(title) && !/h\.?265|x265|hevc|av1/.test(title)
+        const hasCompatibleAudio = !/dts|ac3|truehd|atmos/.test(title)
+        
+        const isCompatible = hasCompatibleContainer && hasCompatibleVideo && hasCompatibleAudio
+        
+        if (isCompatible) {
+          console.log('🍎 Compatible stream found:', title.substring(0, 100))
+        }
+        
+        return isCompatible
+      })
+      
+      console.log(`🍎 Safari filtering result: ${safariCompatible.length}/${streams.length} compatible streams`)
+      return safariCompatible
+      
+    } catch (error) {
+      console.error('🍎 Safari filtering failed:', error)
+      return []
+    }
+  }
+
+  // Apply Safari transcoding if needed for incompatible streams
+  async applySafariTranscodingIfNeeded(streams: TorrentioStream[], isSafari: boolean): Promise<TorrentioStream[]> {
+    if (!isSafari || streams.length === 0) {
+      return streams
+    }
+
+    console.log('🍎 Checking if Safari transcoding is needed for', streams.length, 'streams')
+
+    return streams.map(stream => {
+      if (this.shouldTranscodeForSafari(stream)) {
+        console.log('🍎 Stream needs transcoding:', stream.title.substring(0, 50))
+        
+        // Build transcoder URL (avoid double-wrapping)
+        const originalUrl = stream.url
+        const alreadyTranscoder = typeof originalUrl === 'string' && originalUrl.includes('/api/stream-transcoder')
+        const transcodedUrl = alreadyTranscoder
+          ? originalUrl.includes('safari=') ? originalUrl : `${originalUrl}&safari=true`
+          : `/api/stream-transcoder?url=${encodeURIComponent(originalUrl)}&safari=true`
+        
+        return {
+          ...stream,
+          url: transcodedUrl,
+          title: `[Safari Enhanced] ${stream.title}`,
+          // Add metadata about transcoding
+          behaviorHints: {
+            ...stream.behaviorHints,
+            notWebReady: false, // Transcoded streams should be web-ready
+          }
+        }
+      }
+      
+      return stream
+    })
+  }
+
+  private shouldTranscodeForSafari(stream: TorrentioStream): boolean {
+    const title = stream.title.toLowerCase()
+    
+    // Check for incompatible containers
+    const hasIncompatibleContainer = /mkv|webm|avi|mov/.test(title)
+    
+    // Check for incompatible video codecs
+    const hasIncompatibleVideo = /h\.?265|x265|hevc|av1|vp9|vp8/.test(title)
+    
+    // Check for incompatible audio codecs
+    const hasIncompatibleAudio = /dts|ac3|truehd|atmos|flac|opus/.test(title)
+    
+    return hasIncompatibleContainer || hasIncompatibleVideo || hasIncompatibleAudio
   }
 }
 

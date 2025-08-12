@@ -13,6 +13,7 @@ import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
 import { VideoPlayerModal } from '@/components/video-player-modal'
+import { detectSafari, getBrowserInfo } from '@/lib/utils/browser-detection'
 import { RecentlyPlayedRow } from '@/components/recently-played-row'
 // Moviepire components
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
@@ -24,6 +25,8 @@ import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
 import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
 import { TVSeriesPage } from '@/components/tv-series-page'
+import { TVGardenLiveTVPage } from '@/components/tv-garden-live-tv-page'
+import { LiveTVPage } from '@/components/live-tv-page'
 import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
@@ -92,6 +95,49 @@ export default function ClientOnlyMovieApp() {
   // Separate modal state for search results
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [selectedSearchMovie, setSelectedSearchMovie] = useState<StreamingMovie | null>(null)
+
+  // Direct streaming URL for Live TV streams
+  const [directStreamingUrl, setDirectStreamingUrl] = useState<string | null>(null)
+
+  // Safari browser detection for compatibility filtering
+  const [isSafari, setIsSafari] = useState<boolean>(false)
+
+  // Add a force update state to trigger re-renders
+  const [forceUpdateCounter, setForceUpdateCounter] = useState(0)
+
+  // Ref to prevent React Strict Mode double invocation issues
+  const isVideoPlayerOpenRef = useRef(false)
+
+  // Robust video player state setter that prevents Strict Mode issues
+  const setVideoPlayerOpen = useCallback((open: boolean) => {
+    console.log('🎬 [DEBUG] setVideoPlayerOpen called with:', open)
+    
+    // Use functional update to avoid stale closure issues
+    setIsVideoPlayerOpen(prev => {
+      console.log('🎬 [DEBUG] Functional update: prev=', prev, 'new=', open)
+      isVideoPlayerOpenRef.current = open
+      return open
+    })
+    
+    console.log('🎬 [DEBUG] setIsVideoPlayerOpen called, ref set to:', open)
+  }, []) // Empty dependency array is correct since we use functional updates
+
+  // Debug: Monitor isVideoPlayerOpen changes (can be removed after testing)
+  useEffect(() => {
+    console.log('🎬 [DEBUG STATE] isVideoPlayerOpen changed to:', isVideoPlayerOpen)
+  }, [isVideoPlayerOpen])
+
+  // Safari browser detection for optimal streaming compatibility
+  useEffect(() => {
+    const browserInfo = getBrowserInfo()
+    setIsSafari(browserInfo.isSafari)
+    
+    if (browserInfo.isSafari) {
+      console.log(`🍎 Safari browser detected (v${browserInfo.safariVersion?.major}.${browserInfo.safariVersion?.minor}) - Safari-compatible streams will be prioritized`)
+    } else {
+      console.log(`🌐 Non-Safari browser detected (${browserInfo.isChrome ? 'Chrome' : browserInfo.isFirefox ? 'Firefox' : browserInfo.isEdge ? 'Edge' : 'Unknown'})`)
+    }
+  }, [])
 
   // Scroll detection for dynamic background transparency
   useEffect(() => {
@@ -206,7 +252,7 @@ export default function ClientOnlyMovieApp() {
         setPlayingMovieTitle(detail.title)
         setPlayingMovieData(movieData)
         setResumeTime(0)
-        setIsVideoPlayerOpen(true)
+        setVideoPlayerOpen(true)
       }
     }
     window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie)
@@ -326,7 +372,52 @@ export default function ClientOnlyMovieApp() {
   }
 
   // Event handlers for movie interactions
-  const handlePlay = (movieId: string, titleOverride?: string, resumeFromTime?: number) => {
+  const handlePlay = (movieIdOrUrl: string, titleOverride?: string, resumeFromTime?: number) => {
+    console.log('🎬 [DEBUG] handlePlay called with:', {
+      movieIdOrUrl: movieIdOrUrl.substring(0, 100) + (movieIdOrUrl.length > 100 ? '...' : ''),
+      titleOverride,
+      resumeFromTime
+    })
+    
+    // Check if this is a direct URL (for Live TV streams)
+  // Treat absolute http(s), blob, and app-relative URLs (e.g., /api/stream-transcoder?...) as direct
+  const isDirectUrl = movieIdOrUrl.startsWith('http://') || movieIdOrUrl.startsWith('https://') || movieIdOrUrl.startsWith('blob:') || movieIdOrUrl.startsWith('/')
+    console.log('🎬 [DEBUG] isDirectUrl:', isDirectUrl)
+    
+    if (isDirectUrl) {
+      // Handle direct streaming URL (Live TV)
+      const liveId = `live_tv_${Date.now()}`
+      console.log('🎬 [DEBUG] Playing direct stream URL:', movieIdOrUrl.substring(0, 50) + '...')
+      console.log('🎬 [DEBUG] Setting Live TV state:', {
+        directStreamingUrl: movieIdOrUrl.substring(0, 50) + '...',
+        playingMovieId: liveId,
+        playingMovieTitle: titleOverride || 'Live TV Stream'
+      })
+      
+      setDirectStreamingUrl(movieIdOrUrl)
+      setPlayingMovieId(liveId) // Generate a unique ID for tracking
+      setPlayingMovieTitle(titleOverride || 'Live TV Stream')
+      setPlayingMovieData({
+        id: liveId,
+        title: titleOverride || 'Live TV Stream',
+        poster: '',
+        year: new Date().getFullYear(),
+        genre: ['Live TV']
+      })
+      setResumeTime(0) // Live TV doesn't support resume
+      
+      console.log('🎬 [DEBUG] Opening video player modal for Live TV')
+      setVideoPlayerOpen(true)
+      
+      // Force a re-render
+      setForceUpdateCounter(prev => prev + 1)
+      
+      return
+    }
+
+    // Original movie ID handling
+    const movieId = movieIdOrUrl
+    
     // If no explicit resumeFromTime provided, try RecentlyPlayedService
     if (resumeFromTime == null) {
       try {
@@ -383,7 +474,7 @@ export default function ClientOnlyMovieApp() {
     setPlayingMovieTitle(title)
     setPlayingMovieData(movieData)
     setResumeTime(resumeFromTime || 0)
-    setIsVideoPlayerOpen(true)
+    setVideoPlayerOpen(true)
   }
 
   const handleAddToList = (movieId: string) => {
@@ -550,11 +641,14 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleCloseVideoPlayer = () => {
-    setIsVideoPlayerOpen(false)
+    console.log('🎬 [DEBUG] handleCloseVideoPlayer called')
+    console.log('🎬 [DEBUG] Stack trace for close:', new Error().stack)
+    setVideoPlayerOpen(false)
     setPlayingMovieId(null)
     setPlayingMovieTitle('')
     setPlayingMovieData(null)
     setResumeTime(0)
+    setDirectStreamingUrl(null) // Clear direct streaming URL
     // Refresh recently played list when video player closes
     loadRecentlyPlayedMovies()
   }
@@ -688,13 +782,23 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleGetStreamingUrl = async (movieId: string): Promise<string | null> => {
+    console.log('🎬 [DEBUG] handleGetStreamingUrl called with:', movieId)
+    console.log('🎬 [DEBUG] Current directStreamingUrl state:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
+    
     try {
+      // If we have a direct streaming URL (Live TV), return it directly
+      if (directStreamingUrl && movieId.startsWith('live_tv_')) {
+        console.log('🎬 [DEBUG] Returning direct streaming URL for Live TV')
+        return directStreamingUrl
+      }
+      
+      console.log('🎬 [DEBUG] Fetching streaming URL from service for movieId:', movieId)
       const configResponse = await fetch('/api/config')
       const configData = await configResponse.json()
 
       if (configData.success) {
         const service = createStreamingService(configData.config)
-        return await service.getStreamingUrl(movieId)
+        return await service.getStreamingUrl(movieId, undefined, isSafari)
       }
 
       throw new Error('Failed to load streaming configuration')
@@ -714,7 +818,22 @@ export default function ClientOnlyMovieApp() {
       isExternal: boolean
     }>
   } | null> => {
+    console.log('🎬 [DEBUG] handleGetStreamingResult called with:', movieId)
+    console.log('🎬 [DEBUG] Current directStreamingUrl state:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
+    
     try {
+      // If we have a direct streaming URL (Live TV), return it directly
+      if (directStreamingUrl && movieId.startsWith('live_tv_')) {
+        console.log('🎬 [DEBUG] Returning direct streaming result for Live TV')
+        return {
+          url: directStreamingUrl,
+          subtitles: [], // Live TV typically doesn't have subtitle files
+          realSubtitles: []
+        }
+      }
+      
+      console.log('🎬 [DEBUG] Fetching streaming result from service for movieId:', movieId)
+      
       // Try to reuse previous stream if available to ensure seamless resume
       try {
         const stored = RecentlyPlayedService.getStreamInfo(movieId)
@@ -728,7 +847,7 @@ export default function ClientOnlyMovieApp() {
 
       if (configData.success) {
         const service = createStreamingService(configData.config)
-        const result = await service.getStreamingResult(movieId)
+        const result = await service.getStreamingResult(movieId, undefined, isSafari)
         if (result) {
           // Persist chosen stream for resume
           try { RecentlyPlayedService.setStreamInfo(movieId, result.url, result.subtitles) } catch {}
@@ -935,6 +1054,50 @@ export default function ClientOnlyMovieApp() {
     )
   }
 
+  if (activeCategory === 'live-tv') {
+    return (
+      <>
+        <LiveTVPage
+          onPlay={(streamUrl: string, title: string) => {
+            console.log('🎯 Live TV onPlay called with:', { streamUrl, title })
+            // Always route Live TV through the transcoder unless it is already wrapped.
+            // Many live HLS endpoints omit the .m3u8 extension, causing native playback to fail.
+            const alreadyWrapped = typeof streamUrl === 'string' && streamUrl.startsWith('/api/stream-transcoder')
+            const targetUrl = alreadyWrapped
+              ? streamUrl
+              : `/api/stream-transcoder?url=${encodeURIComponent(streamUrl)}&safari=true&force=1`
+            console.log('� Live TV resolved target URL:', targetUrl.substring(0, 100) + (targetUrl.length > 100 ? '...' : ''))
+            handlePlay(targetUrl, title)
+          }}
+          onAddToList={(streamId: string) => {
+            console.log('➕ Add to list called for stream:', streamId)
+            // Could implement watchlist functionality for live channels
+          }}
+          onMoreInfo={(streamId: string) => {
+            console.log('ℹ️ More info called for stream:', streamId)
+            // Could show network/channel information
+          }}
+          onNavigate={handleNavigate}
+          onSearch={handleSearch}
+          activeCategory={activeCategory}
+        />
+
+        {/* Ensure the video player modal is mounted on Live TV pages too */}
+        <VideoPlayerModal
+          isOpen={isVideoPlayerOpen}
+          onClose={handleCloseVideoPlayer}
+          movieId={playingMovieId}
+          movieTitle={playingMovieTitle}
+          onGetStreamingUrl={handleGetStreamingUrl}
+          onGetStreamingResult={handleGetStreamingResult}
+          movieData={playingMovieData || undefined}
+          startTime={resumeTime}
+          directStreamingUrl={directStreamingUrl}
+        />
+      </>
+    )
+  }
+
   if (activeCategory === 'explore-series') {
     return (
       <MoviepireExplorePage
@@ -963,6 +1126,12 @@ export default function ClientOnlyMovieApp() {
       />
     )
   }
+
+  console.log('🎬 [DEBUG PARENT] Main component render - isVideoPlayerOpen:', isVideoPlayerOpen, 'directStreamingUrl:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
+
+  // Force re-render verification
+  const renderTime = new Date().getTime()
+  console.log('🎬 [DEBUG RENDER] Component rendering at:', renderTime, 'isVideoPlayerOpen:', isVideoPlayerOpen, 'forceUpdateCounter:', forceUpdateCounter)
 
   return (
   <div className="min-h-screen text-white relative bg-[rgb(18,18,18)] transition-colors duration-300">
@@ -1176,7 +1345,17 @@ export default function ClientOnlyMovieApp() {
         onMovieSelect={handleModalMovieSelect}
       />
 
-      {/* Video Player Modal */}
+      {/* Debug logging for VideoPlayerModal props */}
+      {(() => {
+        console.log('🎬 [DEBUG PARENT] Rendering VideoPlayerModal with props:', {
+          isOpen: isVideoPlayerOpen,
+          movieId: playingMovieId,
+          movieTitle: playingMovieTitle,
+          directStreamingUrl: directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : null,
+          timestamp: Date.now()
+        })
+        return null
+      })()}
       <VideoPlayerModal
         isOpen={isVideoPlayerOpen}
         onClose={handleCloseVideoPlayer}
@@ -1186,6 +1365,7 @@ export default function ClientOnlyMovieApp() {
         onGetStreamingResult={handleGetStreamingResult}
         movieData={playingMovieData || undefined}
         startTime={resumeTime}
+        directStreamingUrl={directStreamingUrl} // Pass direct URL as prop
       />
 
       {/* Moviepire Modal */}

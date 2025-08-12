@@ -65,28 +65,68 @@ export class RealDebridAPI {
     try {
       console.log(`🔗 Real-Debrid API call: ${options.method || 'GET'} ${endpoint}`)
 
+      // Prepare headers - don't set Content-Type if body is FormData
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${this.apiKey}`,
+        ...options.headers as Record<string, string>,
+      }
+
+      // Only set Content-Type to application/json if not using FormData
+      if (!(options.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json'
+      }
+
       const response = await fetch(url, {
         ...options,
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
+        headers,
       })
 
       console.log(`📡 Real-Debrid response: ${response.status} ${response.statusText}`)
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error(`❌ Real-Debrid API error: ${response.status} ${response.statusText}`, errorText)
-        throw new Error(`Real-Debrid API error: ${response.status} ${response.statusText} - ${errorText}`)
+        
+        // Parse error response to check for expected errors
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch {
+          errorData = { error: 'unknown', error_code: 0 }
+        }
+
+        // Handle expected errors more gracefully (don't log as errors)
+        const expectedErrors = [
+          'hoster_unsupported',     // Error code 16 - hoster not supported
+          'parameter_missing',      // Error code 1 - missing parameters
+          'bad_token',             // Error code 2 - invalid API key
+          'permission_denied',     // Error code 8 - access denied
+        ]
+        
+        const isExpectedError = expectedErrors.includes(errorData.error)
+
+        if (isExpectedError) {
+          // For expected errors, return a special error object that can be handled gracefully
+          throw {
+            isExpectedError: true,
+            errorType: errorData.error,
+            errorCode: errorData.error_code,
+            message: `Real-Debrid expected limitation: ${errorData.error}`,
+            originalError: errorData
+          }
+        } else {
+          console.error(`❌ Real-Debrid API error: ${response.status} ${response.statusText}`, errorText)
+          throw new Error(`Real-Debrid API error: ${response.status} ${response.statusText} - ${errorText}`)
+        }
       }
 
       const data = await response.json()
       console.log(`✅ Real-Debrid response data:`, data)
       return data
-    } catch (error) {
-      console.error(`💥 Real-Debrid API request failed:`, error)
+    } catch (error: any) {
+      // Only log unexpected errors, not expected limitations
+      if (!error.isExpectedError) {
+        console.error(`💥 Real-Debrid API request failed:`, error)
+      }
       throw error
     }
   }
@@ -126,10 +166,6 @@ export class RealDebridAPI {
     return this.makeRequest<{ id: string; uri: string }>('/torrents/addMagnet', {
       method: 'POST',
       body: formData,
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        // Don't set Content-Type for FormData, let browser set it
-      },
     })
   }
 
@@ -141,9 +177,6 @@ export class RealDebridAPI {
     await this.makeRequest(`/torrents/selectFiles/${id}`, {
       method: 'POST',
       body: formData,
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
     })
   }
 
@@ -155,9 +188,6 @@ export class RealDebridAPI {
     return this.makeRequest<RealDebridLink>('/unrestrict/link', {
       method: 'POST',
       body: formData,
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
     })
   }
 
@@ -188,27 +218,70 @@ export class RealDebridAPI {
     )
 
     if (videoFiles.length === 0) return null
-    // Safari optimization: prefer MP4 (HEVC/H264) over MKV even if slightly smaller
-    try {
-      const isSafari = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent)
-      if (isSafari) {
-        const mp4s = videoFiles.filter(f => /\.mp4$/i.test(f.path))
-        if (mp4s.length) {
-          // Rank mp4 files: h265/hevc first, then h264/x264, then others by size
-          const scored = mp4s.map(f => {
-            const n = f.path.toLowerCase()
-            let score = 0
-            if (/(hevc|x265|h\.265)/.test(n)) score += 30
-            if (/(h\.264|x264|avc)/.test(n)) score += 20
-            // normalize size component
-            score += Math.min(f.bytes / (1024*1024*50), 10) // up to +10 for size
-            return { f, score }
-          }).sort((a,b)=> b.score - a.score)
-          return scored[0].f
-        }
-      }
-    } catch {}
-    return videoFiles.reduce((largest, current) => current.bytes > largest.bytes ? current : largest)
+    
+    // PRIORITY 1: MP4 format is top priority for universal compatibility
+    const mp4Files = videoFiles.filter(f => /\.mp4$/i.test(f.path))
+    if (mp4Files.length > 0) {
+      console.log(`🎯 [MP4 PRIORITY] Found ${mp4Files.length} MP4 files, selecting best quality`)
+      
+      // Within MP4 files, prioritize by quality indicators and codec compatibility
+      const scoredMp4s = mp4Files.map(f => {
+        const name = f.path.toLowerCase()
+        let score = 0
+        
+        // Quality scoring (highest priority within MP4s)
+        if (/(2160|4k)/.test(name)) score += 1000
+        else if (/1080/.test(name)) score += 800
+        else if (/720/.test(name)) score += 600
+        else if (/480/.test(name)) score += 400
+        else score += 200 // SD or unknown
+        
+        // Codec compatibility scoring
+        if (/(hevc|x265|h\.265)/.test(name)) score += 50
+        else if (/(h\.264|x264|avc)/.test(name)) score += 45
+        else score += 30 // other codecs
+        
+        // Audio compatibility bonus
+        if (/(aac|mp3|opus)/.test(name)) score += 20
+        else if (/(ddp|dd\+|eac3)/.test(name)) score += 15
+        else if (/(ac3|dd)/.test(name)) score += 10
+        
+        // Size factor (normalized to prevent overwhelming other factors)
+        score += Math.min(f.bytes / (1024*1024*100), 50) // up to +50 for very large files
+        
+        return { f, score, name }
+      }).sort((a, b) => b.score - a.score)
+      
+      console.log(`🏆 [MP4 SELECTED] ${scoredMp4s[0].name} (score: ${scoredMp4s[0].score})`)
+      return scoredMp4s[0].f
+    }
+    
+    // FALLBACK: If no MP4 files, use quality-based selection on other formats
+    console.log(`⚠️ [NO MP4] No MP4 files found, falling back to other formats`)
+    const scoredVideos = videoFiles.map(f => {
+      const name = f.path.toLowerCase()
+      let score = 0
+      
+      // Format preference (MP4 would be here but already handled above)
+      if (/\.webm$/i.test(f.path)) score += 100 // Second best for web compatibility
+      else if (/\.mkv$/i.test(f.path)) score += 80
+      else if (/\.avi$/i.test(f.path)) score += 60
+      else score += 40
+      
+      // Quality scoring
+      if (/(2160|4k)/.test(name)) score += 1000
+      else if (/1080/.test(name)) score += 800
+      else if (/720/.test(name)) score += 600
+      else if (/480/.test(name)) score += 400
+      else score += 200
+      
+      // Size factor
+      score += Math.min(f.bytes / (1024*1024*100), 50)
+      
+      return { f, score }
+    }).sort((a, b) => b.score - a.score)
+    
+    return scoredVideos[0].f
   }
 
   // Get streaming URL for a torrent

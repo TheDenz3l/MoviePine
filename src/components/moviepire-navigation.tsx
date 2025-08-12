@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Search, Home, Film, Tv, Bookmark } from "lucide-react"
+import { Search, Home, Film, Tv, Bookmark, Zap } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { TMDBAPI } from '@/lib/api/tmdb'
 
@@ -172,6 +172,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
     { id: 'home', label: 'Browse', icon: Home },
     { id: 'explore-movies', label: 'Movies', icon: Film },
     { id: 'tv-series', label: 'TV Series', icon: Tv },
+    { id: 'live-tv', label: 'Live TV', icon: Zap },
     { id: 'recently-played', label: 'My List', icon: Bookmark },
   ]
 

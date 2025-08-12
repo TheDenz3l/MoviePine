@@ -192,9 +192,69 @@ export class TorboxAPI {
     const videoFiles = await this.getVideoFiles(torrentId)
     if (videoFiles.length === 0) return null
     
-    return videoFiles.reduce((largest, current) => 
-      current.size > largest.size ? current : largest
-    )
+    // PRIORITY 1: MP4 format is top priority for universal compatibility
+    const mp4Files = videoFiles.filter(f => /\.mp4$/i.test(f.name))
+    if (mp4Files.length > 0) {
+      console.log(`🎯 [MP4 PRIORITY] Found ${mp4Files.length} MP4 files, selecting best quality`)
+      
+      // Within MP4 files, prioritize by quality indicators and codec compatibility
+      const scoredMp4s = mp4Files.map(f => {
+        const name = f.name.toLowerCase()
+        let score = 0
+        
+        // Quality scoring (highest priority within MP4s)
+        if (/(2160|4k)/.test(name)) score += 1000
+        else if (/1080/.test(name)) score += 800
+        else if (/720/.test(name)) score += 600
+        else if (/480/.test(name)) score += 400
+        else score += 200 // SD or unknown
+        
+        // Codec compatibility scoring
+        if (/(hevc|x265|h\.265)/.test(name)) score += 50
+        else if (/(h\.264|x264|avc)/.test(name)) score += 45
+        else score += 30 // other codecs
+        
+        // Audio compatibility bonus
+        if (/(aac|mp3|opus)/.test(name)) score += 20
+        else if (/(ddp|dd\+|eac3)/.test(name)) score += 15
+        else if (/(ac3|dd)/.test(name)) score += 10
+        
+        // Size factor (normalized to prevent overwhelming other factors)
+        score += Math.min(f.size / (1024*1024*100), 50) // up to +50 for very large files
+        
+        return { f, score, name }
+      }).sort((a, b) => b.score - a.score)
+      
+      console.log(`🏆 [MP4 SELECTED] ${scoredMp4s[0].name} (score: ${scoredMp4s[0].score})`)
+      return scoredMp4s[0].f
+    }
+    
+    // FALLBACK: If no MP4 files, use quality-based selection on other formats
+    console.log(`⚠️ [NO MP4] No MP4 files found, falling back to other formats`)
+    const scoredVideos = videoFiles.map(f => {
+      const name = f.name.toLowerCase()
+      let score = 0
+      
+      // Format preference (MP4 would be here but already handled above)
+      if (/\.webm$/i.test(f.name)) score += 100 // Second best for web compatibility
+      else if (/\.mkv$/i.test(f.name)) score += 80
+      else if (/\.avi$/i.test(f.name)) score += 60
+      else score += 40
+      
+      // Quality scoring
+      if (/(2160|4k)/.test(name)) score += 1000
+      else if (/1080/.test(name)) score += 800
+      else if (/720/.test(name)) score += 600
+      else if (/480/.test(name)) score += 400
+      else score += 200
+      
+      // Size factor
+      score += Math.min(f.size / (1024*1024*100), 50)
+      
+      return { f, score }
+    }).sort((a, b) => b.score - a.score)
+    
+    return scoredVideos[0].f
   }
 
   // Utility method to check if API key is valid

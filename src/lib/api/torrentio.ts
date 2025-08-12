@@ -69,12 +69,15 @@ export class TorrentioAPI {
     console.log(`🔧 Torrentio configuration: ${this.baseUrl}`)
   }
 
-  async getMovieStreams(imdbId: string): Promise<TorrentioStream[]> {
+  async getMovieStreams(imdbId: string, isSafari?: boolean): Promise<TorrentioStream[]> {
     try {
       const torrentioUrl = `${this.baseUrl}/stream/movie/${imdbId}.json`
-      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}`
+      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}${isSafari ? '&isSafari=true' : ''}`
       
       console.log(`🔗 Torrentio API call via proxy: ${torrentioUrl}`)
+      if (isSafari) {
+        console.log(`🍎 Safari filtering requested for movie streams`)
+      }
 
       const response = await fetch(proxyUrl, {
         headers: {
@@ -148,6 +151,15 @@ export class TorrentioAPI {
 
       console.log(`✅ Torrentio: Found ${streams.length} valid streams for ${imdbId}`)
       
+      // 🍎 CRITICAL SAFARI FILTERING - Safari filtering now happens in API route if isSafari=true
+      // This is a fallback for direct API usage without the proxy route
+      if (isSafari) {
+        console.log(`🍎 Applying client-side Safari filtering as fallback`)
+        const filteredStreams = this.applySafariFiltering(streams, isSafari)
+        console.log(`🍎 Safari filtering complete: ${filteredStreams.length} compatible streams remaining`)
+        return filteredStreams
+      }
+      
       return streams
     } catch (error) {
       console.error(`Error fetching streams for movie ${imdbId}:`, error)
@@ -155,10 +167,14 @@ export class TorrentioAPI {
     }
   }
 
-  async getSeriesStreams(imdbId: string, season: number, episode: number): Promise<TorrentioStream[]> {
+  async getSeriesStreams(imdbId: string, season: number, episode: number, isSafari?: boolean): Promise<TorrentioStream[]> {
     try {
       const torrentioUrl = `${this.baseUrl}/stream/series/${imdbId}:${season}:${episode}.json`
-      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}`
+      const proxyUrl = `/api/torrentio?endpoint=${encodeURIComponent(torrentioUrl)}${isSafari ? '&isSafari=true' : ''}`
+      
+      if (isSafari) {
+        console.log(`🍎 Safari filtering requested for series streams`)
+      }
       
       const response = await fetch(proxyUrl, {
         headers: {
@@ -175,7 +191,60 @@ export class TorrentioAPI {
       }
       
       const data = await response.json()
-      return data.streams || []
+      const rawStreams = data.streams || []
+      
+      // Process streams to extract info hash properly (same as movies)
+      const streams: TorrentioStream[] = rawStreams.map((stream: any) => {
+        let infoHash = ''
+        
+        // Extract info hash from different possible locations
+        if (stream.infoHash) {
+          infoHash = stream.infoHash
+        } else if (stream.url) {
+          // Extract from Torrentio resolve URL
+          const torrentioMatch = stream.url.match(/\/resolve\/[^\/]+\/([A-Z0-9]+)/i)
+          if (torrentioMatch) {
+            const extractedHash = torrentioMatch[1]
+            if (extractedHash.length >= 32) {
+              infoHash = extractedHash.toLowerCase()
+            }
+          }
+
+          // Also try to extract from magnet URL if present
+          const magnetMatch = stream.url.match(/btih:([a-fA-F0-9]{40})/i)
+          if (magnetMatch && !infoHash) {
+            infoHash = magnetMatch[1].toLowerCase()
+          }
+        }
+
+        const streamTitle = stream.title || stream.name || 'Unknown'
+
+        return {
+          name: stream.name || stream.title || 'Unknown',
+          title: streamTitle,
+          infoHash,
+          fileIdx: stream.fileIdx,
+          url: stream.url,
+          behaviorHints: stream.behaviorHints,
+          subtitles: this.parseSubtitlesFromTitle(streamTitle)
+        }
+      }).filter((stream: TorrentioStream) =>
+        stream.infoHash &&
+        stream.infoHash.length >= 32
+      )
+
+      console.log(`✅ Torrentio: Found ${streams.length} valid streams for ${imdbId} S${season}E${episode}`)
+      
+      // 🍎 CRITICAL SAFARI FILTERING - Safari filtering now happens in API route if isSafari=true
+      // This is a fallback for direct API usage without the proxy route
+      if (isSafari) {
+        console.log(`🍎 Applying client-side Safari filtering as fallback for series`)
+        const filteredStreams = this.applySafariFiltering(streams, isSafari)
+        console.log(`🍎 Safari filtering complete: ${filteredStreams.length} compatible streams remaining`)
+        return filteredStreams
+      }
+      
+      return streams
     } catch (error) {
       console.error(`Error fetching streams for series ${imdbId} S${season}E${episode}:`, error)
       return []
@@ -292,14 +361,30 @@ export class TorrentioAPI {
   }
 
   // Parse stream quality information from title
-  parseStreamQuality(title: string): { quality: string; size: string; seeders: number } {
+  parseStreamQuality(title: string): { quality: string; size: string; seeders: number; format?: string } {
     if (!title) {
-      return { quality: 'Unknown', size: 'Unknown', seeders: 0 }
+      return { quality: 'Unknown', size: 'Unknown', seeders: 0, format: 'Unknown' }
+    }
+
+    // Extract format information first (highest priority)
+    let format = 'Unknown'
+    const titleLower = title.toLowerCase()
+    
+    // Format detection patterns (MP4 gets priority)
+    if (titleLower.includes('.mp4') || titleLower.includes('mp4') || 
+        titleLower.includes('h264.mp4') || titleLower.includes('x264.mp4') ||
+        titleLower.includes('hevc.mp4') || titleLower.includes('x265.mp4')) {
+      format = 'MP4'
+    } else if (titleLower.includes('.webm') || titleLower.includes('webm')) {
+      format = 'WebM'
+    } else if (titleLower.includes('.mkv') || titleLower.includes('mkv')) {
+      format = 'MKV'
+    } else if (titleLower.includes('.avi') || titleLower.includes('avi')) {
+      format = 'AVI'
     }
 
     // Extract quality information
     let quality = 'Unknown'
-    const titleLower = title.toLowerCase()
 
     // Quality patterns (ordered by preference)
     const qualityPatterns = [
@@ -339,7 +424,15 @@ export class TorrentioAPI {
       seeders = parseInt(seedersMatch[1], 10)
     }
 
-    return { quality, size, seeders }
+    // Also try to extract seeders from 👤 emoji pattern commonly used in torrent names
+    const emojiSeedersMatch = title.match(/👤\s*(\d+)/)
+    if (emojiSeedersMatch) {
+      seeders = Math.max(seeders, parseInt(emojiSeedersMatch[1], 10))
+    }
+
+    console.log(`🔍 [STREAM PARSE] Format: ${format} | Quality: ${quality} | Seeders: ${seeders} | ${title.substring(0, 50)}...`)
+    
+    return { quality, size, seeders, format }
   }
 
   // Parse subtitle languages from stream title
@@ -434,6 +527,141 @@ export class TorrentioAPI {
     const uniqueSubtitles = [...new Set(subtitles)]
     console.log(`📝 parseSubtitlesFromTitle: Final result: [${uniqueSubtitles.join(', ')}]`)
     return uniqueSubtitles
+  }
+
+  // 🍎 SAFARI COMPATIBILITY FILTERING
+  // This method filters streams to ensure Safari compatibility
+  applySafariFiltering(streams: TorrentioStream[], isSafari?: boolean): TorrentioStream[] {
+    // Use passed parameter or fallback to client-side detection
+    const shouldFilterForSafari = isSafari !== undefined 
+      ? isSafari 
+      : (typeof window !== 'undefined' && /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent))
+    
+    if (!shouldFilterForSafari) {
+      console.log(`🍎 Not Safari browser, returning all ${streams.length} streams`)
+      return streams
+    }
+
+    console.log(`🍎 Safari detected! Applying strict compatibility filtering to ${streams.length} streams...`)
+    
+    const decisions: { kept: number; dropped: number; reasons: Record<string, number> } = { 
+      kept: 0, dropped: 0, reasons: {} 
+    }
+    
+    // Ultra-strict Safari compatibility filtering
+    const safariCompatibleStreams = streams.filter(stream => {
+      const name = stream.name.toLowerCase()
+      
+      console.log(`🍎 [ANALYZING] ${stream.name.substring(0, 80)}...`)
+      
+      // PHASE 1: Absolute rejections (will never work in Safari)
+      const isMkv = /\.mkv\b|\bmkv\b/.test(name)
+      const isAvi = /\.avi\b|\bavi\b/.test(name)
+      const isWebm = /\.webm\b|\bwebm\b/.test(name)
+      const hasUnsupportedCodec = /(av1|vp9|vvc)/.test(name)
+      const hasUnsupportedAudio = /(dts|dts-hd|dts-ma|truehd|flac)/.test(name)
+      const isRemux = /remux/i.test(name)
+      const has10bit = /10bit|10-bit/i.test(name)
+      const hasHDR = /hdr|dolby.vision|dv/i.test(name)
+      
+      if (isMkv) { 
+        console.log(`🍎 [REJECT] MKV container: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['mkv-container']=(decisions.reasons['mkv-container']||0)+1
+        return false 
+      }
+      if (isAvi) { 
+        console.log(`🍎 [REJECT] AVI container: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['avi-container']=(decisions.reasons['avi-container']||0)+1
+        return false 
+      }
+      if (isWebm) { 
+        console.log(`🍎 [REJECT] WebM container: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['webm-container']=(decisions.reasons['webm-container']||0)+1
+        return false 
+      }
+      if (hasUnsupportedCodec) { 
+        console.log(`🍎 [REJECT] Unsupported codec: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['unsupported-codec']=(decisions.reasons['unsupported-codec']||0)+1
+        return false 
+      }
+      if (hasUnsupportedAudio) { 
+        console.log(`🍎 [REJECT] Unsupported audio: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['unsupported-audio']=(decisions.reasons['unsupported-audio']||0)+1
+        return false 
+      }
+      if (isRemux) { 
+        console.log(`🍎 [REJECT] Remux: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['remux']=(decisions.reasons['remux']||0)+1
+        return false 
+      }
+      if (has10bit) { 
+        console.log(`🍎 [REJECT] 10-bit: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['10bit']=(decisions.reasons['10bit']||0)+1
+        return false 
+      }
+      if (hasHDR) { 
+        console.log(`🍎 [REJECT] HDR: ${stream.name.substring(0, 60)}...`)
+        decisions.dropped++; decisions.reasons['hdr']=(decisions.reasons['hdr']||0)+1
+        return false 
+      }
+      
+      // PHASE 2: Positive requirements (must have these to work in Safari)
+      const hasMp4 = /\.mp4\b/.test(name)
+      const hasH264 = /(x264|h\.?264|avc)/i.test(name)
+      const hasCompatibleAudio = /(aac|mp3)/i.test(name) || !/(dts|ac3|eac3|opus)/.test(name) // Allow if no audio specified
+      
+      // Ultra-safe: Must be MP4 + H.264 + compatible audio
+      if (hasMp4 && hasH264 && hasCompatibleAudio) {
+        console.log(`🍎 [ACCEPT ULTRA-SAFE] ${stream.name.substring(0, 60)}...`)
+        decisions.kept++
+        decisions.reasons['ultra-safe']=(decisions.reasons['ultra-safe']||0)+1
+        return true
+      }
+      
+      console.log(`🍎 [REJECT] Not ultra-safe: ${stream.name.substring(0, 60)}...`)
+      decisions.dropped++
+      decisions.reasons['not-ultra-safe']=(decisions.reasons['not-ultra-safe']||0)+1
+      return false
+    })
+    
+    console.log(`🍎 Safari ultra-safe filter: kept=${decisions.kept} dropped=${decisions.dropped}`)
+    console.log(`🍎 Rejection reasons:`, decisions.reasons)
+    
+    // If ultra-safe filtering gives us results, use them
+    if (safariCompatibleStreams.length > 0) {
+      console.log(`🍎 Safari ultra-safe streams found: ${safariCompatibleStreams.length}`)
+      return safariCompatibleStreams
+    }
+    
+    // FALLBACK: More lenient Safari filtering if ultra-safe found nothing
+    console.log(`🍎 No ultra-safe streams found, trying lenient Safari filter...`)
+    const lenientStreams = streams.filter(stream => {
+      const name = stream.name.toLowerCase()
+      
+      // Still reject absolute incompatibles
+      if (/\.mkv\b|\bmkv\b/.test(name)) return false
+      if (/(av1|vp9|vvc)/.test(name)) return false
+      if (/(dts|dts-hd|dts-ma|truehd)/.test(name)) return false
+      
+      // Accept MP4 with any codec (risky but might work)
+      const hasMp4 = /\.mp4\b/.test(name)
+      if (hasMp4) return true
+      
+      // Accept H.264 even without explicit MP4 (might be in MP4 container)
+      const hasH264 = /(x264|h\.?264|avc)/i.test(name)
+      if (hasH264) return true
+      
+      return false
+    })
+    
+    if (lenientStreams.length > 0) {
+      console.log(`🍎 Safari lenient filter found: ${lenientStreams.length} streams`)
+      return lenientStreams
+    }
+    
+    // LAST RESORT: Return original list with warning
+    console.log(`🍎 ⚠️ No Safari-compatible streams found! Returning original ${streams.length} streams with warning`)
+    return streams
   }
 }
 

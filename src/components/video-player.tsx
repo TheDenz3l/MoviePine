@@ -27,7 +27,7 @@ interface VideoPlayerProps {
   movieId?: string
   movieData?: any
   startTime?: number
-  onError?: (msg: string) => void
+  onError?: (msg: string | { type: string; message: string }) => void
   autoPlay?: boolean
   availableSubtitles?: string[]
   realSubtitles?: RealSubtitle[]
@@ -221,24 +221,67 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
       setIsLoading(false); setIsPlaying(false)
       const ve = e.target as HTMLVideoElement | null; const err = ve?.error
       let code = 'PLAYER_UNKNOWN'; let msg = 'Playback failed.'
+      
+      // Enhanced Safari debugging
+      if (isSafari) {
+        console.error('🍎 [SAFARI ERROR] Video playback failed:', {
+          errorCode: err?.code,
+          message: err?.message,
+          src: ve?.currentSrc || src,
+          readyState: ve?.readyState,
+          networkState: ve?.networkState,
+          videoWidth: ve?.videoWidth,
+          videoHeight: ve?.videoHeight,
+          duration: ve?.duration
+        })
+        
+        // Test if the URL is accessible
+        if (ve?.currentSrc) {
+          fetch(ve.currentSrc, { method: 'HEAD' })
+            .then(response => {
+              console.log('🍎 [SAFARI DEBUG] Stream URL accessibility:', {
+                status: response.status,
+                contentType: response.headers.get('content-type'),
+                contentLength: response.headers.get('content-length'),
+                acceptRanges: response.headers.get('accept-ranges'),
+                url: ve.currentSrc.substring(0, 100) + '...'
+              })
+            })
+            .catch(error => {
+              console.error('🍎 [SAFARI DEBUG] Stream URL not accessible:', error)
+            })
+        }
+      }
+      
       switch (err?.code) {
         case MediaError.MEDIA_ERR_NETWORK: code = 'PLAYER_NETWORK'; msg = 'Network error.'; break
         case MediaError.MEDIA_ERR_DECODE: code = 'PLAYER_DECODE'; msg = 'Decode error.'; break
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: code = 'PLAYER_SRC_UNSUPPORTED'; msg = 'Source unsupported.'; break
         case MediaError.MEDIA_ERR_ABORTED: code = 'PLAYER_ABORTED'; msg = 'Loading aborted.'; break
       }
+      
       emitPlayerError(code, msg, { currentTime: ve?.currentTime, src: ve?.currentSrc, errorCode: err?.code })
+      
       // For decode / unsupported errors flag for UI retry
       if (code === 'PLAYER_DECODE' || code === 'PLAYER_SRC_UNSUPPORTED') {
         setPlaybackError({ code, message: msg })
           // Safari specific auto-fallback: request a re-fetch with h264-only token once
           if (isSafari && !attemptedH264FallbackRef.current && onError) {
+            console.log('🍎 [SAFARI FALLBACK] Requesting H.264-only stream...')
             attemptedH264FallbackRef.current = true
-            // Signal modal to reload with stricter token
-            onError('REQUEST_H264_FALLBACK')
+            // Signal modal to show Safari-specific fallback instead of crashing
+            onError({ type: 'SAFARI_ERROR', message: 'Safari playback not supported for this format' })
             return
           }
       }
+      
+      // For Safari, don't propagate other errors that would break the app
+      if (isSafari && (code === 'PLAYER_NETWORK' || code === 'PLAYER_ABORTED')) {
+        console.log('🍎 [SAFARI] Ignoring network/abort error to prevent app crash:', msg)
+        setPlaybackError({ code: 'SAFARI_COMPAT', message: 'This video format may not be compatible with Safari' })
+        return
+      }
+      
       if (onError) onError(msg)
     }
     const handleAbort = () => { setIsLoading(false); setIsPlaying(false) }

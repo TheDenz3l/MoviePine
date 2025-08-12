@@ -30,6 +30,7 @@ interface VideoPlayerModalProps {
     genre?: string[]
   }
   startTime?: number
+  directStreamingUrl?: string | null // Add direct streaming URL prop
   // Optional: function to derive the next episode id given a current episode id.
   // If not provided we'll try to increment season/episode pattern like tmdb_12345:S01E02
   resolveNextEpisodeId?: (currentId: string) => string | null
@@ -46,6 +47,7 @@ export function VideoPlayerModal({
   onGetStreamingResult,
   movieData,
   startTime = 0,
+  directStreamingUrl = null, // Add direct streaming URL prop
   resolveNextEpisodeId,
   onPreloadNextEpisode
 }: VideoPlayerModalProps) {
@@ -67,7 +69,10 @@ export function VideoPlayerModal({
   const [isAdvancing, setIsAdvancing] = useState(false)
 
   useEffect(() => {
-  if (isOpen && movieId) {
+    console.log(`🎬 [DEBUG PLAYER] useEffect triggered: isOpen=${isOpen}, movieId=${movieId}`)
+    console.log(`🎬 [DEBUG PLAYER] directStreamingUrl prop:`, directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
+    
+    if (isOpen && movieId) {
       prepareStream()
     } else {
       // Reset state when modal closes
@@ -78,9 +83,9 @@ export function VideoPlayerModal({
       setIsLoading(false)
       setLoadingStatus('')
       setCurrentAttempt(0)
-  setTotalAttempts(0)
-  setNextEpisodeId(null)
-  setIsAdvancing(false)
+      setTotalAttempts(0)
+      setNextEpisodeId(null)
+      setIsAdvancing(false)
     }
   }, [isOpen, movieId])
 
@@ -96,6 +101,22 @@ export function VideoPlayerModal({
 
   const prepareStream = async () => {
     if (!movieId) return
+
+    console.log(`🎬 [DEBUG PLAYER] prepareStream called for movieId: ${movieId}`)
+    console.log(`🎬 [DEBUG PLAYER] directStreamingUrl prop in prepareStream:`, directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
+    
+    // CRITICAL FIX: Handle direct streaming URL IMMEDIATELY (Live TV)
+    if (directStreamingUrl && movieId && movieId.startsWith('live_tv_')) {
+      console.log(`🎬 [DEBUG PLAYER] ⚡ IMMEDIATE: Using direct streaming URL for Live TV`)
+      console.log(`🎬 [DEBUG PLAYER] ⚡ IMMEDIATE: URL: ${directStreamingUrl.substring(0, 50)}...`)
+      setIsLoading(false)
+      setError(null)
+      setLoadingStatus('Stream ready! Starting playback...')
+      setStreamingUrl(directStreamingUrl)
+      setAvailableSubtitles([])
+      setRealSubtitles([])
+      return
+    }
 
     setIsLoading(true)
     setError(null)
@@ -284,11 +305,58 @@ Try searching for a different movie or check back later.`
     }
   }
 
+  // Debug logging for Live TV modal
+  console.log(`🎬 [DEBUG MODAL] Rendering VideoPlayerModal: isOpen=${isOpen}, movieId=${movieId}, directStreamingUrl=${directStreamingUrl ? 'present' : 'null'}`)
+
+  // Debug logging for modal render
+  console.log('🎬 [DEBUG MODAL] VideoPlayerModal render called with:', { 
+    isOpen, 
+    movieId, 
+    movieTitle,
+    directStreamingUrl: directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : null,
+    hasStreamingUrl: !!streamingUrl,
+    isLoading,
+    error
+  })
+
+  // CRITICAL DEBUG: Log when Dialog should be open
+  if (isOpen) {
+    console.log('🚨 [DEBUG MODAL] DIALOG SHOULD BE OPEN! Props verification:')
+    console.log('   - isOpen:', isOpen)
+    console.log('   - movieId:', movieId)
+    console.log('   - movieTitle:', movieTitle)
+    console.log('   - Render timestamp:', Date.now())
+    
+    // Check if Dialog component is having issues
+    console.log('🔍 [DEBUG MODAL] Checking Dialog component requirements...')
+    console.log('   - handleClose function:', typeof handleClose)
+    console.log('   - DialogContent className:', '!w-screen !h-screen !max-w-none !max-h-none !p-0 !m-0 bg-black border-0 rounded-none !z-[9999]')
+    
+    // Force log the Dialog's open prop
+    setTimeout(() => {
+      console.log('🔍 [DEBUG MODAL] Post-render DOM check...')
+      const dialogs = document.querySelectorAll('[role="dialog"]')
+      const radixDialogs = document.querySelectorAll('[data-radix-dialog-content]')
+      const allModals = document.querySelectorAll('[data-state]')
+      console.log(`   - [role="dialog"]: ${dialogs.length}`)
+      console.log(`   - [data-radix-dialog-content]: ${radixDialogs.length}`)
+      console.log(`   - [data-state]: ${allModals.length}`)
+      
+      if (dialogs.length > 0) {
+        dialogs.forEach((dialog, i) => {
+          const styles = window.getComputedStyle(dialog)
+          console.log(`   - Dialog ${i}: display=${styles.display}, opacity=${styles.opacity}, zIndex=${styles.zIndex}`)
+        })
+      }
+    }, 100)
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent
-        className="!w-screen !h-screen !max-w-none !max-h-none !p-0 !m-0 bg-black border-0 rounded-none"
+        className="!w-screen !h-screen !max-w-none !max-h-none !p-0 !m-0 bg-black border-0 rounded-none !z-[9999]"
         showCloseButton={false}
+        style={{ zIndex: 9999 }} // Force high z-index
       >
         <DialogTitle className="sr-only">
           {movieTitle ? `Playing ${movieTitle}` : 'Video Player'}
@@ -399,7 +467,7 @@ Try searching for a different movie or check back later.`
                 return
               }
               console.error('Video player error:', errorMessage)
-              setError(errorMessage)
+              setError(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage))
               setStreamingUrl(null)
               setAvailableSubtitles([])
               setRealSubtitles([])

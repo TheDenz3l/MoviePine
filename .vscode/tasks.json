@@ -10,6 +10,20 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Start Next.js server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Start Next.js server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

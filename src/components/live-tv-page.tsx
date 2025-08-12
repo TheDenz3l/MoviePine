@@ -99,7 +99,6 @@ export function LiveTVPage({
     const updateHealthStats = () => {
       if (stremioService) {
         const stats = stremioService.getHealthStats()
-        console.log('🎯 Current health stats from service:', stats)
         setHealthStats({
           healthyNetworks: stats.healthyNetworks,
           totalNetworks: stats.totalNetworks,
