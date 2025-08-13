@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# BMad "*" Shortcut
+# Quick routing to the right specialist agent
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run the star.js router with all arguments
+node "$SCRIPT_DIR/star.js" "$@"

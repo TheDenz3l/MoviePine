@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Modal Test</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .test-button {
+            background: #22c55e;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 0;
+            display: block;
+        }
+        .debug-output {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Direct Modal Test</h1>
+    <p>This will simulate clicking a Watch Live button directly without waiting for network loading.</p>
+    
+    <button class="test-button" onclick="directModalTest()">
+        🚀 Direct Modal Test
+    </button>
+    
+    <button class="test-button" onclick="analyzeReactState()">
+        🔍 Analyze React State
+    </button>
+    
+    <div id="debug-output" class="debug-output">Debug output will appear here...</div>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('debug-output');
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function directModalTest() {
+            log('🚀 Starting direct modal test...');
+            
+            // First ensure we're on the main page
+            if (window.location.href.includes('debug-modal-test')) {
+                log('📍 On debug page, navigating to main app...');
+                window.location.href = 'http://localhost:3000/';
+                return;
+            }
+            
+            // Now test by directly calling the handlePlay function if available
+            log('🔍 Looking for React components and handlePlay function...');
+            
+            // Try to access React component state through various methods
+            const reactElements = document.querySelectorAll('[data-reactroot] *');
+            log(`Found ${reactElements.length} React elements`);
+            
+            // Look for any elements with React fiber
+            let reactComponent = null;
+            for (let element of reactElements) {
+                const keys = Object.keys(element);
+                const reactKey = keys.find(key => key.startsWith('__reactInternalInstance') || key.startsWith('_reactInternalFiber'));
+                if (reactKey) {
+                    log(`Found React fiber key: ${reactKey}`);
+                    reactComponent = element[reactKey];
+                    break;
+                }
+            }
+            
+            if (reactComponent) {
+                log('✅ Found React component, attempting to trigger modal...');
+                
+                // Try to simulate a Live TV stream URL click
+                const testUrl = 'https://example.com/test-live-stream.m3u8';
+                const testTitle = 'Test Live TV Stream';
+                
+                log(`🎬 Attempting to trigger modal with URL: ${testUrl}`);
+                
+                // Try different methods to trigger the modal
+                if (window.handlePlay) {
+                    log('📞 Calling window.handlePlay...');
+                    window.handlePlay(testUrl, testTitle);
+                } else {
+                    log('❌ window.handlePlay not found');
+                    
+                    // Try dispatching a custom event
+                    const event = new CustomEvent('play-live-tv', {
+                        detail: { url: testUrl, title: testTitle }
+                    });
+                    document.dispatchEvent(event);
+                    log('📡 Dispatched custom play-live-tv event');
+                }
+                
+                // Monitor for changes
+                setTimeout(() => analyzeModalStructure(), 1000);
+                
+            } else {
+                log('❌ No React component found');
+            }
+        }
+
+        function analyzeReactState() {
+            log('🔍 Analyzing React state...');
+            
+            // Check console logs
+            const logs = [];
+            const originalLog = console.log;
+            console.log = function(...args) {
+                logs.push(args.join(' '));
+                originalLog.apply(console, arguments);
+            };
+            
+            // Look for state indicators
+            const dialogs = document.querySelectorAll('[role="dialog"]');
+            const modals = document.querySelectorAll('[data-state="open"]');
+            const videoPlayers = document.querySelectorAll('video');
+            
+            log(`Current DOM state:
+- Dialogs: ${dialogs.length}
+- Open modals: ${modals.length}
+- Video players: ${videoPlayers.length}`);
+            
+            // Check for VideoPlayerModal debug logs
+            if (logs.length > 0) {
+                log('Recent console logs:');
+                logs.slice(-10).forEach(logLine => {
+                    if (logLine.includes('DEBUG') || logLine.includes('MODAL')) {
+                        log(`  ${logLine}`);
+                    }
+                });
+            }
+            
+            // Check if React dev tools are available
+            if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+                log('✅ React DevTools detected');
+            } else {
+                log('❌ React DevTools not available');
+            }
+        }
+
+        function analyzeModalStructure() {
+            log('🔍 Analyzing modal structure after trigger...');
+            
+            const dialogs = document.querySelectorAll('[role="dialog"]');
+            const modals = document.querySelectorAll('[data-state="open"]');
+            const radixDialogs = document.querySelectorAll('[data-radix-collection-item]');
+            const portals = document.querySelectorAll('[data-radix-portal]');
+            const videoElements = document.querySelectorAll('video');
+            const zIndexElements = document.querySelectorAll('[style*="z-index"]');
+            
+            log(`Post-trigger analysis:
+- [role="dialog"]: ${dialogs.length}
+- [data-state="open"]: ${modals.length}
+- Radix collection items: ${radixDialogs.length}
+- Radix portals: ${portals.length}
+- Video elements: ${videoElements.length}
+- Z-index elements: ${zIndexElements.length}`);
+            
+            if (dialogs.length > 0) {
+                log('🎉 MODAL FOUND! Details:');
+                dialogs.forEach((dialog, idx) => {
+                    const styles = window.getComputedStyle(dialog);
+                    log(`Dialog ${idx}: 
+  - Visible: ${dialog.offsetParent !== null}
+  - Display: ${styles.display}
+  - Opacity: ${styles.opacity}
+  - Z-index: ${styles.zIndex}
+  - Position: ${styles.position}`);
+                });
+            } else {
+                log('❌ No modal detected');
+                
+                // Check what's preventing the modal
+                const allElements = document.querySelectorAll('*');
+                let hiddenElements = 0;
+                let displayNoneElements = 0;
+                
+                allElements.forEach(el => {
+                    const styles = window.getComputedStyle(el);
+                    if (styles.display === 'none') displayNoneElements++;
+                    if (styles.visibility === 'hidden') hiddenElements++;
+                });
+                
+                log(`Element visibility analysis:
+- Total elements: ${allElements.length}
+- Display none: ${displayNoneElements}
+- Visibility hidden: ${hiddenElements}`);
+            }
+        }
+        
+        // Auto-start when page loads
+        setTimeout(() => {
+            log('🚀 Auto-starting React state analysis...');
+            analyzeReactState();
+        }, 2000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safari Stream Playback Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .browser-info {
+            background: #e8f4f8;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .safari-only {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        video {
+            width: 100%;
+            max-width: 800px;
+            height: auto;
+            background: black;
+            border-radius: 5px;
+        }
+        .stream-info {
+            background: #f8f9fa;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .test-button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍎 Safari Stream Transcoding Test</h1>
+        
+        <div class="browser-info">
+            <h3>Browser Detection</h3>
+            <div id="browser-info"></div>
+        </div>
+
+        <div class="safari-only" id="safari-warning" style="display: none;">
+            ⚠️ <strong>Safari Required:</strong> This test is specifically designed for Safari browser to test transcoding compatibility.
+        </div>
+
+        <div class="test-section">
+            <h3>📡 Stream Availability Test</h3>
+            <button class="test-button" onclick="testStreamAvailability()">Test Stream Sources</button>
+            <div id="stream-status"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🎬 Video Playback Test</h3>
+            <p>Testing Safari transcoded stream playback:</p>
+            
+            <div class="stream-info">
+                <strong>Stream URL:</strong> <span id="current-stream-url">Loading...</span><br>
+                <strong>Content-Type:</strong> <span id="content-type">Unknown</span><br>
+                <strong>Safari Transcoded:</strong> <span id="safari-transcoded">Unknown</span><br>
+                <strong>Original Format:</strong> <span id="original-format">Unknown</span>
+            </div>
+
+            <video id="test-video" controls preload="metadata">
+                <p>Your browser doesn't support HTML5 video.</p>
+            </video>
+
+            <div>
+                <button class="test-button" onclick="loadRandomStream()">🎲 Load Random Stream</button>
+                <button class="test-button" onclick="testSpecificStream()">🎯 Test Matrix (HEVC)</button>
+                <button class="test-button" onclick="checkVideoHealth()">🔍 Check Video Health</button>
+            </div>
+
+            <div id="video-status"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Playback Events Log</h3>
+            <div id="event-log" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px;"></div>
+            <button class="test-button" onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 Manual Stream Test</h3>
+            <input type="text" id="manual-stream-url" placeholder="Enter stream URL..." style="width: 70%; padding: 8px; margin-right: 10px;">
+            <button class="test-button" onclick="testManualStream()">Test Stream</button>
+        </div>
+    </div>
+
+    <script>
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const video = document.getElementById('test-video');
+        const eventLog = document.getElementById('event-log');
+
+        // Browser detection
+        document.getElementById('browser-info').innerHTML = `
+            <strong>User Agent:</strong> ${navigator.userAgent}<br>
+            <strong>Is Safari:</strong> ${isSafari ? '✅ Yes' : '❌ No'}<br>
+            <strong>Platform:</strong> ${navigator.platform}<br>
+            <strong>Language:</strong> ${navigator.language}
+        `;
+
+        if (!isSafari) {
+            document.getElementById('safari-warning').style.display = 'block';
+        }
+
+        // Logging function
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            logEntry.className = type;
+            eventLog.appendChild(logEntry);
+            eventLog.scrollTop = eventLog.scrollHeight;
+            console.log(`[Safari Test] ${message}`);
+        }
+
+        // Video event listeners
+        const videoEvents = ['loadstart', 'durationchange', 'loadedmetadata', 'loadeddata', 'progress', 'canplay', 'canplaythrough', 'play', 'pause', 'error', 'stalled', 'waiting', 'seeking', 'seeked'];
+        
+        videoEvents.forEach(event => {
+            video.addEventListener(event, (e) => {
+                if (event === 'error') {
+                    log(`❌ Video ${event}: ${video.error?.message || 'Unknown error'}`, 'error');
+                } else if (event === 'canplay' || event === 'canplaythrough') {
+                    log(`✅ Video ${event}`, 'success');
+                } else {
+                    log(`📺 Video ${event}`, 'info');
+                }
+            });
+        });
+
+        // Test stream availability
+        async function testStreamAvailability() {
+            const statusDiv = document.getElementById('stream-status');
+            statusDiv.innerHTML = '<div class="info">🔄 Testing stream sources...</div>';
+
+            try {
+                // Test our API endpoints
+                const endpoints = [
+                    '/api/config',
+                    '/api/torrentio?endpoint=https%3A%2F%2Ftorrentio.strem.fun%2Fproviders%3D1337x%7Crarbg%7Cthepiratebay%7Csort%3Dqualitysize%2Fstream%2Fmovie%2Ftt0133093.json&isSafari=' + isSafari
+                ];
+
+                for (const endpoint of endpoints) {
+                    try {
+                        const response = await fetch(endpoint);
+                        log(`API ${endpoint}: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                    } catch (error) {
+                        log(`API ${endpoint}: Failed - ${error.message}`, 'error');
+                    }
+                }
+
+                statusDiv.innerHTML = '<div class="success">✅ Stream availability test completed</div>';
+            } catch (error) {
+                log(`Stream availability test failed: ${error.message}`, 'error');
+                statusDiv.innerHTML = '<div class="error">❌ Stream availability test failed</div>';
+            }
+        }
+
+        // Load a random stream for testing
+        async function loadRandomStream() {
+            log('🎲 Loading random stream...', 'info');
+            
+            try {
+                const response = await fetch(`/api/torrentio?endpoint=https%3A%2F%2Ftorrentio.strem.fun%2Fproviders%3D1337x%7Crarbg%7Cthepiratebay%7Csort%3Dqualitysize%2Fstream%2Fmovie%2Ftt0133093.json&isSafari=${isSafari}`);
+                const data = await response.json();
+                
+                if (data.streams && data.streams.length > 0) {
+                    const randomStream = data.streams[Math.floor(Math.random() * data.streams.length)];
+                    const transcodedUrl = `/api/stream-transcoder?url=${encodeURIComponent(randomStream.url)}&safari=${isSafari}`;
+                    
+                    await loadStream(transcodedUrl, randomStream);
+                } else {
+                    log('❌ No streams available', 'error');
+                }
+            } catch (error) {
+                log(`Failed to load random stream: ${error.message}`, 'error');
+            }
+        }
+
+        // Test specific Matrix HEVC stream
+        async function testSpecificStream() {
+            log('🎯 Loading Matrix HEVC stream for transcoding test...', 'info');
+            
+            const matrixStreamUrl = 'https://torrentio.strem.fun/resolve/realdebrid/LNWEQRH45NCRI52OTWOGJ24NFQDYTQRYTD6SSG3ZXVKUF7B5JFKQ/1a65cebb895ccd66a9f3fd2e76eb0958ba7a74db/null/0/The.Matrix.1999.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR.mkv';
+            const transcodedUrl = `/api/stream-transcoder?url=${encodeURIComponent(matrixStreamUrl)}&safari=${isSafari}`;
+            
+            await loadStream(transcodedUrl, {
+                name: 'The Matrix 1999 UHD BluRay 2160p HEVC REMUX',
+                url: matrixStreamUrl
+            });
+        }
+
+        // Load stream with transcoder
+        async function loadStream(transcodedUrl, streamInfo) {
+            try {
+                document.getElementById('current-stream-url').textContent = transcodedUrl;
+                log(`🔄 Loading transcoded stream: ${streamInfo.name || 'Unknown'}`, 'info');
+
+                // Test the transcoder endpoint first
+                const headResponse = await fetch(transcodedUrl, { method: 'HEAD' });
+                
+                // Update stream info
+                document.getElementById('content-type').textContent = headResponse.headers.get('content-type') || 'Unknown';
+                document.getElementById('safari-transcoded').textContent = headResponse.headers.get('x-safari-transcoded') || 'No';
+                document.getElementById('original-format').textContent = headResponse.headers.get('x-original-format') || 'Unknown';
+
+                log(`📡 Transcoder response: ${headResponse.status} ${headResponse.statusText}`, headResponse.ok ? 'success' : 'error');
+                log(`📄 Content-Type: ${headResponse.headers.get('content-type')}`, 'info');
+                log(`🍎 Safari Transcoded: ${headResponse.headers.get('x-safari-transcoded')}`, 'info');
+
+                if (headResponse.ok) {
+                    video.src = transcodedUrl;
+                    video.load();
+                    log('✅ Stream loaded into video element', 'success');
+                } else {
+                    log(`❌ Transcoder failed: ${headResponse.status}`, 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Failed to load stream: ${error.message}`, 'error');
+            }
+        }
+
+        // Test manual stream URL
+        async function testManualStream() {
+            const manualUrl = document.getElementById('manual-stream-url').value.trim();
+            if (!manualUrl) {
+                log('❌ Please enter a stream URL', 'error');
+                return;
+            }
+
+            const transcodedUrl = `/api/stream-transcoder?url=${encodeURIComponent(manualUrl)}&safari=${isSafari}`;
+            await loadStream(transcodedUrl, { name: 'Manual Test Stream', url: manualUrl });
+        }
+
+        // Check video health
+        function checkVideoHealth() {
+            const statusDiv = document.getElementById('video-status');
+            
+            if (!video.src) {
+                statusDiv.innerHTML = '<div class="warning">⚠️ No video source loaded</div>';
+                return;
+            }
+
+            let status = '<div class="info">📊 Video Status:</div>';
+            status += `<div>Source: ${video.src}</div>`;
+            status += `<div>Ready State: ${video.readyState} (${getReadyStateText(video.readyState)})</div>`;
+            status += `<div>Network State: ${video.networkState} (${getNetworkStateText(video.networkState)})</div>`;
+            status += `<div>Duration: ${video.duration || 'Unknown'}</div>`;
+            status += `<div>Current Time: ${video.currentTime}</div>`;
+            status += `<div>Paused: ${video.paused}</div>`;
+            status += `<div>Ended: ${video.ended}</div>`;
+            
+            if (video.error) {
+                status += `<div class="error">❌ Error: ${video.error.message} (Code: ${video.error.code})</div>`;
+            }
+
+            statusDiv.innerHTML = status;
+            log('📊 Video health check completed', 'info');
+        }
+
+        function getReadyStateText(state) {
+            const states = ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'];
+            return states[state] || 'UNKNOWN';
+        }
+
+        function getNetworkStateText(state) {
+            const states = ['NETWORK_EMPTY', 'NETWORK_IDLE', 'NETWORK_LOADING', 'NETWORK_NO_SOURCE'];
+            return states[state] || 'UNKNOWN';
+        }
+
+        function clearLog() {
+            eventLog.innerHTML = '';
+            log('🧹 Log cleared', 'info');
+        }
+
+        // Initialize
+        log('🍎 Safari transcoding test page loaded', 'success');
+        log(`Browser: ${isSafari ? 'Safari ✅' : 'Other Browser ❌'}`, isSafari ? 'success' : 'warning');
+        
+        // Auto-test stream availability on load
+        setTimeout(testStreamAvailability, 1000);
+    </script>
+</body>
+</html>

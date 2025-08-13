@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Live TV Fix</title>
+</head>
+<body>
+    <h1>Testing Live TV "Watch Live" Button Fix</h1>
+    <p>This test will:</p>
+    <ol>
+        <li>Open the app</li>
+        <li>Navigate to Live TV</li>
+        <li>Select a network (if available)</li>
+        <li>Click "Watch Live" button</li>
+        <li>Verify that the video player opens</li>
+    </ol>
+    
+    <h2>Expected Behavior:</h2>
+    <p>The "Watch Live" button should now open the video player modal with the direct streaming URL from the Live TV service.</p>
+    
+    <h2>Changes Made:</h2>
+    <ul>
+        <li>Modified handlePlay function to detect direct URLs (starting with http://, https://, or blob:)</li>
+        <li>Added directStreamingUrl state variable for Live TV streams</li>
+        <li>Modified handleGetStreamingUrl and handleGetStreamingResult to handle direct URLs</li>
+        <li>Added proper cleanup when video player closes</li>
+    </ul>
+    
+    <p><a href="http://localhost:3000" target="_blank">Open MoviePlayer App</a></p>
+    
+    <script>
+        console.log('Live TV fix test page loaded');
+        console.log('The fix addresses the interface mismatch between Live TV and video player');
+        console.log('Live TV passes URLs, but video player expected movie IDs');
+    </script>
+</body>
+</html>

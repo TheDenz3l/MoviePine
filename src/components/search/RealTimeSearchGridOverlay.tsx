@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Home, Film, Tv, Bookmark } from 'lucide-react';
+import { Search, Home, Film, Tv, Bookmark, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TMDBAPI } from '@/lib/api/tmdb';
 
@@ -40,7 +40,6 @@ export function RealTimeSearchGridOverlay({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(!!initialQuery); // Show immediately if we have initial query
-  const [scrollOpacity, setScrollOpacity] = useState(1); // Start with full opacity for overlay
   const inputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -49,7 +48,8 @@ export function RealTimeSearchGridOverlay({
   const navItems = [
     { id: 'home', label: 'Browse', icon: Home },
     { id: 'explore-movies', label: 'Movies', icon: Film },
-    { id: 'explore-series', label: 'Series', icon: Tv },
+    { id: 'tv-series', label: 'TV Series', icon: Tv },
+    { id: 'live-tv', label: 'Live TV', icon: Zap },
     { id: 'recently-played', label: 'My List', icon: Bookmark },
   ];
 
@@ -224,11 +224,10 @@ export function RealTimeSearchGridOverlay({
       <nav
         className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4"
         style={{
-          backgroundColor: `rgba(18, 18, 18, ${scrollOpacity})`,
-          borderBottom: `1px solid rgba(75, 85, 99, ${scrollOpacity * 0.5})`,
-          backdropFilter: scrollOpacity > 0 ? 'blur(8px)' : 'none',
+          backgroundColor: 'rgba(18, 18, 18, 1)',
+          borderBottom: '1px solid rgba(75, 85, 99, 0.5)',
+          backdropFilter: 'blur(8px)',
           transform: 'translate3d(0, 0, 0)', // Force hardware acceleration
-          transition: 'background-color 0.3s ease-out, border-color 0.3s ease-out, backdrop-filter 0.3s ease-out'
         }}
       >
         {/* Logo - Same as homepage */}

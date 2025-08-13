@@ -1,0 +1,4 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=884080,CODECS="avc1.100.31,mp4a.40.2",RESOLUTION=640x480
+http://asp6.toonamiaftermath.com:1934/livehttporigin/est/IidExT-cErjaO-chunklist.m3u8

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live TV Auto Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #111; color: white; }
+        .iframe-container { width: 100%; height: 80vh; border: 1px solid #333; margin: 20px 0; }
+        iframe { width: 100%; height: 100%; border: none; }
+        .controls { margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; background: #e50914; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #f40612; }
+        .log { background: #222; padding: 10px; border-radius: 5px; font-family: monospace; max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Live TV Automated Debug Test</h1>
+    
+    <div class="controls">
+        <button onclick="runTest()">Run Automated Test</button>
+        <button onclick="openLiveTVInNewTab()">Open Live TV in New Tab</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div class="iframe-container">
+        <iframe id="liveTvFrame" src="http://localhost:3000/?category=live-tv"></iframe>
+    </div>
+    
+    <h3>Debug Log:</h3>
+    <div id="log" class="log"></div>
+    
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function openLiveTVInNewTab() {
+            window.open('http://localhost:3000/?category=live-tv', '_blank');
+            log('📺 Opened Live TV in new tab for manual testing');
+        }
+        
+        function runTest() {
+            log('🚀 Starting automated Live TV test...');
+            
+            const iframe = document.getElementById('liveTvFrame');
+            
+            iframe.onload = function() {
+                log('📺 Live TV page loaded in iframe');
+                
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    log('✅ Can access iframe content');
+                    
+                    // Wait for the page to fully load
+                    setTimeout(() => {
+                        // Inject the debug script
+                        const script = iframeDoc.createElement('script');
+                        script.textContent = `
+                            (function() {
+                                console.log('🚀 Starting Live TV Click Debug...');
+                                
+                                let debugState = {
+                                    networkClicked: false,
+                                    streamsLoaded: false,
+                                    watchButtonClicked: false,
+                                    modalOpened: false
+                                };
+                                
+                                function logToParent(message) {
+                                    try {
+                                        parent.postMessage({ type: 'log', message: message }, '*');
+                                    } catch(e) {
+                                        console.log(message);
+                                    }
+                                }
+                                
+                                function findAndClickNetwork() {
+                                    logToParent('📺 Looking for network cards...');
+                                    const networkCards = document.querySelectorAll('[class*="cursor-pointer"], .cursor-pointer');
+                                    logToParent(`Found ${networkCards.length} network cards`);
+                                    
+                                    if (networkCards.length > 0) {
+                                        logToParent('🖱️ Clicking first network...');
+                                        networkCards[0].click();
+                                        debugState.networkClicked = true;
+                                        
+                                        setTimeout(() => {
+                                            findAndClickWatchButton();
+                                        }, 3000);
+                                    } else {
+                                        logToParent('❌ No network cards found');
+                                    }
+                                }
+                                
+                                function findAndClickWatchButton() {
+                                    logToParent('🔍 Looking for Watch Live buttons...');
+                                    const watchButtons = Array.from(document.querySelectorAll('button')).filter(btn => 
+                                        btn.textContent && btn.textContent.includes('Watch Live') && !btn.disabled
+                                    );
+                                    logToParent(\`Found \${watchButtons.length} active Watch Live buttons\`);
+                                    
+                                    if (watchButtons.length > 0) {
+                                        debugState.streamsLoaded = true;
+                                        
+                                        logToParent('🖱️ About to click Watch Live button...');
+                                        logToParent(\`Button: "\${watchButtons[0].textContent}"\`);
+                                        
+                                        // Monitor for changes
+                                        setupModalMonitoring();
+                                        
+                                        logToParent('🎬 CLICKING WATCH LIVE BUTTON NOW!');
+                                        watchButtons[0].click();
+                                        debugState.watchButtonClicked = true;
+                                        
+                                    } else {
+                                        logToParent('❌ No active Watch Live buttons found');
+                                        setTimeout(findAndClickWatchButton, 2000);
+                                    }
+                                }
+                                
+                                function setupModalMonitoring() {
+                                    logToParent('👀 Setting up modal monitoring...');
+                                    
+                                    let checkCount = 0;
+                                    const maxChecks = 20; // 10 seconds
+                                    
+                                    const checkForModal = () => {
+                                        checkCount++;
+                                        const videoModal = document.querySelector('[role="dialog"], .fixed.inset-0');
+                                        const videoElement = document.querySelector('video');
+                                        
+                                        if (videoModal || videoElement) {
+                                            debugState.modalOpened = true;
+                                            logToParent('✅ SUCCESS: Video player opened!');
+                                            
+                                            if (videoElement) {
+                                                logToParent(\`📺 Video src: \${videoElement.src}\`);
+                                            }
+                                            return true;
+                                        }
+                                        
+                                        if (checkCount >= maxChecks) {
+                                            logToParent('❌ TIMEOUT: Modal did not open within 10 seconds');
+                                            logToParent(\`🔍 Final debug state: \${JSON.stringify(debugState)}\`);
+                                            return true; // Stop checking
+                                        }
+                                        
+                                        return false;
+                                    };
+                                    
+                                    const intervalId = setInterval(() => {
+                                        if (checkForModal()) {
+                                            clearInterval(intervalId);
+                                        }
+                                    }, 500);
+                                }
+                                
+                                // Start the test
+                                setTimeout(findAndClickNetwork, 2000);
+                            })();
+                        \`;
+                        
+                        iframeDoc.head.appendChild(script);
+                        log('✅ Debug script injected into iframe');
+                        
+                    }, 3000);
+                    
+                } catch (e) {
+                    log('❌ Cannot access iframe content (CORS): ' + e.message);
+                    log('💡 Try running the test in the new tab instead');
+                }
+            };
+            
+            // Reload the iframe to start fresh
+            iframe.src = iframe.src;
+        }
+        
+        // Listen for messages from iframe
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'log') {
+                log(event.data.message);
+            }
+        });
+        
+        log('🎬 Live TV Debug Test ready. Click "Run Automated Test" to begin.');
+    </script>
+</body>
+</html>

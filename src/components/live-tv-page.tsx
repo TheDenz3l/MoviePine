@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { RealTimeSearchPage } from '@/components/real-time-search-page'
+import { useState, useEffect, useRef, useCallback } from "react"
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
+import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { Zap, Play, Users, Calendar, Clock, Loader2, AlertCircle, Activity, Wifi, WifiOff } from "lucide-react"
 import { createStremioUSATVService, USATVNetwork, USATVStream } from '@/lib/services/stremio-usa-tv-health'
 import { streamHealthMonitor } from '@/lib/services/stream-health-monitor'
@@ -40,7 +40,6 @@ export function LiveTVPage({
   const [streams, setStreams] = useState<USATVStream[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingStreams, setIsLoadingStreams] = useState(false)
-  const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [stremioService, setStremioService] = useState<ReturnType<typeof createStremioUSATVService> | null>(null)
   const [healthStats, setHealthStats] = useState<{
@@ -51,6 +50,11 @@ export function LiveTVPage({
   }>({ healthyNetworks: 0, totalNetworks: 0, healthyStreams: 0, totalStreams: 0 })
   const [showHealthyOnly, setShowHealthyOnly] = useState(true)
   const networksLoadIdRef = useRef(0)
+
+  // Real-time search state (matching main app pattern)
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
 
   useEffect(() => {
     // Initialize Stremio service with the same Real-Debrid config used for movies/TV
@@ -87,17 +91,6 @@ export function LiveTVPage({
     console.log('🎬 Live TV page component mounted, starting initialization...')
     initializeService()
 
-    // Listen for search overlay events and health updates
-    const handleOpenSearch = (e: CustomEvent) => {
-      setSearchQuery(e.detail?.query || "")
-      setShowRealTimeSearch(true)
-    }
-    
-    const handleCloseSearch = () => {
-      setShowRealTimeSearch(false)
-      setSearchQuery("")
-    }
-
     const updateHealthStats = () => {
       if (stremioService) {
         const stats = stremioService.getHealthStats()
@@ -110,15 +103,10 @@ export function LiveTVPage({
       }
     }
 
-    window.addEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
-    window.addEventListener('app:closeRealTimeSearch', handleCloseSearch)
-
     // Update health stats more frequently
     const healthInterval = setInterval(updateHealthStats, 10000) // Every 10 seconds
 
     return () => {
-      window.removeEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
-      window.removeEventListener('app:closeRealTimeSearch', handleCloseSearch)
       clearInterval(healthInterval)
     }
   }, [])
@@ -130,6 +118,26 @@ export function LiveTVPage({
       loadNetworks(stremioService, showHealthyOnly)
     }
   }, [showHealthyOnly, stremioService])
+
+  // Search results handler (matching main app pattern)
+  const handleSeamlessSearchResults = useCallback((results: any[], query: string, isSearching: boolean) => {
+    setSearchResults(results)
+    setSearchQuery(query) // Track the search query for overlay
+    setIsSearching(isSearching)
+    
+    // Show search overlay when search is triggered or has results
+    if (query.trim() || results.length > 0) {
+      setShowRealTimeSearch(true)
+    }
+  }, [])
+
+  // Close search overlay
+  const handleCloseRealTimeSearch = useCallback(() => {
+    setShowRealTimeSearch(false)
+    setSearchQuery("")
+    setSearchResults([])
+    setIsSearching(false)
+  }, [])
 
   const loadNetworks = async (
     service: ReturnType<typeof createStremioUSATVService>,
@@ -251,8 +259,9 @@ export function LiveTVPage({
   }
 
   const handleSearchResultSelect = (result: SearchResult) => {
-    setShowRealTimeSearch(false)
     setSearchQuery("")
+    // Handle search result selection - could navigate to movie/TV details
+    console.log('🔍 Search result selected:', result)
   }
 
   const handlePlay = async (streamId: string, title: string) => {
@@ -345,34 +354,29 @@ export function LiveTVPage({
   // Add debugging to help with troubleshooting
   console.log('🔍 Networks sample:', networks.slice(0, 2))
 
-  // Show real-time search overlay
-  if (showRealTimeSearch) {
-    return (
-      <RealTimeSearchPage
-        initialQuery={searchQuery}
-        onMovieSelect={(movie) => handleSearchResultSelect({
-          id: movie.id,
-          title: movie.title,
-          year: movie.year || new Date().getFullYear(),
-          poster: movie.poster || '',
-          type: movie.type
-        })}
-        onPlay={(movieId, title) => onPlay(movieId, title)}
-        onAddToList={(movie) => onAddToList(movie.id)}
-        onMoreInfo={(movie) => onMoreInfo(movie.id)}
-        onClose={() => setShowRealTimeSearch(false)}
-      />
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-[rgb(18,18,18)] text-white">
-      <MoviepireNavigation 
-        onNavigate={onNavigate}
-        activeCategory="live-tv"
-      />
-      
-      {/* Live TV Content */}
+    <>
+      {/* Show real-time search page */}
+      {showRealTimeSearch && (
+        <RealTimeSearchGridOverlay
+          initialQuery={searchQuery}
+          activeCategory="live-tv"
+          onClose={handleCloseRealTimeSearch}
+          onPlay={onPlay}
+          onAddToList={onAddToList}
+          onMoreInfo={onMoreInfo}
+        />
+      )}
+
+      {!showRealTimeSearch && (
+        <div className="min-h-screen bg-[rgb(18,18,18)] text-white">
+          <MoviepireNavigation 
+            onNavigate={onNavigate}
+            activeCategory="live-tv"
+            onSearchResults={handleSeamlessSearchResults}
+          />
+          
+          {/* Live TV Content */}
       <div className="pt-20">
         <div className="px-6 md:px-12">
           {/* Live TV Header */}
@@ -640,6 +644,8 @@ export function LiveTVPage({
         <MoviepireFooter />
       </div>
       </div>
-    </div>
+        </div>
+      )}
+    </>
   )
 }

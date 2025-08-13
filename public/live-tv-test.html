@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live TV Stream Test</title>
+    <style>
+        body { background: #000; color: #fff; font-family: Arial; padding: 20px; }
+        video { width: 100%; max-width: 800px; height: 450px; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; background: #ff0000; color: white; border: none; cursor: pointer; }
+        .status { margin: 10px 0; font-size: 14px; }
+        .debug { background: #333; padding: 10px; margin: 10px 0; font-family: monospace; font-size: 12px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <h1>🔥 Live TV Stream Test</h1>
+    
+    <video id="video" controls muted></video>
+    
+    <div class="controls">
+        <button onclick="testStream('https://bitdash-a.akamaized.net/content/sintel/hls/playlist.m3u8')">Test HLS Stream 1</button>
+        <button onclick="testStream('https://demo-spbtv.hexaglobe.net/json_api/get_stream/1469/320.m3u8')">Test HLS Stream 2</button>
+        <button onclick="testStream('https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8')">Test Live Stream</button>
+    </div>
+    
+    <div class="status" id="status">Ready to test streams...</div>
+    <div class="debug" id="debug"></div>
+
+    <script>
+        const video = document.getElementById('video');
+        const status = document.getElementById('status');
+        const debug = document.getElementById('debug');
+        
+        function log(message) {
+            console.log(message);
+            debug.innerHTML += message + '<br>';
+            status.textContent = message;
+        }
+        
+        function testStream(url) {
+            log('🎬 Testing: ' + url.substring(0, 60) + '...');
+            debug.innerHTML = '';
+            
+            // Reset video
+            video.src = '';
+            video.load();
+            
+            if (Hls.isSupported()) {
+                log('✅ HLS.js supported');
+                const hls = new Hls();
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    log('✅ HLS manifest loaded successfully');
+                    video.play().then(() => {
+                        log('✅ Video playing!');
+                    }).catch(err => {
+                        log('❌ Video play failed: ' + err.message);
+                    });
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    log('❌ HLS error: ' + data.type + ' - ' + data.details);
+                    if (data.fatal) {
+                        log('💀 Fatal error, trying next stream...');
+                    }
+                });
+                
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                log('✅ Native HLS supported (Safari)');
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    log('✅ Video metadata loaded');
+                    video.play().then(() => {
+                        log('✅ Video playing!');
+                    }).catch(err => {
+                        log('❌ Video play failed: ' + err.message);
+                    });
+                });
+                
+                video.addEventListener('error', (e) => {
+                    log('❌ Video error: ' + e.message);
+                });
+                
+            } else {
+                log('❌ HLS not supported in this browser');
+            }
+        }
+        
+        // Add video event listeners for debugging
+        video.addEventListener('loadstart', () => log('📡 Load started'));
+        video.addEventListener('loadeddata', () => log('📡 Data loaded'));
+        video.addEventListener('canplay', () => log('📡 Can play'));
+        video.addEventListener('playing', () => log('▶️ Playing'));
+        video.addEventListener('waiting', () => log('⏳ Buffering'));
+        video.addEventListener('error', (e) => log('❌ Video error: ' + JSON.stringify(e)));
+        
+        log('🔥 Live TV Stream Test Ready - Click a test button!');
+    </script>
+</body>
+</html>

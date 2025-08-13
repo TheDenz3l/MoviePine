@@ -23,7 +23,8 @@ import { MoviepireHeroSection } from '@/components/moviepire-hero-section'
 import { NetflixGrid, NetflixCarousel as NewNetflixCarousel } from '@/components/netflix-style'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { MoviepireModal } from '@/components/moviepire-modal'
-import { MoviepireExplorePage } from '@/components/moviepire-explore-page'
+// Legacy explore page replaced by new MoviesGridPage grid design for movies
+import { MoviesGridPage } from '@/components/movies-grid-page'
 import { TVSeriesPage } from '@/components/tv-series-page'
 import { TVGardenLiveTVPage } from '@/components/tv-garden-live-tv-page'
 import { LiveTVPage } from '@/components/live-tv-page'
@@ -771,7 +772,17 @@ export default function ClientOnlyMovieApp() {
     setSeamlessSearchQuery(query)
     setIsSeamlessSearching(isSearching)
     setSearchQuery(query) // Track the search query for overlay
-  }, [])
+    
+    // Show search overlay when there's a query (user is actively searching)
+    if (query.trim() && !showRealTimeSearch) {
+      setShowRealTimeSearch(true)
+    }
+    
+    // Hide search overlay when search is cleared
+    if (!query.trim() && showRealTimeSearch) {
+      setShowRealTimeSearch(false)
+    }
+  }, [showRealTimeSearch])
 
   const handleNavigateToSearch = (query: string) => {
     setShowSearchResults(true)
@@ -1028,15 +1039,12 @@ export default function ClientOnlyMovieApp() {
   // Check if we should show explore pages
   if (activeCategory === 'explore-movies') {
     return (
-      <MoviepireExplorePage
-        type="movies"
-  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
-        onPlay={handlePlay}
-  onAddToList={(movie) => handleAddToList(movie.id)}
-  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+      <MoviesGridPage
         onNavigate={handleNavigate}
-        onSearch={handleSearch}
         activeCategory={activeCategory}
+        onPlay={(id, title) => handlePlay(id, title)}
+        onAddToList={(id) => handleAddToList(id)}
+        onMoreInfo={(id) => handleMoreInfo(id)}
       />
     )
   }
@@ -1098,20 +1106,7 @@ export default function ClientOnlyMovieApp() {
     )
   }
 
-  if (activeCategory === 'explore-series') {
-    return (
-      <MoviepireExplorePage
-        type="series"
-  onMovieSelect={(movie) => handleSearchResultSelect({ id: movie.id, title: movie.title, year: movie.year, poster: movie.poster })}
-        onPlay={handlePlay}
-  onAddToList={(movie) => handleAddToList(movie.id)}
-  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-        onNavigate={handleNavigate}
-        onSearch={handleSearch}
-        activeCategory={activeCategory}
-      />
-    )
-  }
+  // Legacy explore-series path disabled during new movies grid rollout; fallback to tv-series category handling above
 
   // Show real-time search page
   if (showRealTimeSearch) {

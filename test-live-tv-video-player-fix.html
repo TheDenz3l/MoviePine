@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live TV Video Player Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #log {
+            background: #000;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Live TV Video Player Fix Test</h1>
+        
+        <div class="status info">
+            <strong>Test Instructions:</strong><br>
+            1. Click "Open Live TV Page" to navigate to the live TV section<br>
+            2. Click "Run Test" to automatically test the video player fix<br>
+            3. Watch the console output below for results
+        </div>
+        
+        <button onclick="openLiveTVPage()">📺 Open Live TV Page</button>
+        <button onclick="runTest()">🧪 Run Test</button>
+        <button onclick="clearLog()">🗑️ Clear Log</button>
+        
+        <div id="log">🔍 Waiting for test to start...\n</div>
+    </div>
+
+    <script>
+        const logElement = document.getElementById('log');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function clearLog() {
+            logElement.textContent = '🔍 Log cleared...\n';
+        }
+        
+        function openLiveTVPage() {
+            log('📺 Opening Live TV page...');
+            window.open('http://localhost:3000/?category=live-tv', '_blank');
+        }
+        
+        function runTest() {
+            log('🧪 Starting Live TV Video Player Fix Test...');
+            
+            // Open the live TV page in a new window
+            const liveTVWindow = window.open('http://localhost:3000/?category=live-tv', '_blank');
+            
+            if (!liveTVWindow) {
+                log('❌ Failed to open Live TV page (popup blocked?)');
+                return;
+            }
+            
+            log('✅ Live TV page opened');
+            log('⏳ Waiting for page to load...');
+            
+            // Wait for the page to load, then inject our test script
+            setTimeout(() => {
+                try {
+                    // Inject the test script into the Live TV page
+                    const script = liveTVWindow.document.createElement('script');
+                    script.textContent = `
+                        // Override console.log to send messages back to parent window
+                        const originalLog = console.log;
+                        console.log = (...args) => {
+                            originalLog(...args);
+                            try {
+                                window.opener.postMessage({
+                                    type: 'console-log',
+                                    message: args.join(' ')
+                                }, '*');
+                            } catch (e) {
+                                // Ignore cross-origin errors
+                            }
+                        };
+                        
+                        // Test function
+                        const testVideoPlayerFix = () => {
+                            console.log('🔍 Looking for watch buttons...');
+                            
+                            setTimeout(() => {
+                                const watchButtons = Array.from(document.querySelectorAll('button'))
+                                    .filter(btn => btn.textContent && btn.textContent.toLowerCase().includes('watch'));
+                                
+                                console.log('📺 Found ' + watchButtons.length + ' watch buttons');
+                                
+                                if (watchButtons.length === 0) {
+                                    console.log('❌ No watch buttons found. Networks may still be loading.');
+                                    return;
+                                }
+                                
+                                const firstButton = watchButtons[0];
+                                console.log('🖱️ Clicking first watch button:', firstButton.textContent);
+                                
+                                // Monitor state changes
+                                let stateChanges = [];
+                                const originalSetState = console.log;
+                                
+                                firstButton.click();
+                                
+                                // Check for video player modal after clicking
+                                setTimeout(() => {
+                                    const videoModal = document.querySelector('[role="dialog"]') || 
+                                                      document.querySelector('.video-player-modal') ||
+                                                      document.querySelector('[data-testid="video-player-modal"]') ||
+                                                      document.querySelector('[data-state="open"]');
+                                    
+                                    if (videoModal) {
+                                        console.log('✅ SUCCESS: Video player modal found and is visible!');
+                                        console.log('🎬 Modal classes:', videoModal.className);
+                                        console.log('🎬 Modal attributes:', Array.from(videoModal.attributes).map(a => a.name + '=' + a.value).join(', '));
+                                    } else {
+                                        console.log('❌ FAILURE: Video player modal not found');
+                                        console.log('🔍 All dialogs on page:', document.querySelectorAll('[role="dialog"]').length);
+                                        console.log('🔍 Elements with data-state:', document.querySelectorAll('[data-state]').length);
+                                    }
+                                }, 2000);
+                                
+                            }, 5000); // Wait 5 seconds for networks to load
+                        };
+                        
+                        // Start the test
+                        testVideoPlayerFix();
+                    `;
+                    
+                    liveTVWindow.document.head.appendChild(script);
+                    log('📝 Test script injected into Live TV page');
+                    
+                } catch (error) {
+                    log('❌ Error injecting test script: ' + error.message);
+                }
+            }, 3000);
+        }
+        
+        // Listen for messages from the Live TV page
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'console-log') {
+                log(event.data.message);
+            }
+        });
+        
+        log('🎬 Live TV Video Player Fix Test ready!');
+        log('📋 Click "Open Live TV Page" then "Run Test" to start');
+    </script>
+</body>
+</html>

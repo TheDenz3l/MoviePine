@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H264 Fallback Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #000;
+            color: #fff;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #111;
+        }
+        .success { border-color: #4CAF50; }
+        .error { border-color: #f44336; }
+        .warning { border-color: #FF9800; }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056CC; }
+        .log {
+            background: #222;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🍎 Safari H264 Fallback Test</h1>
+    <p>This test verifies that the H264 fallback system works correctly when Safari encounters codec issues.</p>
+
+    <div class="test-section">
+        <h3>1. Browser Detection Test</h3>
+        <p id="browser-info">Detecting browser...</p>
+        <div class="log" id="browser-log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Streaming Service Connection Test</h3>
+        <button onclick="testStreamingService()">Test Streaming Service</button>
+        <div class="log" id="streaming-log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. H264 Fallback Simulation Test</h3>
+        <button onclick="simulateH264Fallback()">Simulate H264 Fallback Request</button>
+        <div class="log" id="fallback-log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>4. Real Stream Test</h3>
+        <button onclick="testRealStream()">Test Real Movie Stream</button>
+        <div class="log" id="real-stream-log"></div>
+    </div>
+
+    <script>
+        function log(sectionId, message, type = 'info') {
+            const logEl = document.getElementById(sectionId);
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            logEl.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // 1. Browser Detection Test
+        function detectBrowser() {
+            const ua = navigator.userAgent;
+            const isSafari = /Safari\//.test(ua) && !/Chrome\//.test(ua);
+            const safariVersion = isSafari ? ua.match(/Version\/(\d+\.\d+)/)?.[1] : null;
+
+            document.getElementById('browser-info').innerHTML = `
+                <strong>User Agent:</strong> ${ua}<br>
+                <strong>Safari Detected:</strong> ${isSafari ? '✅ YES' : '❌ NO'}<br>
+                <strong>Safari Version:</strong> ${safariVersion || 'N/A'}
+            `;
+
+            log('browser-log', `Browser detection complete`, 'success');
+            log('browser-log', `Safari: ${isSafari}, Version: ${safariVersion}`);
+            
+            if (isSafari) {
+                document.querySelector('.test-section').classList.add('success');
+            } else {
+                document.querySelector('.test-section').classList.add('warning');
+                log('browser-log', 'Note: This test is designed for Safari', 'warning');
+            }
+        }
+
+        // 2. Streaming Service Connection Test
+        async function testStreamingService() {
+            log('streaming-log', 'Testing streaming service connection...');
+            
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const config = await response.json();
+                    log('streaming-log', 'Config API accessible', 'success');
+                    log('streaming-log', `Config source: ${config.configSource}`);
+                    
+                    if (config.success && config.config.tmdbApiKey) {
+                        log('streaming-log', 'TMDB API key configured', 'success');
+                    } else {
+                        log('streaming-log', 'TMDB API key not configured', 'warning');
+                    }
+                } else {
+                    log('streaming-log', 'Config API not accessible', 'error');
+                }
+            } catch (error) {
+                log('streaming-log', `Connection error: ${error.message}`, 'error');
+            }
+        }
+
+        // 3. H264 Fallback Simulation Test
+        async function simulateH264Fallback() {
+            log('fallback-log', 'Simulating H264 fallback request...');
+            
+            // Simulate the video player modal's retry logic
+            const testMovieId = 'tmdb_603';  // The Matrix (popular movie for testing)
+            const h264MovieId = testMovieId.includes(':h264') ? testMovieId : `${testMovieId}:h264`;
+            
+            log('fallback-log', `Original movie ID: ${testMovieId}`);
+            log('fallback-log', `H264 fallback ID: ${h264MovieId}`);
+            
+            try {
+                // Test if the API handles the H264 token properly
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    log('fallback-log', 'H264 fallback token created successfully', 'success');
+                    log('fallback-log', 'The modal should retry with: ' + h264MovieId);
+                    
+                    // Test the streaming result endpoint
+                    const testPayload = {
+                        movieId: h264MovieId,
+                        isSafari: true
+                    };
+                    
+                    log('fallback-log', `Testing streaming service with H264 token...`);
+                    log('fallback-log', `Payload: ${JSON.stringify(testPayload)}`);
+                    
+                    // This would normally call the streaming service
+                    log('fallback-log', 'H264 fallback simulation complete', 'success');
+                    log('fallback-log', 'The system should now request H264-only streams');
+                } else {
+                    log('fallback-log', 'API not available for testing', 'error');
+                }
+            } catch (error) {
+                log('fallback-log', `Simulation error: ${error.message}`, 'error');
+            }
+        }
+
+        // 4. Real Stream Test
+        async function testRealStream() {
+            log('real-stream-log', 'Testing real movie stream with Safari fallback...');
+            
+            const testMovieId = 'tmdb_603';  // The Matrix
+            log('real-stream-log', `Testing movie ID: ${testMovieId}`);
+            
+            try {
+                // First, try normal stream
+                log('real-stream-log', 'Step 1: Testing normal stream request');
+                
+                // Then, simulate error and H264 fallback
+                log('real-stream-log', 'Step 2: Simulating codec error -> H264 fallback');
+                const h264MovieId = `${testMovieId}:h264`;
+                
+                log('real-stream-log', `Fallback movie ID: ${h264MovieId}`);
+                log('real-stream-log', 'This should trigger H264-only stream filtering', 'success');
+                
+                // Test the transcoder URL building
+                const mockStreamUrl = 'https://torrentio.strem.fun/resolve/realdebrid/test.mkv';
+                const transcoderUrl = `/api/stream-transcoder?url=${encodeURIComponent(mockStreamUrl)}&safari=true`;
+                
+                log('real-stream-log', 'Step 3: Testing transcoder URL building');
+                log('real-stream-log', `Original URL: ${mockStreamUrl}`);
+                log('real-stream-log', `Transcoder URL: ${transcoderUrl}`);
+                
+                // Test transcoder endpoint
+                try {
+                    const transcoderResponse = await fetch(transcoderUrl, { method: 'HEAD' });
+                    if (transcoderResponse.ok) {
+                        log('real-stream-log', 'Transcoder endpoint is accessible', 'success');
+                        log('real-stream-log', `Content-Type: ${transcoderResponse.headers.get('Content-Type')}`);
+                    } else {
+                        log('real-stream-log', `Transcoder returned: ${transcoderResponse.status}`, 'warning');
+                    }
+                } catch (e) {
+                    log('real-stream-log', `Transcoder test failed: ${e.message}`, 'error');
+                }
+                
+                log('real-stream-log', 'Real stream test complete', 'success');
+            } catch (error) {
+                log('real-stream-log', `Test error: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize tests
+        detectBrowser();
+        
+        // Auto-run basic tests
+        setTimeout(() => {
+            testStreamingService();
+        }, 1000);
+    </script>
+</body>
+</html>

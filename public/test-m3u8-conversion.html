@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M3U8 → MP4 Universal Conversion Test</title>
+    <style>
+        body { 
+            background: #000; 
+            color: #fff; 
+            font-family: Arial; 
+            padding: 20px; 
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #222;
+            border-radius: 8px;
+        }
+        video { 
+            width: 100%; 
+            max-width: 800px; 
+            height: 450px; 
+            background: #000;
+            border: 2px solid #333;
+        }
+        .controls { 
+            margin: 20px 0; 
+        }
+        button { 
+            padding: 10px 20px; 
+            margin: 5px; 
+            background: #ff0000; 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #cc0000;
+        }
+        .status { 
+            margin: 10px 0; 
+            font-size: 14px; 
+            padding: 10px;
+            background: #333;
+            border-radius: 4px;
+        }
+        .success { background: #004400; }
+        .error { background: #440000; }
+        .info { background: #004488; }
+        h1 { color: #ff6666; }
+        h2 { color: #66aaff; }
+        .stream-info {
+            font-family: monospace;
+            font-size: 12px;
+            color: #aaa;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔄 M3U8 → MP4 Universal Conversion Test</h1>
+    <p>Testing the new universal M3U8 to MP4 stream transcoding system for better browser compatibility.</p>
+
+    <!-- Test 1: Simple MP4 Test -->
+    <div class="test-section">
+        <h2>✅ Test 1: Simple MP4 Stream (Baseline)</h2>
+        <p>Testing basic MP4 streaming to verify video player functionality:</p>
+        <div class="stream-info">
+            Source: https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4<br>
+            Type: Direct MP4 (No conversion needed)
+        </div>
+        <video id="video1" controls muted preload="none">
+            <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <div class="controls">
+            <button onclick="loadStream(1)">Load MP4 Stream</button>
+            <button onclick="playStream(1)">Play</button>
+            <button onclick="pauseStream(1)">Pause</button>
+            <button onclick="testTranscoder(1)">Test via Transcoder</button>
+        </div>
+        <div id="status1" class="status">Ready to test basic MP4 streaming...</div>
+    </div>
+
+    <!-- Test 2: M3U8 Transcoder Test -->
+    <div class="test-section">
+        <h2>� Test 2: M3U8 → MP4 Transcoder</h2>
+        <p>Testing M3U8 conversion using a working HLS stream:</p>
+        <div class="stream-info">
+            Original: https://demo-spbtv.hexaglobe.net/json_api/get_stream/1469/320.m3u8<br>
+            Transcoded: /api/stream-transcoder?url=... (M3U8 → MP4 conversion)
+        </div>
+        <video id="video2" controls muted preload="none">
+            <source src="/api/stream-transcoder?url=https%3A%2F%2Fdemo-spbtv.hexaglobe.net%2Fjson_api%2Fget_stream%2F1469%2F320.m3u8" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <div class="controls">
+            <button onclick="loadStream(2)">Load M3U8 Conversion</button>
+            <button onclick="playStream(2)">Play</button>
+            <button onclick="pauseStream(2)">Pause</button>
+            <button onclick="testDirectUrl(2)">Test Direct HLS</button>
+        </div>
+        <div id="status2" class="status">Ready to test M3U8 → MP4 conversion...</div>
+    </div>
+
+    <!-- Test 3: Browser Detection -->
+    <div class="test-section">
+        <h2>🌐 Browser Detection Results</h2>
+        <div id="browserInfo" class="status info">Detecting browser...</div>
+    </div>
+
+    <script>
+        function log(videoNum, message, type = 'info') {
+            const status = document.getElementById(`status${videoNum}`)
+            status.textContent = message
+            status.className = `status ${type}`
+            console.log(`[Test ${videoNum}] ${message}`)
+        }
+
+        function loadStream(videoNum) {
+            const video = document.getElementById(`video${videoNum}`)
+            log(videoNum, 'Loading M3U8 → MP4 converted stream...', 'info')
+            
+            // Clear any previous event listeners
+            video.removeEventListener('loadstart', video._loadstart)
+            video.removeEventListener('canplay', video._canplay)
+            video.removeEventListener('error', video._error)
+            video.removeEventListener('loadedmetadata', video._loadedmetadata)
+            video.removeEventListener('progress', video._progress)
+            
+            // Add event listeners with proper cleanup
+            video._loadstart = () => {
+                log(videoNum, '✅ Stream loading started - M3U8 conversion active', 'success')
+            }
+            video._canplay = () => {
+                log(videoNum, '✅ Stream ready to play - conversion successful!', 'success')
+            }
+            video._error = (e) => {
+                const error = e.target.error
+                const errorMsg = error ? `Code: ${error.code}, Message: ${error.message || 'Unknown'}` : 'Unknown error'
+                log(videoNum, `❌ Stream error: ${errorMsg}`, 'error')
+                console.error('Video error details:', error)
+            }
+            video._loadedmetadata = () => {
+                const duration = isFinite(video.duration) ? video.duration.toFixed(1) : 'Live'
+                log(videoNum, `📊 Video loaded: ${video.videoWidth}x${video.videoHeight}, Duration: ${duration}s`, 'success')
+            }
+            video._progress = () => {
+                if (video.buffered.length > 0) {
+                    const buffered = video.buffered.end(0).toFixed(1)
+                    log(videoNum, `📥 Buffered: ${buffered}s of data loaded`, 'info')
+                }
+            }
+            
+            video.addEventListener('loadstart', video._loadstart)
+            video.addEventListener('canplay', video._canplay)
+            video.addEventListener('error', video._error)
+            video.addEventListener('loadedmetadata', video._loadedmetadata)
+            video.addEventListener('progress', video._progress)
+            
+            video.load()
+        }
+
+        function testTranscoder(videoNum) {
+            const video = document.getElementById(`video${videoNum}`)
+            const testUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+            const transcodedUrl = `/api/stream-transcoder?url=${encodeURIComponent(testUrl)}`
+            
+            log(videoNum, `Testing MP4 via transcoder: ${transcodedUrl}`, 'info')
+            
+            video.src = transcodedUrl
+            video.load()
+        }
+
+        function testDirectUrl(videoNum) {
+            const video = document.getElementById(`video${videoNum}`)
+            const originalUrls = [
+                'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+                'https://demo-spbtv.hexaglobe.net/json_api/get_stream/1469/320.m3u8'
+            ]
+            
+            const directUrl = originalUrls[videoNum - 1]
+            log(videoNum, `Testing direct original URL: ${directUrl}`, 'info')
+            
+            video.src = directUrl
+            video.load()
+        }
+
+        function playStream(videoNum) {
+            const video = document.getElementById(`video${videoNum}`)
+            video.play().then(() => {
+                log(videoNum, '▶️ Stream playing successfully!', 'success')
+            }).catch(err => {
+                log(videoNum, `❌ Play error: ${err.message}`, 'error')
+            })
+        }
+
+        function pauseStream(videoNum) {
+            const video = document.getElementById(`video${videoNum}`)
+            video.pause()
+            log(videoNum, '⏸️ Stream paused', 'info')
+        }
+
+        // Browser detection
+        function detectBrowser() {
+            const ua = navigator.userAgent
+            let browser = 'Unknown'
+            let shouldConvert = false
+            
+            if (ua.includes('Chrome') && !ua.includes('Edge')) {
+                browser = 'Chrome'
+                shouldConvert = true
+            } else if (ua.includes('Firefox')) {
+                browser = 'Firefox'
+                shouldConvert = true
+            } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
+                browser = 'Safari'
+                shouldConvert = false  // Safari can handle M3U8 natively
+            } else if (ua.includes('Edge')) {
+                browser = 'Edge'
+                shouldConvert = true
+            }
+            
+            const info = document.getElementById('browserInfo')
+            info.innerHTML = `
+                <strong>Browser:</strong> ${browser}<br>
+                <strong>User Agent:</strong> ${ua.substring(0, 100)}...<br>
+                <strong>M3U8 Conversion:</strong> ${shouldConvert ? '✅ Active (Better Performance)' : '⚠️ Native HLS (Fallback Available)'}<br>
+                <strong>Stream Format:</strong> ${shouldConvert ? 'Progressive MP4' : 'HLS with MP4 fallback'}<br>
+                <strong>Expected Performance:</strong> ${shouldConvert ? 'Excellent (Native)' : 'Good (Native HLS)'}
+            `
+        }
+
+        // Initialize
+        detectBrowser()
+        
+        // Auto-test after 2 seconds
+        setTimeout(() => {
+            console.log('🚀 Starting automatic M3U8 conversion test...')
+            loadStream(1)
+        }, 2000)
+    </script>
+</body>
+</html>

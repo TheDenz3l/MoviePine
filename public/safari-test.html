@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Safari Compatibility Test - MoviePine</title>
+    <style>
+        body { font-family: system-ui; margin: 40px; background: #1a1a1a; color: white; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { background: #2a2a2a; padding: 20px; margin: 20px 0; border-radius: 8px; }
+        .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { background: #1a5f1a; }
+        .error { background: #5f1a1a; }
+        .warning { background: #5f5f1a; }
+        button { background: #4a9eff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #357abd; }
+        .browser-info { font-family: monospace; font-size: 12px; background: #333; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦄 Safari Compatibility Test</h1>
+        
+        <div class="test-section">
+            <h2>Browser Detection</h2>
+            <div class="browser-info" id="browserInfo"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Stream Tests</h2>
+            <p>These tests verify that Safari users get helpful fallback options instead of broken playback.</p>
+            
+            <div>
+                <button onclick="testTranscoder()">Test Transcoder Endpoint</button>
+                <button onclick="testMainApp()">Test Main App</button>
+                <button onclick="testVLCFallback()">Test VLC Fallback</button>
+            </div>
+            
+            <div id="testResults"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Expected Behavior</h2>
+            <ul>
+                <li><strong>Safari:</strong> Should show friendly "Safari Not Supported" message with VLC/URL copy options</li>
+                <li><strong>Chrome/Firefox:</strong> Should play normally with transcoder or direct streams</li>
+                <li><strong>Mobile:</strong> Should work on all mobile browsers</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Browser detection
+        const userAgent = navigator.userAgent;
+        const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+        const isChrome = /chrome/i.test(userAgent);
+        const isFirefox = /firefox/i.test(userAgent);
+        const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
+        
+        document.getElementById('browserInfo').innerHTML = `
+            User Agent: ${userAgent}<br>
+            Detected: ${isSafari ? 'Safari' : isChrome ? 'Chrome' : isFirefox ? 'Firefox' : 'Other'}<br>
+            Mobile: ${isMobile ? 'Yes' : 'No'}<br>
+            HLS Support: ${typeof window.MediaSource !== 'undefined' ? 'Yes' : 'No'}
+        `;
+        
+        function addResult(message, type = 'success') {
+            const results = document.getElementById('testResults');
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.innerHTML = `${new Date().toLocaleTimeString()}: ${message}`;
+            results.appendChild(div);
+        }
+        
+        async function testTranscoder() {
+            addResult('Testing transcoder endpoint...', 'warning');
+            try {
+                const response = await fetch('/api/stream-transcoder?url=https%3A%2F%2Ftest-videos.co.uk%2Fvids%2Fbigbuckbunny%2Fmkv%2Fh264%2F720%2FBig_Buck_Bunny_720_10s_1MB.mkv&safari=true', {
+                    method: 'HEAD'
+                });
+                
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    const transcoded = response.headers.get('x-safari-transcoded');
+                    addResult(`✅ Transcoder OK: ${contentType}, transcoded: ${transcoded}`, 'success');
+                } else {
+                    addResult(`❌ Transcoder failed: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                addResult(`❌ Transcoder error: ${error.message}`, 'error');
+            }
+        }
+        
+        function testMainApp() {
+            addResult('Opening main app...', 'warning');
+            window.open('/', '_blank');
+        }
+        
+        function testVLCFallback() {
+            const testUrl = 'https://test-videos.co.uk/vids/bigbuckbunny/mkv/h264/720/Big_Buck_Bunny_720_10s_1MB.mkv';
+            addResult('Testing VLC protocol...', 'warning');
+            try {
+                window.open(`vlc://${testUrl}`, '_blank');
+                addResult('✅ VLC protocol launched (if VLC is installed)', 'success');
+            } catch (error) {
+                addResult(`❌ VLC protocol failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-run browser detection
+        if (isSafari) {
+            addResult('🦄 Safari detected - fallback UI should be shown for video playback', 'warning');
+        } else {
+            addResult('✅ Non-Safari browser - normal video playback should work', 'success');
+        }
+    </script>
+</body>
+</html>

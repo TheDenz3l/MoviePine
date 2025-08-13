@@ -150,17 +150,12 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
     // Close overlay when search is cleared
     if (!value.trim()) {
       setOverlayTriggered(false)
-      // Close the overlay by dispatching a close event
-      window.dispatchEvent(new CustomEvent('app:closeRealTimeSearch'))
+      // Use the new seamless search system instead of old events
+      if (onSearchResults) {
+        onSearchResults([], "", false)
+      }
     }
-    // Only open the overlay when user actually starts typing and it hasn't been triggered yet
-    else if (value.trim() && !isSearching && !overlayTriggered) {
-      setOverlayTriggered(true)
-      // Pass the search query to the overlay so user doesn't have to retype
-      window.dispatchEvent(new CustomEvent('app:openRealTimeSearch', { 
-        detail: { query: value.trim() } 
-      }))
-    }
+    // Seamless search will be triggered automatically by the search effect above
   }
 
   const handleSearchSubmit = (e: React.FormEvent) => {

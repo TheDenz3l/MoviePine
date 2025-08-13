@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live TV Click Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #111; color: white; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #333; border-radius: 5px; }
+        .log { margin: 5px 0; padding: 5px; background: #222; border-radius: 3px; font-family: monospace; }
+        button { padding: 10px 20px; margin: 10px; background: #e50914; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #f40612; }
+    </style>
+</head>
+<body>
+    <h1>Live TV "Watch Live" Button Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Open Live TV Page</h2>
+        <button onclick="openLiveTVPage()">Open Live TV Page</button>
+        <div id="test1-log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Auto Click Test</h2>
+        <button onclick="autoClickTest()">Run Auto Click Test</button>
+        <div id="test2-log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Direct Console Debug</h2>
+        <button onclick="directDebug()">Direct Debug Test</button>
+        <div id="test3-log"></div>
+    </div>
+
+    <script>
+        function log(testId, message) {
+            const logDiv = document.getElementById(testId + '-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log';
+            logEntry.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            logDiv.appendChild(logEntry);
+        }
+
+        function openLiveTVPage() {
+            log('test1', 'Opening Live TV page...');
+            window.open('http://localhost:3000/?category=live-tv', '_blank');
+            log('test1', 'Live TV page opened in new tab');
+        }
+
+        function autoClickTest() {
+            log('test2', 'Starting auto click test...');
+            
+            // Open Live TV page
+            const liveTVWindow = window.open('http://localhost:3000/?category=live-tv', '_blank');
+            
+            log('test2', 'Waiting for page to load...');
+            
+            setTimeout(() => {
+                log('test2', 'Attempting to find elements...');
+                
+                // Try to access the opened window
+                try {
+                    // Check if we can access the window (might be blocked by CORS)
+                    const doc = liveTVWindow.document;
+                    log('test2', 'Successfully accessed window document');
+                    
+                    // Look for network cards
+                    const networkCards = doc.querySelectorAll('[class*="cursor-pointer"], .cursor-pointer');
+                    log('test2', `Found ${networkCards.length} network cards`);
+                    
+                    if (networkCards.length > 0) {
+                        log('test2', 'Clicking first network card...');
+                        networkCards[0].click();
+                        
+                        setTimeout(() => {
+                            // Look for Watch Live buttons
+                            const watchButtons = Array.from(doc.querySelectorAll('button')).filter(btn => 
+                                btn.textContent && btn.textContent.includes('Watch Live')
+                            );
+                            log('test2', `Found ${watchButtons.length} Watch Live buttons`);
+                            
+                            if (watchButtons.length > 0) {
+                                log('test2', 'Clicking first Watch Live button...');
+                                watchButtons[0].click();
+                                
+                                setTimeout(() => {
+                                    // Check for modal
+                                    const modal = doc.querySelector('[role="dialog"], .fixed.inset-0');
+                                    log('test2', `Modal found: ${!!modal}`);
+                                    
+                                    const video = doc.querySelector('video');
+                                    log('test2', `Video element found: ${!!video}`);
+                                    
+                                }, 2000);
+                            }
+                        }, 3000);
+                    }
+                } catch (e) {
+                    log('test2', 'Cannot access window (CORS/security): ' + e.message);
+                    log('test2', 'Please run test manually in the opened tab');
+                }
+            }, 5000);
+        }
+
+        function directDebug() {
+            log('test3', 'Use this JavaScript in the Live TV page console:');
+            log('test3', '');
+            log('test3', '// Wait for page load, then run:');
+            log('test3', 'const networkCards = document.querySelectorAll("[class*=cursor-pointer]");');
+            log('test3', 'console.log("Network cards:", networkCards.length);');
+            log('test3', 'if (networkCards.length > 0) networkCards[0].click();');
+            log('test3', '');
+            log('test3', '// Wait 3 seconds, then:');
+            log('test3', 'const watchButtons = Array.from(document.querySelectorAll("button")).filter(b => b.textContent?.includes("Watch Live"));');
+            log('test3', 'console.log("Watch buttons:", watchButtons.length);');
+            log('test3', 'if (watchButtons.length > 0) {');
+            log('test3', '  console.log("Clicking button:", watchButtons[0].textContent);');
+            log('test3', '  watchButtons[0].click();');
+            log('test3', '}');
+        }
+    </script>
+</body>
+</html>

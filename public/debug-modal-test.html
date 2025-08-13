@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live TV Modal Debug Test</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .test-button {
+            background: #22c55e;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 0;
+            display: block;
+        }
+        .debug-output {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Live TV Modal Debug Test</h1>
+    
+    <button class="test-button" onclick="testDirectModalCall()">
+        Test Direct Modal Call
+    </button>
+    
+    <button class="test-button" onclick="testLiveTVClick()">
+        Test Live TV Page Click
+    </button>
+    
+    <button class="test-button" onclick="analyzeModalStructure()">
+        Analyze Modal Structure
+    </button>
+    
+    <div id="debug-output" class="debug-output">Debug output will appear here...</div>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('debug-output');
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function testDirectModalCall() {
+            log('🧪 Testing direct modal call...');
+            
+            // Try to trigger modal through direct function call
+            if (window.parent !== window) {
+                log('Running in iframe, trying parent window...');
+                try {
+                    const parentApp = window.parent;
+                    // Look for React components or state setters
+                    log('Parent window available, checking for React components...');
+                    
+                    // Try to find React roots or components
+                    const reactRoots = window.parent.document.querySelectorAll('[data-reactroot]');
+                    log(`Found ${reactRoots.length} React roots in parent`);
+                    
+                } catch (e) {
+                    log(`Error accessing parent: ${e.message}`);
+                }
+            } else {
+                log('In main window, attempting modal trigger...');
+                
+                // Navigate to Live TV and monitor
+                window.location.href = 'http://localhost:3000/?category=live-tv';
+            }
+        }
+
+        function testLiveTVClick() {
+            log('🎬 Testing Live TV click simulation...');
+            
+            // Navigate to live TV page first
+            if (!window.location.href.includes('live-tv')) {
+                log('Navigating to Live TV page...');
+                window.location.href = 'http://localhost:3000/?category=live-tv';
+                return;
+            }
+            
+            // Monitor for network cards
+            let attempts = 0;
+            const maxAttempts = 20;
+            
+            const checkForNetworks = () => {
+                attempts++;
+                const networks = document.querySelectorAll('.grid .bg-gray-800, .grid > div, [class*="card"]');
+                log(`Attempt ${attempts}: Found ${networks.length} potential network elements`);
+                
+                if (networks.length > 0) {
+                    log('Found networks! Clicking first one...');
+                    networks[0].click();
+                    
+                    // Wait for streams to load
+                    setTimeout(() => {
+                        const buttons = document.querySelectorAll('button');
+                        let watchButton = null;
+                        
+                        for (let btn of buttons) {
+                            if (btn.textContent.includes('Watch') || btn.textContent.includes('Live')) {
+                                watchButton = btn;
+                                break;
+                            }
+                        }
+                        
+                        if (watchButton) {
+                            log(`Found watch button: "${watchButton.textContent}"`);
+                            log('Clicking watch button...');
+                            watchButton.click();
+                            
+                            // Monitor for modal changes
+                            setTimeout(() => analyzeModalStructure(), 1000);
+                        } else {
+                            log('No watch button found');
+                            const allButtons = Array.from(buttons).map(b => b.textContent.trim());
+                            log(`Available buttons: ${allButtons.join(', ')}`);
+                        }
+                    }, 2000);
+                    
+                } else if (attempts < maxAttempts) {
+                    log('No networks found yet, retrying...');
+                    setTimeout(checkForNetworks, 1000);
+                } else {
+                    log('❌ No networks found after maximum attempts');
+                    
+                    // Check what's actually on the page
+                    const allElements = document.querySelectorAll('*');
+                    log(`Total elements on page: ${allElements.length}`);
+                    
+                    const pageText = document.body.innerText.substring(0, 500);
+                    log(`Page content preview: ${pageText}`);
+                }
+            };
+            
+            checkForNetworks();
+        }
+
+        function analyzeModalStructure() {
+            log('🔍 Analyzing modal structure...');
+            
+            // Check for various modal indicators
+            const dialogs = document.querySelectorAll('[role="dialog"]');
+            const modals = document.querySelectorAll('[data-state="open"]');
+            const radixDialogs = document.querySelectorAll('[data-radix-collection-item]');
+            const portals = document.querySelectorAll('[data-radix-portal]');
+            const videoElements = document.querySelectorAll('video');
+            const zIndexElements = document.querySelectorAll('[style*="z-index"]');
+            
+            log(`Modal Analysis:
+- [role="dialog"]: ${dialogs.length}
+- [data-state="open"]: ${modals.length}
+- Radix collection items: ${radixDialogs.length}
+- Radix portals: ${portals.length}
+- Video elements: ${videoElements.length}
+- Z-index elements: ${zIndexElements.length}`);
+            
+            if (dialogs.length > 0) {
+                log('🎉 Found dialogs! Analyzing...');
+                dialogs.forEach((dialog, i) => {
+                    const styles = window.getComputedStyle(dialog);
+                    log(`Dialog ${i}: 
+  - Visible: ${dialog.offsetParent !== null}
+  - Display: ${styles.display}
+  - Opacity: ${styles.opacity}
+  - Z-index: ${styles.zIndex}
+  - Position: ${styles.position}
+  - Transform: ${styles.transform}`);
+                });
+            }
+            
+            // Check React component state
+            try {
+                const reactElements = document.querySelectorAll('[data-reactroot] *');
+                log(`React elements found: ${reactElements.length}`);
+                
+                // Look for VideoPlayerModal component
+                const possibleModals = document.querySelectorAll('[class*="modal"], [class*="dialog"], [class*="overlay"]');
+                log(`Possible modal elements: ${possibleModals.length}`);
+                
+                possibleModals.forEach((modal, i) => {
+                    log(`Modal candidate ${i}: ${modal.className || modal.tagName}`);
+                });
+                
+            } catch (e) {
+                log(`Error analyzing React: ${e.message}`);
+            }
+        }
+
+        // Auto-start analysis
+        setTimeout(() => {
+            log('🚀 Starting automatic analysis...');
+            analyzeModalStructure();
+        }, 2000);
+    </script>
+</body>
+</html>
