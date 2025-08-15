@@ -1039,26 +1039,72 @@ export default function ClientOnlyMovieApp() {
   // Check if we should show explore pages
   if (activeCategory === 'explore-movies') {
     return (
-      <MoviesGridPage
-        onNavigate={handleNavigate}
-        activeCategory={activeCategory}
-        onPlay={(id, title) => handlePlay(id, title)}
-        onAddToList={(id) => handleAddToList(id)}
-        onMoreInfo={(id) => handleMoreInfo(id)}
-      />
+      <>
+        <MoviesGridPage
+          onNavigate={handleNavigate}
+          activeCategory={activeCategory}
+          onPlay={(id, title) => handlePlay(id, title)}
+          onAddToList={(id) => handleAddToList(id)}
+          onMoreInfo={(id) => handleMoreInfo(id)}
+        />
+        {/* Mount global modals even in explore-movies view so poster Info opens immediately */}
+        <MovieDetailModal
+          movie={modalMovie ? transformMovie(modalMovie as StreamingMovie) : null}
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          onPlay={handlePlay}
+          onAddToList={handleAddToList}
+          onMovieSelect={handleModalMovieSelect}
+        />
+        <MoviepireModal
+          movie={selectedMoviepireMovie ? transformMovieForModal(selectedMoviepireMovie) : null}
+          isOpen={isMoviepireModalOpen}
+          onClose={handleCloseMoviepireModal}
+          onPlay={(movieId) => handlePlay(movieId.toString())}
+          onAddToList={(movieId) => handleAddToList(movieId.toString())}
+          relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
+          onMovieSelect={(movieId) => {
+            const next = movies.find(m => m.tmdbId === movieId || parseInt(m.id) === movieId)
+            if (next) setSelectedMoviepireMovie(next)
+          }}
+        />
+      </>
     )
   }
 
   if (activeCategory === 'tv-series') {
     return (
-      <TVSeriesPage
-        onPlay={handlePlay}
-        onAddToList={handleAddToList}
-        onMoreInfo={handleMoreInfo}
-        onNavigate={handleNavigate}
-        onSearch={handleSearch}
-        activeCategory={activeCategory}
-      />
+      <>
+        <TVSeriesPage
+          onPlay={handlePlay}
+          onAddToList={handleAddToList}
+          onMoreInfo={handleMoreInfo}
+          onNavigate={handleNavigate}
+          onSearch={handleSearch}
+          activeCategory={activeCategory}
+        />
+        {/* Ensure modals are mounted for TV series page too */}
+        <MovieDetailModal
+          movie={modalMovie ? transformMovie(modalMovie as StreamingMovie) : null}
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          onPlay={handlePlay}
+          onAddToList={handleAddToList}
+          onMovieSelect={handleModalMovieSelect}
+        />
+        <MoviepireModal
+          movie={selectedMoviepireMovie ? transformMovieForModal(selectedMoviepireMovie) : null}
+          isOpen={isMoviepireModalOpen}
+          onClose={handleCloseMoviepireModal}
+          onPlay={(movieId) => handlePlay(movieId.toString())}
+          onAddToList={(movieId) => handleAddToList(movieId.toString())}
+          relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
+          onMovieSelect={(movieId) => {
+            const next = movies.find(m => m.tmdbId === movieId || parseInt(m.id) === movieId)
+            if (next) setSelectedMoviepireMovie(next)
+          }}
+        />
+      </>
     )
   }
 

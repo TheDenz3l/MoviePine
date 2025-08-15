@@ -156,8 +156,15 @@ export function TVSeriesPage({
     onAddToList(movie.id)
   }
 
-  const handleMoreInfo = (movie: any) => {
-    onMoreInfo(movie.id)
+  // Unified more-info handler: supports being called with either a movie object or a raw id string.
+  // The hero component invokes onMoreInfo with a string id; the carousel passes a movie object.
+  const handleMoreInfo = (movieOrId: any) => {
+    const id = typeof movieOrId === 'string' ? movieOrId : movieOrId?.id
+    if (!id) {
+      console.warn('[TVSeriesPage] handleMoreInfo called without a valid id', movieOrId)
+      return
+    }
+    onMoreInfo(id)
   }
 
   const findSeriesById = (seriesId: string) => {
