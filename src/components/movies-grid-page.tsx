@@ -5,6 +5,8 @@ import { TMDBAPI } from '@/lib/api/tmdb'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { Button } from '@/components/ui/button'
+import { GenreSelect } from '@/components/ui/genre-select'
+import { AppSelect } from '@/components/ui/app-select'
 
 interface MoviesGridPageProps {
   onNavigate: (category: string) => void
@@ -225,7 +227,19 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
     }
   }
 
-  const handleGenreSelect = (gid: number) => {
+  const handleGenreSelect = (gid: number | null) => {
+    // Special value from custom select to clear
+    if (gid === null || gid === ("__all" as any)) {
+      setSelectedGenre(null)
+      setAnnounce('Genre cleared')
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('moviesGrid:selectedGenre', '')
+        localStorage.setItem('moviesGrid:sort', sort)
+        localStorage.setItem('moviesGrid:lastCategory', 'popular')
+      }
+      setCategory('popular')
+      return
+    }
     setSelectedGenre(prev => {
       const next = prev === gid ? null : gid
       const gName = genres.find(g=>g.id===gid)?.name || 'Genre'
@@ -237,7 +251,7 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
       }
       return next
     })
-    setCategory('popular') // base category reference
+    setCategory('popular')
   }
 
   const handleSortChange = (sid: string) => {
@@ -261,60 +275,58 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
           <div className="flex items-center gap-6">
             <h1 className="text-4xl font-bold tracking-tight">{headingTitle} Movies</h1>
-            {/* Genre dropdown */}
-            <select
-              value={selectedGenre || ''}
-              onChange={e => handleGenreSelect(e.target.value ? Number(e.target.value) : null)}
-              className="bg-zinc-900 text-white font-semibold text-lg px-4 py-2 rounded-lg shadow-lg border-none focus:outline-none focus:ring-2 focus:ring-red-600"
-              style={{ minWidth: 140 }}
-              aria-label="Select Genre"
-            >
-              <option value="">Genres</option>
-              {genres.map(g => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
+            <GenreSelect
+              value={selectedGenre}
+              onChange={(v) => handleGenreSelect(v)}
+              options={genres}
+              className="min-w-[140px]"
+            />
           </div>
           <div className="flex items-center gap-3">
             {/* Grid/List toggle */}
             <button
-              className={`h-10 w-10 rounded-md flex items-center justify-center bg-zinc-800 text-white hover:bg-zinc-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-600 text-xl`}
-              title={viewMode === 'grid' ? 'Grid view' : 'List view'}
+              className={
+                `group relative inline-flex items-center justify-center h-11 w-11 rounded-lg bg-zinc-900/90 text-white ` +
+                `shadow-inner ring-1 ring-zinc-700/60 hover:ring-zinc-500/70 transition-colors focus:outline-none ` +
+                `focus-visible:ring-2 focus-visible:ring-red-600/80`
+              }
+              title={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
               onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
             >
-              {viewMode === 'grid' ? '▦' : '≡'}
+              <span className="text-lg leading-none select-none">
+                {viewMode === 'grid' ? '▦' : '≡'}
+              </span>
             </button>
             {/* Sort dropdown */}
-            <select
-              id="sort"
+            <AppSelect
               value={sort}
-              onChange={(e) => handleSortChange(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-md text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-white/60"
-              style={{ minWidth: 140 }}
-            >
-              {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
+              onChange={(v) => handleSortChange(v)}
+              options={SORT_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+              placeholder="Sort"
+              className="min-w-[150px]"
+            />
+            {(selectedGenre || sort !== 'popularity') && (
+              <button
+                onClick={() => {
+                  setSelectedGenre(null)
+                  setSort('popularity')
+                  setAnnounce('Filters cleared')
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('moviesGrid:selectedGenre', '')
+                    localStorage.setItem('moviesGrid:sort', 'popularity')
+                  }
+                }}
+                className={
+                  'inline-flex items-center h-11 px-5 rounded-lg bg-zinc-900/90 text-white text-sm font-medium shadow-inner ' +
+                  'ring-1 ring-zinc-700/60 hover:ring-zinc-500/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/80'
+                }
+              >
+                Clear Filters
+              </button>
+            )}
           </div>
         </div>
-
-        {/* Clear Filters Button */}
-        {(selectedGenre || sort !== 'popularity') && (
-          <div className="mb-4 flex justify-end">
-            <Button
-              variant="outline"
-              className="bg-zinc-800 border-zinc-600 text-white hover:bg-zinc-700 px-4 py-2 text-sm rounded-full"
-              onClick={() => {
-                setSelectedGenre(null)
-                setSort('popularity')
-                setAnnounce('Filters cleared')
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('moviesGrid:selectedGenre', '')
-                  localStorage.setItem('moviesGrid:sort', 'popularity')
-                }
-              }}
-            >Clear Filters</Button>
-          </div>
-        )}
+        {/* (Clear Filters moved into controls row) */}
 
         {/* Error State */}
         {error && !isLoadingInitial && (
