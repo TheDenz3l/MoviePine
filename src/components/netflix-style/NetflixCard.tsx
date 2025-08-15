@@ -1,14 +1,16 @@
 "use client"
 
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
 import { NetflixCardProps } from './types'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 
 export function NetflixCard({ 
   movie, 
   onPlay, 
   onAddToList, 
   onMoreInfo, 
-  showTitle = false 
+  showTitle = false,
+  isInList
 }: NetflixCardProps) {
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -65,13 +67,9 @@ export function NetflixCard({
             >
               <Play className="h-5 w-5" />
             </button>
-            <button 
-              type="button" 
-              onClick={handleAddToList} 
-              className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            <div className="h-10 w-10 flex items-center justify-center pointer-events-auto" onClick={(e)=>e.stopPropagation()}>
+              <WatchlistToggleButton inList={!!isInList?.(movie.id)} size={40} variant="overlay" onToggle={()=>onAddToList?.(movie)} />
+            </div>
             <button 
               type="button" 
               onClick={handleMoreInfo} 

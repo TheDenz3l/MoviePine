@@ -1,8 +1,10 @@
 "use client"
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
 import PosterImage from '@/components/hover/PosterImage'
 import clsx from 'clsx'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useMyList } from '@/components/list/useMyList'
 
 export interface CarouselItemBase { id: string; title?: string; poster?: string; backdrop?: string; year?: number; rating?: number; genre?: string[] }
 
@@ -16,6 +18,8 @@ export interface NetflixCarouselProps<T extends CarouselItemBase> {
   onPlay?: (id: string) => void
   onAdd?: (id: string) => void
   onInfo?: (id: string) => void
+  /** Optional function to determine if an item is already in the user's watchlist */
+  isInList?: (id: string) => boolean
   itemWidth?: number
   gap?: number
   activationDelayMs?: number
@@ -60,6 +64,7 @@ export function NetflixCarousel<T extends CarouselItemBase>({
   onPlay,
   onAdd,
   onInfo,
+  isInList,
   itemWidth = 204,
   gap = 16,
   activationDelayMs = 60,
@@ -118,6 +123,19 @@ export function NetflixCarousel<T extends CarouselItemBase>({
   }
 
   const [activeId, setActiveId] = useState<string | null>(null)
+  // Global watchlist state
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const internalIsInList = useCallback((id: string) => watchlist.some(w=>w.content_id===id), [watchlist])
+  const resolveInList = useCallback((id: string) => (isInList ? isInList(id) : internalIsInList(id)), [isInList, internalIsInList])
+  const toggleWatch = useCallback((id: string) => {
+    const present = resolveInList(id)
+    if (present) {
+      removeWatch(id)
+    } else {
+      addWatch(id,'movie')
+    }
+    onAdd?.(id)
+  }, [resolveInList, addWatch, removeWatch, onAdd])
   const hoverTimers = useRef<Record<string, number>>({})
 
   const prefetchImage = (url?: string | null) => {
@@ -254,6 +272,7 @@ export function NetflixCarousel<T extends CarouselItemBase>({
             const delayMs = browseReplication ? batchIndex * 18 : 0
             const liftEnabled = frameLift && effectiveTitlePop
             const isActive = activeId === item.id
+            const inList = resolveInList(item.id)
             const entranceTransform = revealed ? 'translateY(0)' : 'translateY(14px)'
             const liftTransform = liftEnabled && isActive ? ` translateY(${frameLiftTranslateY}px) scale(${frameLiftScale})` : ''
       return (
@@ -296,7 +315,9 @@ export function NetflixCarousel<T extends CarouselItemBase>({
                       {(() => { const s = actionButtonSize; const icon = Math.round(s*0.55); return (
                         <>
                           <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(item.id) }} style={{height:s,width:s}} className="pointer-events-auto rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play style={{height:icon,width:icon}} /></button>
-                          <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(item.id) }} style={{height:s,width:s}} className="pointer-events-auto rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Plus style={{height:icon,width:icon}} /></button>
+                          <div className="pointer-events-auto" style={{height:s,width:s}}>
+                            <WatchlistToggleButton inList={inList} size={s} variant="overlay" onToggle={()=>toggleWatch(item.id)} />
+                          </div>
                           <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(item.id) }} style={{height:s,width:s}} className="pointer-events-auto rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Info style={{height:icon,width:icon}} /></button>
                         </>
                       ) })()}
@@ -307,7 +328,9 @@ export function NetflixCarousel<T extends CarouselItemBase>({
                 <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2 opacity-0 group-hover/item:opacity-100 transition-opacity duration-200">
                   <div className="flex gap-2" aria-hidden="true">
                     <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-4 w-4" /></button>
-                    <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Plus className="h-4 w-4" /></button>
+                    <div className="pointer-events-auto h-8 w-8 flex items-center justify-center">
+                      <WatchlistToggleButton inList={inList} size={32} variant="overlay" onToggle={()=>toggleWatch(item.id)} />
+                    </div>
                     <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Info className="h-4 w-4" /></button>
                   </div>
                 </div>
@@ -329,7 +352,9 @@ export function NetflixCarousel<T extends CarouselItemBase>({
               <div className="absolute bottom-0 left-0 right-0 p-3 flex items-end justify-center">
                 <div className="flex gap-3" aria-label={preview.item.title}>
                   <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
-                  <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Plus className="h-5 w-5" /></button>
+                  <div className="h-9 w-9 flex items-center justify-center">
+                    <WatchlistToggleButton inList={resolveInList(preview.item.id)} size={36} variant="overlay" onToggle={()=>toggleWatch(preview.item.id)} />
+                  </div>
                   <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Info className="h-5 w-5" /></button>
                 </div>
               </div>

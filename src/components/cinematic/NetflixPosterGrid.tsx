@@ -1,8 +1,10 @@
 "use client"
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
 import PosterImage from '@/components/hover/PosterImage'
 import clsx from 'clsx'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useWatchlistActions } from '@/components/list/useWatchlistActions'
 
 interface BaseItem { id: string; title?: string; poster?: string; year?: number; rating?: number; genre?: string[] }
 
@@ -42,6 +44,24 @@ export function NetflixPosterGrid<T extends BaseItem>({
   transitionMs = 180,
   disableSizeAnimationOnSwitch = true,
 }: NetflixPosterGridProps<T>) {
+  // Deduplicate incoming items by id to avoid duplicate React keys
+  const dedupedItems = useMemo(() => {
+    const seen = new Set<string>()
+    const dupes: string[] = []
+    const list: T[] = []
+    for (const it of items) {
+      const id = it.id
+      if (!id) continue
+      if (seen.has(id)) { dupes.push(id); continue }
+      seen.add(id)
+      list.push(it)
+    }
+    if (dupes.length) {
+      // eslint-disable-next-line no-console
+      console.warn('[NetflixPosterGrid] Duplicate ids removed:', Array.from(new Set(dupes)))
+    }
+    return list
+  }, [items])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [preview, setPreview] = useState<PreviewState<T> | null>(null)
   const activateTimer = useRef<number | null>(null)
@@ -110,7 +130,7 @@ export function NetflixPosterGrid<T extends BaseItem>({
       aria-label="titles grid"
     >
       <div className={clsx('grid gap-2 md:gap-3', columns)}>
-        {items.map(item => (
+        {dedupedItems.map(item => (
           <div
             key={item.id}
             role="gridcell"
@@ -128,9 +148,7 @@ export function NetflixPosterGrid<T extends BaseItem>({
                 <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(item.id) }} className="pointer-events-auto h-9 w-9 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white">
                   <Play className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(item.id) }} className="pointer-events-auto h-9 w-9 rounded-full bg-zinc-800/80 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">
-                  <Plus className="h-5 w-5" />
-                </button>
+                <WatchlistAddButton id={item.id} title={item.title} poster={item.poster} onExternalAdd={onAdd} variant="overlay" />
                 <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(item.id) }} className="pointer-events-auto h-9 w-9 rounded-full bg-zinc-800/80 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">
                   <Info className="h-5 w-5" />
                 </button>
@@ -155,9 +173,7 @@ export function NetflixPosterGrid<T extends BaseItem>({
                 <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(preview.item.id) }} className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white">
                   <Play className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(preview.item.id) }} className="h-10 w-10 rounded-full bg-zinc-800/80 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">
-                  <Plus className="h-5 w-5" />
-                </button>
+                <WatchlistAddButton id={preview.item.id} title={preview.item.title} poster={preview.item.poster} size={40} onExternalAdd={onAdd} variant="overlay" />
                 <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(preview.item.id) }} className="h-10 w-10 rounded-full bg-zinc-800/80 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white">
                   <Info className="h-5 w-5" />
                 </button>
@@ -172,6 +188,32 @@ export function NetflixPosterGrid<T extends BaseItem>({
         .netflix-poster-grid-preview-disable * { user-select: none; }
       `}</style>
     </div>
+  )
+}
+
+interface WatchlistAddButtonProps {
+  id: string
+  title?: string
+  poster?: string
+  size?: number
+  onExternalAdd?: (id: string) => void
+  variant?: 'icon' | 'overlay'
+}
+
+function WatchlistAddButton({ id, title, poster, size = 36, onExternalAdd, variant = 'icon' }: WatchlistAddButtonProps) {
+  const { isInWatchlist, toggleWatchlist } = useWatchlistActions()
+  const inList = isInWatchlist(id)
+  return (
+    <WatchlistToggleButton
+      inList={inList}
+      size={size}
+      className="pointer-events-auto"
+  variant={variant}
+      onToggle={() => {
+        toggleWatchlist(id, 'movie', title, poster)
+        if (!inList) onExternalAdd?.(id)
+      }}
+    />
   )
 }
 

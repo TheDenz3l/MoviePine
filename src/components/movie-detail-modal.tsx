@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { SeasonSelect } from "./season-select"
-import { X, Play, Plus, ThumbsUp, Info } from "lucide-react"
+import { X, Play, ThumbsUp, Info } from "lucide-react"
+import { useMyList } from '@/components/list/useMyList'
 import { ImdbRating } from '@/components/imdb-rating'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 import { TMDBAPI, TMDBCastMember } from "@/lib/api/tmdb"
 import { fetchSeriesProgress } from '@/lib/services/episode-progress'
 import { safeParse } from '@/lib/utils/safe-json'
@@ -32,11 +34,17 @@ interface MovieDetailModalProps {
   isOpen: boolean
   onClose: () => void
   onPlay: (movieId: string) => void
-  onAddToList: (movieId: string) => void
+  onAddToList?: (movieId: string) => void // now optional; internal watchlist handles visual state
   onMovieSelect?: (movie: Movie) => void
 }
 
 export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, onMovieSelect }: MovieDetailModalProps) {
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = (id:string) => !!watchlist?.some(w=>w.content_id===id)
+  const toggleWatch = (id:string) => {
+    inWatch(id) ? removeWatch(id) : addWatch(id,'movie')
+    onAddToList?.(id)
+  }
   // Debug logging
   useEffect(() => {
     console.log('[MovieDetailModal] Props changed:', { 
@@ -465,14 +473,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                   <Play className="h-3 w-3 fill-current" />
                   <span>Play</span>
                 </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="border-2 border-gray-400 text-white hover:bg-white hover:text-black rounded-full w-9 h-9"
-                  onClick={() => onAddToList(activeMovie.id)}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
+                <div className="h-9 w-9 flex items-center justify-center" onClick={(e)=>e.stopPropagation()}>
+                  <WatchlistToggleButton inList={inWatch(activeMovie.id)} size={36} variant="overlay" onToggle={() => toggleWatch(activeMovie.id)} />
+                </div>
                 <Button
                   variant="outline"
                   size="icon"
@@ -652,7 +655,9 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                         <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2">
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden="true">
                             <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }} className="pointer-events-auto h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
-                            <button type="button" onClick={(e)=>{ e.stopPropagation(); onAddToList(similarMovie.id) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white" aria-label="Add to list"><Plus className="h-5 w-5" /></button>
+                            <div className="h-10 w-10 flex items-center justify-center pointer-events-auto" onClick={(e)=>e.stopPropagation()}>
+                              <WatchlistToggleButton inList={inWatch(similarMovie.id)} size={40} variant="overlay" onToggle={()=>toggleWatch(similarMovie.id)} />
+                            </div>
                             <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white" aria-label="More info"><Info className="h-5 w-5" /></button>
                           </div>
                         </div>

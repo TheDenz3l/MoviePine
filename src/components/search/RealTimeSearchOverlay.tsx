@@ -84,7 +84,7 @@ const RealTimeSearchOverlay: React.FC<RealTimeSearchOverlayProps> = ({ initialQu
           <a href="#" className="flex items-center gap-2 hover:text-red-500"><span className="material-icons">home</span>Browse</a>
           <a href="#" className="flex items-center gap-2 hover:text-red-500"><span className="material-icons">movie</span>Movies</a>
           <a href="#" className="flex items-center gap-2 hover:text-red-500"><span className="material-icons">tv</span>Series</a>
-          <a href="#" className="flex items-center gap-2 hover:text-red-500"><span className="material-icons">list</span>My List</a>
+          <a href="#" className="flex items-center gap-2 hover:text-red-500"><span className="material-icons">list</span>Watchlist</a>
         </nav>
         {/* Search Bar */}
         <div className="flex items-center bg-black border border-white px-3 py-2 rounded w-96">

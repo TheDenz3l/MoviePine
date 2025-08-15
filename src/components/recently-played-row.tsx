@@ -59,7 +59,7 @@ export function RecentlyPlayedRow({
       {/* Section Header */}
       <div className="flex items-center justify-between mb-4 px-12">
         <h2 className="text-white text-xl font-semibold">
-          Recently Played
+          Watchlist Activity
         </h2>
         
         {/* Clear All Button */}

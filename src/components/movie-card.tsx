@@ -3,8 +3,10 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Play, Plus, Info } from "lucide-react"
+import { Play, Info } from "lucide-react"
+import { useMyList } from '@/components/list/useMyList'
 import { ImdbRating } from '@/components/imdb-rating'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 
 interface MovieCardProps {
   movie: {
@@ -22,6 +24,9 @@ interface MovieCardProps {
 }
 
 export function MovieCard({ movie, onPlay, onAddToList, onMoreInfo }: MovieCardProps) {
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = !!watchlist?.some(w=>w.content_id===movie.id)
+  const toggle = () => { inWatch ? removeWatch(movie.id) : addWatch(movie.id,'movie'); onAddToList(movie.id) }
   return (
     <Card
       className="group relative bg-gray-900 border-gray-800 cursor-pointer will-change-transform transform-gpu"
@@ -51,17 +56,9 @@ export function MovieCard({ movie, onPlay, onAddToList, onMoreInfo }: MovieCardP
                 >
                   <Play className="h-4 w-4" />
                 </Button>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="border-white/70 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onAddToList(movie.id)
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
+                <div className="h-8 w-8" onClick={(e)=>e.stopPropagation()}>
+                  <WatchlistToggleButton inList={inWatch} size={32} variant="overlay" onToggle={toggle} />
+                </div>
                 <Button
                   size="icon"
                   variant="outline"

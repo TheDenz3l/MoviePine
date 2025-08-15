@@ -1,7 +1,9 @@
 "use client"
-import { Play, Plus, ThumbsUp, ChevronDown } from "lucide-react"
+import { Play, ThumbsUp, ChevronDown } from "lucide-react"
 import { ImdbRating } from '@/components/imdb-rating'
 import { Button } from "@/components/ui/button"
+import { useMyList } from '@/components/list/useMyList'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 import { Badge } from "@/components/ui/badge"
 import CinematicGrid from '@/components/cinematic/CinematicGrid'
 import PosterImage from "@/components/hover/PosterImage"
@@ -36,6 +38,15 @@ function BaseCard({ movie, onPlay }: { movie: Movie; onPlay: (movieId: string) =
 }
 
 export function NetflixMovieGrid({ movies, onPlay, onAddToList, onMoreInfo, onMovieSelect }: NetflixMovieGridProps) {
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = (id:string) => !!watchlist?.some(w=>w.content_id===id)
+  const toggle = (id:string) => {
+    const movie = movies.find(m=>m.id===id)
+    if(!movie) return
+    if (inWatch(id)) removeWatch(id)
+    else addWatch(id, 'movie')
+    onAddToList(id)
+  }
   return (
     <CinematicGrid
       items={movies}
@@ -50,9 +61,9 @@ export function NetflixMovieGrid({ movies, onPlay, onAddToList, onMoreInfo, onMo
               <Button size="icon" className="bg-white text-black hover:bg-gray-200 h-8 w-8 rounded-full" onClick={(e) => { e.stopPropagation(); onPlay(movie.id) }}>
                 <Play className="h-4 w-4" />
               </Button>
-              <Button size="icon" variant="outline" className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full" onClick={(e) => { e.stopPropagation(); onAddToList(movie.id) }}>
-                <Plus className="h-4 w-4" />
-              </Button>
+              <div onClick={(e)=>e.stopPropagation()} className="h-8 w-8 flex items-center justify-center">
+                <WatchlistToggleButton inList={inWatch(movie.id)} size={32} variant="overlay" onToggle={()=>toggle(movie.id)} />
+              </div>
               <Button size="icon" variant="outline" className="border-gray-400 text-white hover:bg-white hover:text-black h-8 w-8 rounded-full" onClick={(e) => { e.stopPropagation(); onMoreInfo(movie.id) }}>
                 <ThumbsUp className="h-4 w-4" />
               </Button>

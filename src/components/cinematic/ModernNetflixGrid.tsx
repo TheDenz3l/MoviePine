@@ -1,6 +1,8 @@
 "use client"
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useMyList } from '@/components/list/useMyList'
 import PosterImage from '@/components/hover/PosterImage'
 import clsx from 'clsx'
 
@@ -58,6 +60,21 @@ export function ModernNetflixGrid<T extends ModernGridItemBase>({
   const [loadedPoster, setLoadedPoster] = useState<string | null>(null)
   const pendingPosterRef = useRef<string | null>(null)
   const focusIndexRef = useRef<number>(0)
+  const { watchlist, addWatch, removeWatch } = useMyList()
+
+  // Helper to test if item is in list. We keep this inexpensive; if performance becomes an issue we can build a Set cache.
+  const isInList = useCallback((id: string) => watchlist.some(w=>w.content_id===id), [watchlist])
+
+  const handleToggle = useCallback((id: string) => {
+    const inList = isInList(id)
+    if (inList) {
+      removeWatch(id)
+    } else {
+      addWatch(id, 'movie')
+    }
+    // Fire optional external callback AFTER internal optimistic update so UI is instant.
+    onAdd?.(id)
+  }, [isInList, addWatch, removeWatch, onAdd])
 
   if (preview?.item.id !== lastIdRef.current) {
     switchedRef.current = true
@@ -210,7 +227,9 @@ export function ModernNetflixGrid<T extends ModernGridItemBase>({
               <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                 <div className="flex gap-2" aria-hidden="true">
                   <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-4 w-4" /></button>
-                  <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Plus className="h-4 w-4" /></button>
+                  <div className="pointer-events-auto">
+                    <WatchlistToggleButton inList={isInList(item.id)} size={32} variant="overlay" onToggle={()=>handleToggle(item.id)} />
+                  </div>
                   <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(item.id) }} className="pointer-events-auto h-8 w-8 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Info className="h-4 w-4" /></button>
                 </div>
               </div>
@@ -232,7 +251,9 @@ export function ModernNetflixGrid<T extends ModernGridItemBase>({
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-3 flex items-end justify-center gap-4">
               <button type="button" onClick={(e)=>{ e.stopPropagation(); onPlay?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
-              <button type="button" onClick={(e)=>{ e.stopPropagation(); onAdd?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Plus className="h-5 w-5" /></button>
+              <div className="h-9 w-9 flex items-center justify-center">
+                <WatchlistToggleButton inList={isInList(preview.item.id)} size={36} variant="overlay" onToggle={()=>handleToggle(preview.item.id)} />
+              </div>
               <button type="button" onClick={(e)=>{ e.stopPropagation(); onInfo?.(preview.item.id) }} className="h-9 w-9 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"><Info className="h-5 w-5" /></button>
             </div>
           </div>

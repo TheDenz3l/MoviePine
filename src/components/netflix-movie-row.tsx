@@ -1,7 +1,8 @@
 "use client"
 
-import { Play, Plus, ThumbsUp, ChevronDown } from "lucide-react"
+import { Play, ThumbsUp, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useMyList } from '@/components/list/useMyList'
 import NetflixCarousel from "@/components/cinematic/NetflixCarousel"
 import PosterImage from "@/components/hover/PosterImage"
 
@@ -36,6 +37,16 @@ function BaseTile({ movie, onPlay }: { movie: Movie; onPlay: (movieId: string) =
 }
 
 export function NetflixMovieRow({ title, movies, onPlay, onAddToList, onMoreInfo, onMovieSelect }: NetflixMovieRowProps) {
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = (id: string) => !!watchlist?.some(w => w.content_id === id)
+  const toggle = (id: string) => {
+    if (inWatch(id)) {
+      removeWatch(id)
+    } else {
+      addWatch(id, 'movie')
+    }
+    onAddToList?.(id)
+  }
   return (
     <div className="relative mb-10 px-12">
       <NetflixCarousel
@@ -43,7 +54,8 @@ export function NetflixMovieRow({ title, movies, onPlay, onAddToList, onMoreInfo
         title={title}
         items={movies as any}
         onPlay={(id)=>onPlay(id)}
-        onAdd={(id)=>onAddToList(id)}
+        onAdd={(id)=>toggle(id)}
+        isInList={(id)=>inWatch(id)}
         onInfo={(id)=>onMoreInfo(id)}
         browseReplication
         titlePopOut

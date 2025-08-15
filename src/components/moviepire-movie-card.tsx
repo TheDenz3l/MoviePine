@@ -2,9 +2,11 @@
 
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Play, Plus, Info } from "lucide-react"
+import { Play, Info } from "lucide-react"
 import Image from "next/image"
-import { useState } from "react"
+import { useState, useCallback } from "react"
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useMyList } from '@/components/list/useMyList'
 
 interface MoviepireMovieCardProps {
   movie: {
@@ -31,6 +33,19 @@ export function MoviepireMovieCard({
 }: MoviepireMovieCardProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [imageError, setImageError] = useState(false)
+  const { watchlist, addWatch, removeWatch } = useMyList()
+
+  const isInWatchlist = watchlist.some(w => w.content_id === movie.id)
+  
+  const handleWatchlistToggle = useCallback(() => {
+    if (isInWatchlist) {
+      removeWatch(movie.id)
+    } else {
+      addWatch(movie.id, 'movie')
+    }
+    // Call the optional callback
+    onAddToList?.(movie)
+  }, [isInWatchlist, removeWatch, addWatch, movie, onAddToList])
 
   const handleImageError = () => {
     setImageError(true)
@@ -87,19 +102,15 @@ export function MoviepireMovieCard({
                   <Play className="w-4 h-4 fill-current" />
                 </Button>
               )}
-              {onAddToList && (
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="overlay-btn-circular h-8 w-8 rounded-full"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onAddToList(movie)
-                  }}
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              )}
+              <div onClick={(e) => e.stopPropagation()}>
+                <WatchlistToggleButton
+                  inList={isInWatchlist}
+                  size={32}
+                  variant="overlay"
+                  onToggle={handleWatchlistToggle}
+                  className="overlay-btn-circular"
+                />
+              </div>
               {onMoreInfo && (
                 <Button
                   size="icon"

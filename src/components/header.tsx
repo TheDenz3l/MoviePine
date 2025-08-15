@@ -26,7 +26,7 @@ export function Header() {
                 TV Shows
               </Button>
               <Button variant="ghost" className="text-white hover:text-gray-300">
-                My List
+                Watchlist
               </Button>
             </nav>
           </div>

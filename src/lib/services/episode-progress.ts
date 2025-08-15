@@ -10,8 +10,18 @@ interface EpisodeProgressRow {
   updated_at?: string
 }
 
-const getUserId = () => {
-  return process.env.NEXT_PUBLIC_DEMO_USER_ID || 'anon'
+/**
+ * Resolve current authenticated user id.
+ * Returns null if not signed in (we skip persistence in that case).
+ */
+async function resolveUserId(): Promise<string | null> {
+  try {
+    if (!supabase) return null
+    const { data } = await supabase.auth.getUser()
+    return data.user?.id || null
+  } catch {
+    return null
+  }
 }
 
 // Throttle state kept in-memory per tab
@@ -21,8 +31,10 @@ const MIN_INTERVAL_MS = 12_000
 export async function saveEpisodeProgress(params: { seriesId: string; season: number; episode: number; seconds: number; duration: number }) {
   if (!supabase) return
   try {
+    const userId = await resolveUserId()
+    if (!userId) return // not signed in; skip persistence
     const { seriesId, season, episode, seconds, duration } = params
-    const key = `${getUserId()}|${seriesId}|${season}|${episode}`
+    const key = `${userId}|${seriesId}|${season}|${episode}`
     const now = Date.now()
     const entry = lastSaves[key]
     const fraction = duration > 0 ? seconds / duration : 0
@@ -30,7 +42,7 @@ export async function saveEpisodeProgress(params: { seriesId: string; season: nu
     lastSaves[key] = { at: shouldSend ? now : (entry?.at || now), seconds, duration }
     if (!shouldSend) return
     await supabase.from('episode_progress').upsert({
-      user_id: getUserId(),
+      user_id: userId,
       series_id: seriesId,
       season,
       episode,
@@ -45,11 +57,13 @@ export async function saveEpisodeProgress(params: { seriesId: string; season: nu
 export async function fetchSeriesProgress(seriesId: string): Promise<Record<string, { fraction: number; seconds: number }>> {
   if (!supabase) return {}
   try {
+    const userId = await resolveUserId()
+    if (!userId) return {}
     const { data, error } = await supabase
       .from('episode_progress')
       .select('season,episode,seconds,duration')
       .eq('series_id', seriesId)
-      .eq('user_id', getUserId())
+      .eq('user_id', userId)
     if (error || !data) return {}
     const out: Record<string, { fraction: number; seconds: number }> = {}
     for (const row of data) {

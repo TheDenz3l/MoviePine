@@ -1,7 +1,9 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useMyList } from '@/components/list/useMyList'
 import { Search, X, Loader2 } from 'lucide-react'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 import { Button } from '@/components/ui/button'
 
 interface NetflixSearchItem {
@@ -37,7 +39,7 @@ export default function NetflixGridSearchOverlay({
   const searchRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY || ''
-  const debounceRef = useRef<NodeJS.Timeout>()
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   // Focus input on open
   useEffect(() => {
@@ -175,9 +177,9 @@ export default function NetflixGridSearchOverlay({
     onClose()
   }
 
-  const handleAdd = (id: string) => {
-    onAddToList(id)
-  }
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = useCallback((id: string) => !!watchlist?.some(w=>w.content_id===id), [watchlist])
+  const toggle = (id: string, type: 'movie' | 'tv') => { inWatch(id) ? removeWatch(id) : addWatch(id, type==='tv'?'series':'movie') }
 
   const handleMoreInfo = (id: string, type: 'movie' | 'tv') => {
     onMoreInfo(id, type)
@@ -335,18 +337,14 @@ export default function NetflixGridSearchOverlay({
                           </svg>
                           Play
                         </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleAdd(item.id)
-                          }}
-                          className="bg-gray-800/80 text-white p-2 rounded hover:bg-gray-700/80 transition-colors"
-                          title="Add to My List"
-                        >
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M12 5v14M5 12h14" />
-                          </svg>
-                        </button>
+                        <WatchlistToggleButton
+                          inList={inWatch(item.id)}
+                          size={34}
+                          variant="overlay"
+                          onToggle={()=>toggle(item.id, item.type)}
+                          ariaLabelAdd="Add to Watchlist"
+                          ariaLabelRemove="Remove from Watchlist"
+                        />
                         <button
                           onClick={(e) => {
                             e.stopPropagation()

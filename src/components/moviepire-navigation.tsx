@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Search, Home, Film, Tv, Bookmark, Zap } from "lucide-react"
+import { ProfileMenu } from '@/components/auth/ProfileMenu'
 import { useState, useEffect, useRef } from "react"
 import { TMDBAPI } from '@/lib/api/tmdb'
 
@@ -12,6 +13,12 @@ interface SearchResult {
   backdrop?: string
   year?: number
   type: 'movie' | 'tv'
+}
+
+interface NavItem {
+  name: string
+  icon: React.ComponentType<{ className?: string }>
+  url?: string
 }
 
 interface MoviepireNavigationProps {
@@ -164,11 +171,11 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
   }
 
   const navItems = [
-    { id: 'home', label: 'Browse', icon: Home },
+    { id: 'home', label: 'Browse', icon: Home, url: 'http://localhost:3000/' },
     { id: 'explore-movies', label: 'Movies', icon: Film },
     { id: 'tv-series', label: 'TV Series', icon: Tv },
     { id: 'live-tv', label: 'Live TV', icon: Zap },
-    { id: 'recently-played', label: 'My List', icon: Bookmark },
+    { id: 'watchlist', label: 'Watchlist', icon: Bookmark },
   ]
 
   return (
@@ -197,7 +204,13 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
           return (
             <button
               key={item.id}
-              onClick={() => onNavigate(item.id)}
+              onClick={() => {
+                if (item.url) {
+                  window.location.href = item.url
+                } else {
+                  onNavigate(item.id)
+                }
+              }}
               className={`flex items-center text-sm font-bold transition-colors duration-200 hover:text-white ${
                 activeCategory === item.id
                   ? 'text-red-600'
@@ -211,8 +224,8 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
         })}
       </div>
 
-      {/* Search - Fixed position search bar */}
-      <div className="flex items-center relative" ref={searchContainerRef}>
+  {/* Search + Profile */}
+  <div className="flex items-center gap-2 relative" ref={searchContainerRef}>
         <Button
           variant="ghost"
           size="icon"
@@ -222,7 +235,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
           <Search className="w-5 h-5" />
         </Button>
 
-        {showSearch && (
+  {showSearch && (
           <div className="absolute right-0 top-0 z-50 transform transition-all duration-300 ease-out animate-in slide-in-from-right-4">
             <form onSubmit={handleSearchSubmit} className="flex items-center">
               <input
@@ -236,6 +249,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
             </form>
           </div>
         )}
+  <ProfileMenu />
       </div>
     </nav>
   )

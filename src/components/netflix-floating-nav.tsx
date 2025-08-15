@@ -14,7 +14,7 @@ const navigationItems = [
   { category: "tv", label: "TV Series" },
   { category: "movies", label: "Films" },
   { category: "new", label: "New & Popular" },
-  { category: "watchlist", label: "My List" },
+  { category: "watchlist", label: "Watchlist" },
   { category: "random", label: "Browse by Languages" }
 ]
 

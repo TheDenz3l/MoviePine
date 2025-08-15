@@ -1,6 +1,8 @@
 import React from 'react'
-import { X, Play, Plus, ThumbsUp, ChevronDown } from 'lucide-react'
+import { X, Play, ThumbsUp, ChevronDown } from 'lucide-react'
+import { useMyList } from '@/components/list/useMyList'
 import { Button } from '@/components/ui/button'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 import { ImdbRating } from '@/components/imdb-rating'
 
 interface Movie {
@@ -21,7 +23,7 @@ interface MoviepireModalProps {
   isOpen: boolean
   onClose: () => void
   onPlay: (movieId: number) => void
-  onAddToList: (movieId: number) => void
+  onAddToList?: (movieId: number) => void // optional; internal watchlist toggles
   relatedMovies?: Movie[]
   onMovieSelect?: (movieId: number) => void
 }
@@ -36,6 +38,13 @@ export function MoviepireModal({
   onMovieSelect
 }: MoviepireModalProps) {
   if (!isOpen || !movie) return null
+
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inList = !!watchlist?.some(w => w.content_id === String(movie.id))
+  const toggleList = () => {
+    inList ? removeWatch(String(movie.id)) : addWatch(String(movie.id), 'movie')
+    onAddToList?.(movie.id)
+  }
 
   const formatRuntime = (minutes?: number) => {
     if (!minutes) return ''
@@ -110,14 +119,11 @@ export function MoviepireModal({
                   <Play className="w-4 h-4 mr-2 fill-current" />
                   Play
                 </Button>
-                <Button
-                  onClick={() => onAddToList(movie.id)}
-                  variant="outline"
-                  className="border-white/60 text-white hover:bg-white hover:text-black px-5 py-2.5"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  My List
-                </Button>
+                <div className="flex items-center">
+                  <div className="h-10 w-10 mr-3 flex items-center justify-center" onClick={(e)=>e.stopPropagation()}>
+                    <WatchlistToggleButton inList={inList} size={40} variant="overlay" onToggle={toggleList} />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

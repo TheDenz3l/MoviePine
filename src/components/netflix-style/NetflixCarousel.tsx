@@ -12,8 +12,27 @@ export function NetflixCarousel({
   onPlay,
   onAddToList,
   onMoreInfo,
-  showMovieTitles = false
+  showMovieTitles = false,
+  isInList
 }: NetflixCarouselProps) {
+  // Deduplicate incoming movies by id to avoid React key collisions
+  const dedupedMovies = (() => {
+    const seen = new Set<string>()
+    const dupes: string[] = []
+    const list = [] as typeof movies
+    for (const m of movies) {
+      const id = m.id?.toString() || ''
+      if (!id) continue
+      if (seen.has(id)) { dupes.push(id); continue }
+      seen.add(id)
+      list.push(m)
+    }
+    if (dupes.length) {
+      // eslint-disable-next-line no-console
+      console.warn('[NetflixCarousel] Duplicate movie ids removed:', Array.from(new Set(dupes)))
+    }
+    return list
+  })()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [scrollState, setScrollState] = useState({ canScrollLeft: false, canScrollRight: false })
 
@@ -46,7 +65,7 @@ export function NetflixCarousel({
     setTimeout(updateScrollState, 100)
   }
 
-  if (!movies || movies.length === 0) return null
+  if (!dedupedMovies || dedupedMovies.length === 0) return null
 
   return (
     <div className="relative mb-1">
@@ -99,7 +118,7 @@ export function NetflixCarousel({
           }}
           onScroll={updateScrollState}
         >
-          {movies.map((movie) => (
+  {dedupedMovies.map((movie) => (
             <NetflixCard
               key={movie.id}
               movie={movie}
@@ -107,6 +126,7 @@ export function NetflixCarousel({
               onAddToList={onAddToList}
               onMoreInfo={onMoreInfo}
               showTitle={showMovieTitles}
+        isInList={isInList}
             />
           ))}
         </div>

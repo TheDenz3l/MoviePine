@@ -15,6 +15,7 @@ export interface NetflixCarouselProps {
   onAddToList?: (movie: NetflixMovie) => void
   onMoreInfo?: (movie: NetflixMovie) => void
   showMovieTitles?: boolean
+  isInList?: (id: string) => boolean
 }
 
 export interface NetflixCardProps {
@@ -23,6 +24,7 @@ export interface NetflixCardProps {
   onAddToList?: (movie: NetflixMovie) => void
   onMoreInfo?: (movie: NetflixMovie) => void
   showTitle?: boolean
+  isInList?: (id: string) => boolean
 }
 
 export interface NetflixGridProps {

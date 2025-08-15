@@ -8,6 +8,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize, X, Languages, Subtitles, Setti
 import { Button } from '@/components/ui/button'
 import { RecentlyPlayedService } from '@/lib/services/recently-played-service'
 import { queueProgressUpdate, immediateProgressUpdate } from '@/lib/services/progress-sync'
+import { getPrivacyTrackFlag } from '@/lib/settingsCache'
 import { saveEpisodeProgress } from '@/lib/services/episode-progress'
 import { emitPlayerError } from '@/lib/utils/player-error'
 
@@ -740,7 +741,7 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
 
           {/* Controls row */}
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" onClick={() => skipTime(-10)} className="text-white hover:bg-white/20" aria-label="Back 10s"><Rewind className="w-5 h-5" /></Button>
               <Button variant="ghost" size="icon" onClick={togglePlay} className="text-white hover:bg-white/20" aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}</Button>
               <Button variant="ghost" size="icon" onClick={() => skipTime(10)} className="text-white hover:bg-white/20" aria-label="Forward 10s"><FastForward className="w-5 h-5" /></Button>
@@ -754,6 +755,7 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
               {audioTracks.length > 0 && <div className="relative"><Button variant="ghost" size="icon" aria-label="Audio" onClick={(e) => { e.stopPropagation(); toggleMenu('audio') }} className={`${showAudioMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><Languages className="w-5 h-5" /></Button>{showAudioMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-2 w-48 text-xs space-y-1 z-50"><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Audio</p>{audioTracks.map(t => <button key={t.id} onClick={() => { selectAudioTrack(t.id); setShowAudioMenu(false) }} className={`w-full text-left px-2 py-1 rounded hover:bg-white/10 ${selectedAudioTrack === t.id ? 'text-red-400' : ''}`}>{t.label}{t.language && t.language !== 'unknown' && ` (${t.language})`}</button>)}</div>}</div>}
               {subtitleTracks.length > 1 && <div className="relative"><Button variant="ghost" size="icon" aria-label="Subtitles" onClick={(e) => { e.stopPropagation(); toggleMenu('subs') }} className={`${showSubtitleMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><Subtitles className="w-5 h-5" /></Button>{showSubtitleMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-2 w-56 text-xs space-y-1 z-50 max-h-64 overflow-auto"><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Subtitles</p>{subtitleTracks.map(t => <button key={t.id} onClick={() => { selectSubtitleTrack(t.id); setShowSubtitleMenu(false) }} className={`w-full text-left px-2 py-1 rounded hover:bg-white/10 ${selectedSubtitleTrack === t.id ? 'text-red-400' : ''}`}>{t.label}</button>)}</div>}</div>}
               <div className="relative"><Button variant="ghost" size="icon" aria-label="Settings" onClick={(e) => { e.stopPropagation(); toggleMenu('settings') }} className={`${showSettingsMenu ? 'bg-white/20' : ''} hover:bg-white/20`}><SettingsIcon className="w-5 h-5" /></Button>{showSettingsMenu && <div className="absolute bottom-10 right-0 bg-black/80 backdrop-blur-sm border border-white/20 rounded p-3 w-60 text-xs space-y-3 z-50"><div><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Playback Speed</p><div className="flex flex-wrap gap-1">{[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(r => <button key={r} onClick={() => setPlaybackRate(r)} className={`px-2 py-1 rounded bg-white/10 hover:bg-white/20 ${playbackRate === r ? 'bg-red-600 text-white' : ''}`}>{r}x</button>)}</div></div><div><p className="uppercase tracking-wide text-[10px] text-white/60 mb-1">Quality</p><div className="px-2 py-1 rounded bg-white/10 flex items-center justify-between">Auto<span className="text-white/40 text-[10px]"></span></div><p className="text-[10px] text-white/40 mt-1">Quality picked by stream scoring logic.</p></div></div>}</div>
+              {!getPrivacyTrackFlag() && <div className="px-2 py-1 text-[10px] rounded bg-yellow-500/20 border border-yellow-400/40 text-yellow-200 tracking-wide">Tracking Paused</div>}
               <Button variant="ghost" size="icon" aria-label="Picture in Picture" onClick={enterPip} className="text-white hover:bg-white/20"><PictureInPicture2 className="w-5 h-5" /></Button>
               <Button variant="ghost" size="icon" aria-label="Fullscreen" onClick={toggleFullscreen} className="text-white hover:bg-white/20"><Maximize className="w-5 h-5" /></Button>
             </div>

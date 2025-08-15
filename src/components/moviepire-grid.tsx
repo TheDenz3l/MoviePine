@@ -1,7 +1,9 @@
 "use client"
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import PosterImage from '@/components/hover/PosterImage'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useWatchlistActions } from '@/components/list/useWatchlistActions'
 import clsx from 'clsx'
 
 export interface MoviepireGridItem {
@@ -71,6 +73,7 @@ export function MoviepireGrid<T extends MoviepireGridItem>({
   prefetchNeighbors = true,
   showMetadata = true,
 }: MoviepireGridProps<T>) {
+  const { isInWatchlist, toggleWatchlist } = useWatchlistActions()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const [visible, setVisible] = useState<Set<string>>(()=>new Set())
@@ -287,14 +290,18 @@ export function MoviepireGrid<T extends MoviepireGridItem>({
                     >
                       <Play className="h-4 w-4" />
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`Add ${item.title} to list`}
-                      onClick={(e)=>{ e.stopPropagation(); onAdd?.(item.id) }}
-                      className="pointer-events-auto h-7 w-7 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
+                    <WatchlistToggleButton
+                      inList={isInWatchlist(item.id)}
+                      size={28}
+                      variant="overlay"
+                      onToggle={() => {
+                        toggleWatchlist(item.id, 'movie', item.title, item.poster)
+                        if (!isInWatchlist(item.id)) onAdd?.(item.id)
+                      }}
+                      className="pointer-events-auto h-7"
+                      ariaLabelAdd={`Add ${item.title} to Watchlist`}
+                      ariaLabelRemove={`Remove ${item.title} from Watchlist`}
+                    />
                     <button
                       type="button"
                       aria-label={`More info about ${item.title}`}

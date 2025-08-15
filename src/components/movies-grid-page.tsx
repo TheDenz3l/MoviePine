@@ -1,6 +1,9 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Info } from 'lucide-react'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useMyList } from '@/components/list/useMyList'
 import { TMDBAPI } from '@/lib/api/tmdb'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireFooter } from '@/components/moviepire-footer'
@@ -12,7 +15,7 @@ interface MoviesGridPageProps {
   onNavigate: (category: string) => void
   activeCategory: string
   onPlay: (id: string, title: string) => void
-  onAddToList: (id: string) => void
+  onAddToList?: (id: string) => void // optional; unified card toggle handles watchlist
   onMoreInfo: (id: string) => void
 }
 
@@ -51,6 +54,8 @@ const SORT_OPTIONS: { id: string; label: string; tmdb: string }[] = [
 const movieCache = new Map<CacheKey, { items: GridMovieItem[]; totalPages: number }>()
 
 export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList, onMoreInfo }: MoviesGridPageProps) {
+  // Watchlist integration (direct to unify with overlay behavior)
+  const { watchlist, addWatch, removeWatch } = useMyList()
   const [category, setCategory] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('moviesGrid:lastCategory') || 'popular'
@@ -348,7 +353,9 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
         {/* Grid/List view */}
         {!isLoadingInitial && !error && viewMode === 'grid' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4" role="grid" aria-label={`${headingTitle} Movies Grid`}>
-            {movies.map((movie, idx) => (
+            {movies.map((movie, idx) => {
+              const inWatch = watchlist.some(w => w.content_id === movie.id)
+              return (
               <div
                 key={movie.id + '-' + idx}
                 role="gridcell"
@@ -375,27 +382,36 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                       className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
                       title="Play"
                     >▶</button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onAddToList(movie.id); window.dispatchEvent(new CustomEvent('app:movieAddToList', { detail: { id: movie.id, title: movie.title } })) }}
-                      className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
-                      title="Add to List"
-                    >+</button>
+                    <WatchlistToggleButton
+                      inList={inWatch}
+                      size={40}
+                      variant="overlay"
+                      onToggle={() => {
+                        inWatch ? removeWatch(movie.id) : addWatch(movie.id, 'movie')
+                        onAddToList?.(movie.id)
+                      }}
+                    />
                     <button
                       onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) }}
                       className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
                       title="More Info"
-                    >i</button>
+                      aria-label="More Info"
+                    >
+                      <Info className="h-5 w-5" />
+                    </button>
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
 
         {/* List view */}
         {!isLoadingInitial && !error && viewMode === 'list' && (
           <div className="flex flex-col gap-4" role="list" aria-label={`${headingTitle} Movies List`}>
-            {movies.map((movie, idx) => (
+            {movies.map((movie, idx) => {
+              const inWatch = watchlist.some(w => w.content_id === movie.id)
+              return (
               <div
                 key={movie.id + '-' + idx}
                 role="listitem"
@@ -426,19 +442,26 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                     className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
                     title="Play"
                   >▶</button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onAddToList(movie.id); window.dispatchEvent(new CustomEvent('app:movieAddToList', { detail: { id: movie.id, title: movie.title } })) }}
-                    className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
-                    title="Add to List"
-                  >+</button>
+                  <WatchlistToggleButton
+                    inList={inWatch}
+                    size={40}
+                    variant="overlay"
+                    onToggle={() => {
+                      inWatch ? removeWatch(movie.id) : addWatch(movie.id, 'movie')
+                      onAddToList?.(movie.id)
+                    }}
+                  />
                   <button
                     onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) }}
                     className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
                     title="More Info"
-                  >i</button>
+                    aria-label="More Info"
+                  >
+                    <Info className="h-5 w-5" />
+                  </button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
 

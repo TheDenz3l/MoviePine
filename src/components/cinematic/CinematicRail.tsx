@@ -4,9 +4,11 @@ import { CinematicItemBase, CinematicConfig, defaultCinematicConfig } from './ty
 import { useHorizontalVirtualWindow } from './useVirtualWindow'
 import { useSharedPreview } from './useSharedPreview'
 import PosterImage from '@/components/hover/PosterImage'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import clsx from 'clsx'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useMyList } from '@/components/list/useMyList'
 
 interface CinematicRailProps<T extends CinematicItemBase> {
   id?: string
@@ -39,6 +41,18 @@ export function CinematicRail<T extends CinematicItemBase>({
 
   const { containerRef, range } = useHorizontalVirtualWindow(items.length, merged.card.width, merged.card.gap, merged.behavior.virtualizationBufferPx)
   const { hovered, enter, scheduleClear, cancelClear } = useSharedPreview<HoverState<T>["item"]>({ activationDelay: merged.preview.activationDelay, clearDelay: merged.behavior.retainPreviewMs })
+  // Watchlist integration
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const isInList = useCallback((id: string) => watchlist.some(w=>w.content_id===id), [watchlist])
+  const handleToggle = useCallback((id: string) => {
+    const present = isInList(id)
+    if (present) {
+      removeWatch(id)
+    } else {
+      addWatch(id, 'movie')
+    }
+    onAdd?.(id)
+  }, [isInList, addWatch, removeWatch, onAdd])
   // Track last hovered id to suppress positional transition (no sliding) when switching items
   const lastIdRef = useRef<string | null>(null)
   const justSwitchedRef = useRef(false)
@@ -148,7 +162,9 @@ export function CinematicRail<T extends CinematicItemBase>({
                 <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 select-text">
                   <div className="flex items-center space-x-2">
                     <Button size="sm" className="h-8 px-3 rounded-full bg-white text-black hover:bg-white/90" onClick={(e) => { e.stopPropagation(); onPlay?.(hovered.item.id) }}><Play className="h-4 w-4 mr-1" />Play</Button>
-                    <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-white/30 text-white hover:bg-white/10" onClick={(e) => { e.stopPropagation(); onAdd?.(hovered.item.id) }}><Plus className="h-4 w-4" /></Button>
+                    <div className="h-8 w-8 flex items-center justify-center">
+                      <WatchlistToggleButton inList={isInList(hovered.item.id)} size={32} variant="overlay" onToggle={()=>handleToggle(hovered.item.id)} />
+                    </div>
                     <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-white/30 text-white hover:bg-white/10" onClick={(e) => { e.stopPropagation(); onInfo?.(hovered.item.id) }}><Info className="h-4 w-4" /></Button>
                   </div>
                   <div className="space-y-1 text-white">

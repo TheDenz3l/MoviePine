@@ -2,6 +2,8 @@
 
 import CinematicRail from '@/components/cinematic/CinematicRail'
 import { Search } from 'lucide-react'
+import { useMyList } from '@/components/list/useMyList'
+import { useCallback } from 'react'
 
 interface SearchResult {
   id: string
@@ -29,6 +31,21 @@ export function SeamlessSearchOverlay({
   onAddToList,
   onMoreInfo
 }: SeamlessSearchOverlayProps) {
+  const { addWatch } = useMyList()
+
+  // Enhanced add to list handler that provides visual feedback
+  const handleAddToList = useCallback((movie: SearchResult) => {
+    // Add to watchlist with proper content type
+    const contentType = movie.type === 'tv' ? 'series' : 'movie'
+    addWatch(movie.id, contentType)
+    
+    // Call the original callback
+    onAddToList(movie)
+    
+    // Show a brief toast-like feedback (optional enhancement)
+    // You could add a toast notification here if needed
+  }, [addWatch, onAddToList])
+
   // Don't render anything if there's no search query
   if (!searchQuery.trim()) {
     return null
@@ -69,7 +86,7 @@ export function SeamlessSearchOverlay({
                 genre: [result.type === 'movie' ? 'Movie' : 'TV Show']
               })) as any}
               onPlay={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onPlay(id, found.title) }}
-              onAdd={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onAddToList(found) }}
+              onAdd={(id) => { const found = searchResults.find(r=>r.id===id); if(found) handleAddToList(found) }}
               onInfo={(id) => { const found = searchResults.find(r=>r.id===id); if(found) onMoreInfo(found) }}
             />
           ) : !isSearching && searchQuery.trim() ? (

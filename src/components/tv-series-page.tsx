@@ -1,17 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { StreamingService } from '@/lib/services/streaming'
 import { StreamingSeries } from '@/lib/services/streaming'
 import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { NetflixCarousel as NewNetflixCarousel } from '@/components/netflix-style'
+import { useMyList } from '@/components/list/useMyList'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
 
 interface TVSeriesPageProps {
   onPlay: (seriesId: string, title: string) => void
-  onAddToList: (seriesId: string) => void
+  onAddToList?: (seriesId: string) => void // optional now
   onMoreInfo: (seriesId: string) => void
   onNavigate: (category: string) => void
   onSearch: (query: string) => void
@@ -34,6 +35,9 @@ export function TVSeriesPage({
   onSearch,
   activeCategory
 }: TVSeriesPageProps) {
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = useCallback((id:string)=> !!watchlist?.some(w=>w.content_id===id), [watchlist])
+  const toggleWatch = (id:string) => { inWatch(id) ? removeWatch(id) : addWatch(id,'series'); onAddToList?.(id) }
   // Series state
   const [featuredSeries, setFeaturedSeries] = useState<StreamingSeries | null>(null)
   const [trendingSeries, setTrendingSeries] = useState<StreamingSeries[]>([])
@@ -152,9 +156,7 @@ export function TVSeriesPage({
     setSearchQuery("")
   }
 
-  const handleAddToList = (movie: any) => {
-    onAddToList(movie.id)
-  }
+  const handleAddToList = (movie: any) => { toggleWatch(movie.id) }
 
   // Unified more-info handler: supports being called with either a movie object or a raw id string.
   // The hero component invokes onMoreInfo with a string id; the carousel passes a movie object.
@@ -262,6 +264,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -281,6 +284,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -300,6 +304,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -319,6 +324,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -338,6 +344,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -357,6 +364,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -376,6 +384,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -395,6 +404,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>
@@ -414,6 +424,7 @@ export function TVSeriesPage({
             }))}
             onPlay={handlePlay}
             onAddToList={handleAddToList}
+            isInList={(id:string)=>inWatch(id)}
             onMoreInfo={handleMoreInfo}
           />
         </section>

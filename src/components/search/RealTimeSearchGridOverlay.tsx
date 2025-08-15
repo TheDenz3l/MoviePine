@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useMyList } from '@/components/list/useMyList'
 import { Search, Home, Film, Tv, Bookmark, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TMDBAPI } from '@/lib/api/tmdb';
@@ -21,7 +22,7 @@ interface RealTimeSearchGridOverlayProps {
   activeCategory?: string;
   onClose: () => void;
   onPlay: (id: string, title: string) => void;
-  onAddToList: (id: string) => void;
+  onAddToList?: (id: string) => void; // optional now
   onMoreInfo: (id: string) => void;
 }
 
@@ -50,7 +51,7 @@ export function RealTimeSearchGridOverlay({
     { id: 'explore-movies', label: 'Movies', icon: Film },
     { id: 'tv-series', label: 'TV Series', icon: Tv },
     { id: 'live-tv', label: 'Live TV', icon: Zap },
-    { id: 'recently-played', label: 'My List', icon: Bookmark },
+  { id: 'watchlist', label: 'Watchlist', icon: Bookmark },
   ];
 
   // Immediately show search input and focus when overlay opens - FIX DOUBLE TYPING
@@ -218,6 +219,9 @@ export function RealTimeSearchGridOverlay({
     window.dispatchEvent(new CustomEvent('app:navigate', { detail: { category: categoryId } }));
   };
 
+  const { watchlist, addWatch, removeWatch } = useMyList()
+  const inWatch = (id: string) => watchlist?.some(f=>f.content_id===id)
+  const toggle = (id: string, type: 'movie' | 'tv') => { inWatch(id) ? removeWatch(id) : addWatch(id, type==='tv'?'series':'movie') }
   return (
     <div className="fixed inset-0 z-[1200] bg-black/95 backdrop-blur-sm flex flex-col">
       {/* Navigation Bar - EXACT match to homepage navigation */}
@@ -389,25 +393,11 @@ export function RealTimeSearchGridOverlay({
                     >
                       ▶
                     </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        console.log('➕ [SEARCH] Add to list button clicked for:', result.id, result.title);
-                        // Direct event dispatch with complete data
-                        window.dispatchEvent(new CustomEvent('app:searchAddToList', { 
-                          detail: { 
-                            id: result.id, 
-                            title: result.title,
-                            poster: result.poster,
-                            type: result.type
-                          } 
-                        }));
-                      }} 
-                      className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
-                      title="Add to List"
-                    >
-                      +
-                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggle(result.id, result.type) }}
+                      className={`h-10 w-10 rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-white ${inWatch(result.id)?'bg-red-600 text-white hover:bg-red-500':'bg-zinc-800/70 text-white hover:bg-white hover:text-black'}`}
+                      title={inWatch(result.id)?'Remove from Watchlist':'Add to Watchlist'}
+                    >{inWatch(result.id)?'✓':'+'}</button>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();

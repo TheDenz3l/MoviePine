@@ -2,8 +2,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RailItemBase, InteractionCallbacks, defaultAppleRailConfig, AppleRailConfig } from './rail-types'
 import PosterImage from '@/components/hover/PosterImage'
-import { Play, Plus, Info } from 'lucide-react'
+import { Play, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
+import { useWatchlistActions } from '@/components/list/useWatchlistActions'
 import clsx from 'clsx'
 
 interface AppleCinematicRailProps<T extends RailItemBase> extends InteractionCallbacks {
@@ -130,11 +132,7 @@ export function AppleCinematicRail<T extends RailItemBase>({
                   className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/50 to-black/80" />
                 <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 select-text">
-                  <div className="flex items-center space-x-2">
-                    <Button size="sm" className="h-8 px-3 rounded-full bg-white text-black hover:bg-white/90" onClick={(e) => { e.stopPropagation(); onPlay?.(hovered.item.id) }}><Play className="h-4 w-4 mr-1" />Play</Button>
-                    <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-white/30 text-white hover:bg-white/10" onClick={(e) => { e.stopPropagation(); onAdd?.(hovered.item.id) }}><Plus className="h-4 w-4" /></Button>
-                    <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-white/30 text-white hover:bg-white/10" onClick={(e) => { e.stopPropagation(); onInfo?.(hovered.item.id) }}><Info className="h-4 w-4" /></Button>
-                  </div>
+                  <PreviewActions id={hovered.item.id} title={hovered.item.title} onPlay={onPlay} onAdd={onAdd} onInfo={onInfo} />
                   <div className="space-y-1 text-white">
                     <h3 className="font-semibold text-sm leading-tight line-clamp-2">{hovered.item.title}</h3>
                     {renderMeta ? renderMeta(hovered.item) : (
@@ -158,3 +156,34 @@ export function AppleCinematicRail<T extends RailItemBase>({
 }
 
 export default AppleCinematicRail
+
+interface PreviewActionsProps {
+  id: string
+  title?: string
+  onPlay?: (id: string) => void
+  onAdd?: (id: string) => void
+  onInfo?: (id: string) => void
+}
+
+function PreviewActions({ id, title, onPlay, onAdd, onInfo }: PreviewActionsProps) {
+  const { isInWatchlist, toggleWatchlist } = useWatchlistActions()
+  const inList = isInWatchlist(id)
+  return (
+    <div className="flex items-center space-x-2">
+      <Button size="sm" className="h-8 px-3 rounded-full bg-white text-black hover:bg-white/90" onClick={(e) => { e.stopPropagation(); onPlay?.(id) }}><Play className="h-4 w-4 mr-1" />Play</Button>
+      <WatchlistToggleButton
+        inList={inList}
+        size={32}
+        className="h-8"
+        variant="overlay"
+        onToggle={() => {
+          toggleWatchlist(id, 'movie', title)
+          if (!inList) onAdd?.(id)
+        }}
+        ariaLabelAdd="Add to Watchlist"
+        ariaLabelRemove="Remove from Watchlist"
+      />
+      <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-white/30 text-white hover:bg-white/10" onClick={(e) => { e.stopPropagation(); onInfo?.(id) }}><Info className="h-4 w-4" /></Button>
+    </div>
+  )
+}

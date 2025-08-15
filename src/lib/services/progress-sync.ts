@@ -1,5 +1,7 @@
 // Client-side progress sync helper (hybrid local + server)
-// Uses /api/progress endpoint (server uses service role key). Avoids exposing service key client side.
+// Now uses bearer token & RLS-secured /api/progress endpoint. Respects privacy settings toggle.
+import { supabase } from '@/lib/supabaseClient'
+import { getPrivacyTrackFlag } from '@/lib/settingsCache'
 
 interface PendingUpdate {
   contentId: string
@@ -26,11 +28,14 @@ async function flush() {
   if (QUEUE.length === 0) return
   const batch = [...QUEUE]
   QUEUE.length = 0
+  const token = (await supabase?.auth.getSession().catch(()=>null))?.data.session?.access_token
+  // Skip entirely if tracking disabled
+  if (!getPrivacyTrackFlag()) return
   for (const upd of batch) {
     try {
       await fetch('/api/progress', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           contentId: upd.contentId,
           currentTime: upd.currentTime,

@@ -7,10 +7,22 @@ interface PosterImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "on
   fallbackSrc?: string
 }
 
+// Rewrites certain remote image hosts through local proxy to avoid CORS errors & enable future transformations
+function rewriteSrc(raw?: string): string | undefined {
+  if (!raw) return raw
+  try {
+    const u = new URL(raw)
+    if (u.hostname === 'image.tmdb.org' || u.hostname === 'images.unsplash.com') {
+      return `/api/image?url=${encodeURIComponent(raw)}`
+    }
+  } catch {}
+  return raw
+}
+
 export default function PosterImage({ fallbackSrc = "/placeholder-movie.jpg", alt = "", className, src, ...rest }: PosterImageProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const isBlob = src instanceof Blob
-  const desiredSrc: string | undefined = isBlob ? objectUrl ?? undefined : (src as string | undefined)
+  const desiredSrc: string | undefined = isBlob ? objectUrl ?? undefined : rewriteSrc(src as string | undefined)
   const [activeSrc, setActiveSrc] = useState<string>(desiredSrc || fallbackSrc)
   const lastRequested = useRef<string | null>(desiredSrc || fallbackSrc)
 

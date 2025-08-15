@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Film } from 'lucide-react'
+import { useMyList } from '@/components/list/useMyList'
 import { StreamingService, createStreamingService } from '@/lib/services/streaming'
 import { StreamingMovie, StreamingSeries } from '@/lib/services/streaming'
 import { TMDBAPI } from '@/lib/api/tmdb'
@@ -30,6 +31,7 @@ import { TVGardenLiveTVPage } from '@/components/tv-garden-live-tv-page'
 import { LiveTVPage } from '@/components/live-tv-page'
 import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
+import { useWatchlistToast } from '@/components/watchlist/WatchlistToast'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
 // import { SearchResultsPage } from '@/components/search-results-page'
@@ -108,6 +110,21 @@ export default function ClientOnlyMovieApp() {
 
   // Ref to prevent React Strict Mode double invocation issues
   const isVideoPlayerOpenRef = useRef(false)
+
+  // Watchlist toast notifications
+  const { ToastContainer } = useWatchlistToast()
+
+  // Watchlist data (must be declared before any conditional early returns to preserve hook order)
+  const { watchlist } = useMyList()
+  const watchlistTransformed = useMemo(() => watchlist.map(w => ({
+    id: w.content_id,
+    title: w.title || 'Untitled',
+    poster: w.poster || '',
+    backdrop: w.poster || '',
+    year: w.year,
+    rating: w.rating || 0,
+    genre: w.content_type ? [w.content_type === 'series' ? 'Series' : 'Movie'] : []
+  })).slice(0, 36), [watchlist])
 
   // Robust video player state setter that prevents Strict Mode issues
   const setVideoPlayerOpen = useCallback((open: boolean) => {
@@ -258,16 +275,7 @@ export default function ClientOnlyMovieApp() {
     }
     window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie)
     
-    const handleSearchAddToList = (e: Event) => {
-      const custom = e as CustomEvent<any>
-      const detail = custom.detail || {}
-      console.log('➕ [EVENT] Search add to list received:', detail)
-      
-      if (detail.id && detail.title) {
-        alert(`➕ Added "${detail.title}" to your list!`)
-      }
-    }
-    window.addEventListener('app:searchAddToList', handleSearchAddToList)
+  // Removed legacy app:searchAddToList handler in favor of direct toggle buttons using watchlist hook
     
     const handleSearchMoreInfo = async (e: Event) => {
       const custom = e as CustomEvent<any>
@@ -290,7 +298,7 @@ export default function ClientOnlyMovieApp() {
       window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch)
       window.removeEventListener('app:navigate', handleGlobalNavigate)
       window.removeEventListener('app:searchPlayMovie', handleSearchPlayMovie)
-      window.removeEventListener('app:searchAddToList', handleSearchAddToList)
+  // legacy searchAddToList listener removed
       window.removeEventListener('app:searchMoreInfo', handleSearchMoreInfo)
     }
   }, [showRealTimeSearch, isModalOpen])
@@ -340,7 +348,7 @@ export default function ClientOnlyMovieApp() {
           case 'now playing':
             newMovies = await service.getNowPlayingMovies()
             break
-          case 'recently-played':
+          case 'watchlist':
             // For recently played, we don't need to fetch new movies
             setIsLoading(false)
             return
@@ -479,8 +487,11 @@ export default function ClientOnlyMovieApp() {
   }
 
   const handleAddToList = (movieId: string) => {
-    console.log('Adding to list:', movieId)
-    alert(`➕ Added movie ${movieId} to your list!`)
+    // Unified watchlist toggle (search overlay & cards share same visual check state)
+    try {
+      // Dispatch a custom event so card components that only know ID can rely on central hook logic elsewhere if needed
+      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movieId } }))
+    } catch {}
   }
 
   const handleMoreInfo = async (movieId: string) => {
@@ -1044,7 +1055,7 @@ export default function ClientOnlyMovieApp() {
           onNavigate={handleNavigate}
           activeCategory={activeCategory}
           onPlay={(id, title) => handlePlay(id, title)}
-          onAddToList={(id) => handleAddToList(id)}
+          // onAddToList removed: cards now use unified watchlist toggle
           onMoreInfo={(id) => handleMoreInfo(id)}
         />
         {/* Mount global modals even in explore-movies view so poster Info opens immediately */}
@@ -1053,7 +1064,7 @@ export default function ClientOnlyMovieApp() {
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           onPlay={handlePlay}
-          onAddToList={handleAddToList}
+          // onAddToList removed: unified toggle
           onMovieSelect={handleModalMovieSelect}
         />
         <MoviepireModal
@@ -1061,7 +1072,7 @@ export default function ClientOnlyMovieApp() {
           isOpen={isMoviepireModalOpen}
           onClose={handleCloseMoviepireModal}
           onPlay={(movieId) => handlePlay(movieId.toString())}
-          onAddToList={(movieId) => handleAddToList(movieId.toString())}
+          // onAddToList removed
           relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
           onMovieSelect={(movieId) => {
             const next = movies.find(m => m.tmdbId === movieId || parseInt(m.id) === movieId)
@@ -1077,7 +1088,7 @@ export default function ClientOnlyMovieApp() {
       <>
         <TVSeriesPage
           onPlay={handlePlay}
-          onAddToList={handleAddToList}
+          // onAddToList removed
           onMoreInfo={handleMoreInfo}
           onNavigate={handleNavigate}
           onSearch={handleSearch}
@@ -1089,7 +1100,7 @@ export default function ClientOnlyMovieApp() {
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           onPlay={handlePlay}
-          onAddToList={handleAddToList}
+          // onAddToList removed
           onMovieSelect={handleModalMovieSelect}
         />
         <MoviepireModal
@@ -1097,7 +1108,7 @@ export default function ClientOnlyMovieApp() {
           isOpen={isMoviepireModalOpen}
           onClose={handleCloseMoviepireModal}
           onPlay={(movieId) => handlePlay(movieId.toString())}
-          onAddToList={(movieId) => handleAddToList(movieId.toString())}
+          // onAddToList removed
           relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
           onMovieSelect={(movieId) => {
             const next = movies.find(m => m.tmdbId === movieId || parseInt(m.id) === movieId)
@@ -1162,7 +1173,7 @@ export default function ClientOnlyMovieApp() {
         activeCategory={activeCategory}
         onClose={handleCloseRealTimeSearch}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
+  // onAddToList removed
         onMoreInfo={handleMoreInfo}
       />
     )
@@ -1215,7 +1226,10 @@ export default function ClientOnlyMovieApp() {
                       genre: movie.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1232,7 +1246,10 @@ export default function ClientOnlyMovieApp() {
                       genre: movie.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1249,7 +1266,10 @@ export default function ClientOnlyMovieApp() {
                       genre: series.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1266,7 +1286,10 @@ export default function ClientOnlyMovieApp() {
                       genre: series.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1283,7 +1306,10 @@ export default function ClientOnlyMovieApp() {
                       genre: movie.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1300,7 +1326,10 @@ export default function ClientOnlyMovieApp() {
                       genre: series.genre
                     }))}
                     onPlay={(movie) => handlePlay(movie.id)}
-                    onAddToList={(movie) => handleAddToList(movie.id)}
+                    onAddToList={(movie) => {
+                      window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
+                    }}
+                    isInList={(id) => watchlist.some(w => w.content_id === id)}
                     onMoreInfo={(movie) => handleMoreInfo(movie.id)}
                   />
                 </section>
@@ -1322,7 +1351,10 @@ export default function ClientOnlyMovieApp() {
                   genre: movie.genre
                 }))}
                 onPlay={(movie) => handlePlay(movie.id)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
+                onAddToList={(movie) => {
+                  window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                }}
+                isInList={(id) => watchlist.some(w => w.content_id === id)}
                 onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </section>
@@ -1341,36 +1373,53 @@ export default function ClientOnlyMovieApp() {
                   genre: movie.genre
                 }))}
                 onPlay={(movie) => handlePlay(movie.id)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
+                onAddToList={(movie) => {
+                  window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                }}
+                isInList={(id) => watchlist.some(w => w.content_id === id)}
                 onMoreInfo={(movie) => handleMoreInfo(movie.id)}
               />
             </section>
           )}
-          {activeCategory === 'recently-played' && recentlyPlayedMovies.length > 0 && (
-            <section className="px-6 md:px-12" aria-label="Continue Watching Carousel">
-              <NewNetflixCarousel
-                title="Continue Watching"
-                movies={recentlyPlayedMovies.slice(0,36).map(r => ({
-                  id: r.id,
-                  title: r.title,
-                  poster: r.poster,
-                  backdrop: r.poster,
-                  year: r.year,
-                  rating: 0,
-                  genre: r.genre
-                }))}
-                onPlay={(movie) => handlePlay(movie.id)}
-                onAddToList={(movie) => handleAddToList(movie.id)}
-                onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-              />
-            </section>
-          )}
-          {activeCategory === 'recently-played' && recentlyPlayedMovies.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Film className="w-16 h-16 text-gray-600 mb-4" />
-              <h2 className="text-2xl font-semibold text-gray-400 mb-2">No Recently Played Movies</h2>
-              <p className="text-gray-500">Movies you watch will appear here</p>
-            </div>
+          {activeCategory === 'watchlist' && (
+            <>
+              {recentlyPlayedMovies.length > 0 ? (
+                <section className="px-6 md:px-12" aria-label="Continue Watching Carousel">
+                  <NewNetflixCarousel
+                    title="Continue Watching"
+                    movies={recentlyPlayedMovies.slice(0,36).map(r => ({
+                      id: r.id,
+                      title: r.title,
+                      poster: r.poster,
+                      backdrop: r.poster,
+                      year: r.year,
+                      rating: 0,
+                      genre: r.genre
+                    }))}
+                    onPlay={(movie) => handlePlay(movie.id)}
+                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+                  />
+                </section>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <Film className="w-16 h-16 text-gray-600 mb-4" />
+                  <h2 className="text-2xl font-semibold text-gray-400 mb-2">No Recently Played Movies</h2>
+                  <p className="text-gray-500">Movies you watch will appear here</p>
+                </div>
+              )}
+              <section className="px-6 md:px-12 mt-10" aria-label="Watchlist Carousel">
+                <NewNetflixCarousel
+                  title="Watch List"
+                  movies={watchlistTransformed}
+                  onPlay={(movie) => handlePlay(movie.id)}
+                  onAddToList={(movie) => {
+                    window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
+                  }}
+                  isInList={(id) => watchlist.some(w => w.content_id === id)}
+                  onMoreInfo={(movie) => handleMoreInfo(movie.id)}
+                />
+              </section>
+            </>
           )}
         </div>
         <MoviepireFooter />
@@ -1382,7 +1431,7 @@ export default function ClientOnlyMovieApp() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
+  // onAddToList removed
         onMovieSelect={handleModalMovieSelect}
       />
 
@@ -1415,7 +1464,7 @@ export default function ClientOnlyMovieApp() {
         isOpen={isMoviepireModalOpen}
         onClose={handleCloseMoviepireModal}
   onPlay={(movieId) => handlePlay(movieId.toString())}
-  onAddToList={(movieId) => handleAddToList(movieId.toString())}
+  // onAddToList removed
         relatedMovies={movies.slice(0, 8).map(transformMovieForModal)}
         onMovieSelect={(movieId) => {
           // Find the selected movie in our movies list and update the modal content without closing it
@@ -1432,7 +1481,7 @@ export default function ClientOnlyMovieApp() {
         isOpen={isSearchModalOpen}
         onClose={handleSearchModalClose}
         onPlay={handlePlay}
-        onAddToList={handleAddToList}
+  // onAddToList removed
         onMovieSelect={(movie) => {
           // Update search modal movie, not main app movie
           const streamingMovie: StreamingMovie = {
@@ -1450,6 +1499,9 @@ export default function ClientOnlyMovieApp() {
           setSelectedSearchMovie(streamingMovie)
         }}
       />
+
+      {/* Watchlist Toast Notifications */}
+      <ToastContainer />
 
     </div>
   )
