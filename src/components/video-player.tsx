@@ -11,6 +11,8 @@ import { queueProgressUpdate, immediateProgressUpdate } from '@/lib/services/pro
 import { getPrivacyTrackFlag } from '@/lib/settingsCache'
 import { saveEpisodeProgress } from '@/lib/services/episode-progress'
 import { emitPlayerError } from '@/lib/utils/player-error'
+import { useApplyPlaybackSettings } from '@/components/settings/useApplyPlaybackSettings'
+import { useApplySubtitleSettings } from '@/components/settings/useApplySubtitleSettings'
 
 declare global { interface HTMLVideoElement { audioTracks?: any; videoTracks?: any } }
 
@@ -45,6 +47,10 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
   const controlsTimeoutRef = useRef<any>(null)
   const cursorTimeoutRef = useRef<any>(null)
   const nextIntervalRef = useRef<any>(null)
+
+  // Settings hooks
+  const playbackSettings = useApplyPlaybackSettings(videoRef)
+  const subtitleSettings = useApplySubtitleSettings()
 
   // core playback state
   const [isPlaying, setIsPlaying] = useState(false)
@@ -81,7 +87,7 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
   // Advanced overlays
   const [showSkipIntro, setShowSkipIntro] = useState(false)
   const [showNextEpisode, setShowNextEpisode] = useState(false)
-  const [nextCountdown, setNextCountdown] = useState(AUTO_PLAY_NEXT_COUNTDOWN)
+  const [nextCountdown, setNextCountdown] = useState(playbackSettings.autoplayCountdown)
 
   // Timeline hover & buffering
   const [hoverTime, setHoverTime] = useState<number | null>(null)
@@ -405,6 +411,19 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
     setAudioTracks(audioTrackList)
     setSubtitleTracks(subtitleTrackList)
     if (audioTrackList.length > 0) setSelectedAudioTrack(audioTrackList[0].id)
+    
+    // Auto-select subtitle track based on user preference
+    const preferredLang = subtitleSettings.language;
+    if (preferredLang && preferredLang !== 'off') {
+      const matchingTrack = subtitleTrackList.find(track => 
+        track.language === preferredLang || track.id === preferredLang
+      );
+      if (matchingTrack && selectedSubtitleTrack === 'off') {
+        setSelectedSubtitleTrack(matchingTrack.id);
+        // Automatically load the preferred subtitle track
+        selectSubtitleTrack(matchingTrack.id);
+      }
+    }
   }
 
   // Rebuild track list when realSubtitles list changes
@@ -575,7 +594,12 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
     if (!v.paused) { // pause path
       if (requiresClickForSound && v.muted) { v.muted = false; setIsMuted(false); setRequiresClickForSound(false) }
       v.pause(); setIsPlaying(false); setShowControls(true); markActivity(); return }
-    if (requiresClickForSound && v.muted) { v.muted = false; setIsMuted(false); setRequiresClickForSound(false) }
+    // Auto-unmute on user interaction if video was muted due to autoplay restrictions
+    if (requiresClickForSound || v.muted) { 
+      v.muted = false; 
+      setIsMuted(false); 
+      setRequiresClickForSound(false) 
+    }
     if (v.volume === 0) { v.volume = 0.8; setVolume(0.8) }
     v.play().then(()=>{ setIsPlaying(true); markActivity() }).catch(()=> setIsPlaying(false)) }
   const toggleMute = () => { const v = videoRef.current; if (!v) return; v.muted = !v.muted; if (!v.muted && v.volume === 0) { v.volume = 0.8; setVolume(0.8) } setIsMuted(v.muted) }
@@ -628,13 +652,55 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
     window.addEventListener('touchstart', a, true)
     return () => { window.removeEventListener('pointerdown', a, true); window.removeEventListener('pointermove', a, true); window.removeEventListener('keydown', a, true); window.removeEventListener('touchstart', a, true) }
   }, [])
+
+  // Save progress on component unmount (when player closes)
+  useEffect(() => {
+    return () => {
+      // Save progress when component unmounts
+      if (movieId && movieData && duration > 0 && currentTime > 0) {
+        RecentlyPlayedService.updateProgress(movieId, currentTime, duration)
+        immediateProgressUpdate({ contentId: movieId, currentTime, duration })
+      }
+    }
+  }, [movieId, currentTime, duration]) // Dependencies ensure we capture the latest values
+
+  // Save progress on page unload (browser refresh/close)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (movieId && movieData && duration > 0 && currentTime > 0) {
+        RecentlyPlayedService.updateProgress(movieId, currentTime, duration)
+        // Force immediate progress update for browser close
+        immediateProgressUpdate({ contentId: movieId, currentTime, duration })
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [movieId, currentTime, duration])
   useEffect(() => { if (isPlaying) markActivity() }, [isPlaying])
 
   // Intro skip & next episode logic
   const isSeries = !!(movieId && /:S\d+E\d+/.test(movieId))
-  useEffect(() => { if (!isSeries || duration === 0) return; if (currentTime < INTRO_VISIBLE_WINDOW) setShowSkipIntro(currentTime > 5); else setShowSkipIntro(false) }, [currentTime, duration, isSeries])
-  useEffect(() => { if (!isSeries || !hasNextEpisode || duration === 0) return; const rem = duration - currentTime; if (rem < NEXT_EPISODE_THRESHOLD) { if (!showNextEpisode) { setShowNextEpisode(true); setNextCountdown(AUTO_PLAY_NEXT_COUNTDOWN) } } else if (showNextEpisode) setShowNextEpisode(false) }, [currentTime, duration, isSeries, hasNextEpisode, showNextEpisode])
-  useEffect(() => { if (!showNextEpisode) return; if (nextIntervalRef.current) clearInterval(nextIntervalRef.current); nextIntervalRef.current = setInterval(() => { setNextCountdown(c => { if (c <= 1) { clearInterval(nextIntervalRef.current); if (onNextEpisode) onNextEpisode(); return 0 } return c - 1 }) }, 1000); return () => { if (nextIntervalRef.current) clearInterval(nextIntervalRef.current) } }, [showNextEpisode, onNextEpisode])
+  useEffect(() => { 
+    if (!isSeries || duration === 0) return; 
+    if (currentTime < INTRO_VISIBLE_WINDOW) {
+      if (currentTime > 5) {
+        setShowSkipIntro(true);
+        // Auto-skip intros if setting enabled
+        if (playbackSettings.skipIntros && currentTime > 10 && currentTime < INTRO_SKIP_HEURISTIC_SECONDS) {
+          const video = videoRef.current;
+          if (video) {
+            video.currentTime = INTRO_SKIP_HEURISTIC_SECONDS;
+            setShowSkipIntro(false);
+          }
+        }
+      }
+    } else {
+      setShowSkipIntro(false);
+    }
+  }, [currentTime, duration, isSeries, playbackSettings.skipIntros])
+  useEffect(() => { if (!isSeries || !hasNextEpisode || duration === 0) return; const rem = duration - currentTime; if (rem < NEXT_EPISODE_THRESHOLD) { if (!showNextEpisode) { setShowNextEpisode(true); setNextCountdown(playbackSettings.autoplayCountdown) } } else if (showNextEpisode) setShowNextEpisode(false) }, [currentTime, duration, isSeries, hasNextEpisode, showNextEpisode, playbackSettings.autoplayCountdown])
+  useEffect(() => { if (!showNextEpisode || !playbackSettings.autoplayNext) return; if (nextIntervalRef.current) clearInterval(nextIntervalRef.current); nextIntervalRef.current = setInterval(() => { setNextCountdown((c: number) => { if (c <= 1) { clearInterval(nextIntervalRef.current); if (onNextEpisode) onNextEpisode(); return 0 } return c - 1 }) }, 1000); return () => { if (nextIntervalRef.current) clearInterval(nextIntervalRef.current) } }, [showNextEpisode, onNextEpisode, playbackSettings.autoplayNext])
 
   // Timeline hover & buffer ranges
   const handleTimelineMove = (e: React.MouseEvent) => { if (!duration) return; const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect(); const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)); setHoverPercent(pct); setHoverTime(pct * duration) }
@@ -659,11 +725,35 @@ export default function VideoPlayer({ src, title, onClose, movieId, movieData, s
 
   return (
   <div ref={containerRef} className={`relative w-full h-full bg-black flex items-center justify-center transition-colors duration-300 ${showCursor ? 'cursor-default' : 'cursor-none'}`} onMouseMove={handleMouseMove} onClick={handleContainerClick} onMouseLeave={closeMenus}>
+      {/* Privacy indicator (always visible when tracking disabled) */}
+      {!getPrivacyTrackFlag() && (
+        <div className="pointer-events-none select-none absolute top-2 left-2 z-50 text-[10px] font-medium tracking-wide">
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-yellow-500/15 border border-yellow-400/30 text-yellow-200/90 shadow-sm">
+            <svg width="10" height="10" viewBox="0 0 24 24" className="opacity-80" aria-hidden="true"><path fill="currentColor" d="M12 5c-7.633 0-11 6.985-11 6.985S4.367 19 12 19s11-6.985 11-6.985S19.633 5 12 5m0 11a4.01 4.01 0 0 1-4-4c0-.62.143-1.205.393-1.732l5.339 5.339A3.96 3.96 0 0 1 12 16m3.607-2.268L10.268 8.393A3.96 3.96 0 0 1 12 8a4.01 4.01 0 0 1 4 4c0 .62-.143 1.205-.393 1.732"/></svg>
+            Tracking Off
+          </span>
+        </div>
+      )}
   <video ref={videoRef} className="w-full h-full object-contain" playsInline onDoubleClick={toggleFullscreen} onClick={handleVideoClick} controls={false} preload="metadata" crossOrigin={src?.includes('torrentio.strem.fun') ? undefined : 'anonymous'} />
 
       {currentSubtitle && selectedSubtitleTrack !== 'off' && (
         <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 z-40 max-w-4xl px-4">
-          <div className="bg-black/70 text-white text-center px-4 py-2 rounded-md shadow-lg"><p className="text-lg leading-relaxed whitespace-pre-line drop-shadow-md">{currentSubtitle}</p></div>
+          <div 
+            className="text-center px-4 py-2 rounded-md shadow-lg subtitle-styled"
+            style={{
+              color: subtitleSettings.color,
+              fontSize: subtitleSettings.fontSize === 'small' ? '14px' : 
+                       subtitleSettings.fontSize === 'large' ? '20px' : 
+                       subtitleSettings.fontSize === 'x-large' ? '24px' : '16px',
+              backgroundColor: subtitleSettings.background === 'black' ? 'rgba(0,0,0,1)' : 
+                              subtitleSettings.background === 'semi-black' ? 'rgba(0,0,0,0.7)' : 
+                              subtitleSettings.background === 'white' ? 'rgba(255,255,255,1)' : 'rgba(0,0,0,0.7)',
+              opacity: subtitleSettings.opacity,
+              textShadow: subtitleSettings.background === 'transparent' ? '1px 1px 2px rgba(0,0,0,0.7)' : 'none'
+            }}
+          >
+            <p className="leading-relaxed whitespace-pre-line">{currentSubtitle}</p>
+          </div>
         </div>
       )}
       {subtitleStatus && selectedSubtitleTrack!=='off' && !currentSubtitle && (

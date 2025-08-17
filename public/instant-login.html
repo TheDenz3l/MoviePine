@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Instant Login</title>
+    <style>
+        body { 
+            font-family: system-ui; 
+            max-width: 500px; 
+            margin: 100px auto; 
+            padding: 20px; 
+            background: #111; 
+            color: #fff; 
+        }
+        input, button { 
+            padding: 12px; 
+            font-size: 16px; 
+            margin: 8px 0; 
+            border: 1px solid #444; 
+            background: #222; 
+            color: #fff; 
+            border-radius: 4px; 
+        }
+        input { width: 100%; box-sizing: border-box; }
+        button { cursor: pointer; }
+        button:hover { background: #333; }
+        .status { 
+            margin: 20px 0; 
+            padding: 12px; 
+            border-radius: 4px; 
+            background: #333; 
+        }
+        .success { background: #006600; }
+        .error { background: #660000; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Instant Login</h1>
+    <p>Log into your existing account instantly (no email required).</p>
+    
+    <form id="loginForm">
+        <input type="email" id="email" placeholder="Enter your existing email" required>
+        <button type="submit">Login Instantly</button>
+    </form>
+    
+    <div id="status"></div>
+    
+    <script>
+        const form = document.getElementById('loginForm');
+        const emailInput = document.getElementById('email');
+        const statusDiv = document.getElementById('status');
+        
+        function showStatus(message, isError = false) {
+            statusDiv.innerHTML = message;
+            statusDiv.className = isError ? 'status error' : 'status success';
+        }
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = emailInput.value.trim();
+            
+            if (!email) {
+                showStatus('Please enter an email', true);
+                return;
+            }
+            
+            showStatus('Logging in...');
+            
+            try {
+                const response = await fetch('/api/auth/instant-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Login failed');
+                }
+                
+                showStatus(`✅ ${data.message}! Redirecting...`);
+                
+                // Redirect to home after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+                
+            } catch (error) {
+                showStatus(`❌ ${error.message}`, true);
+            }
+        });
+    </script>
+</body>
+</html>

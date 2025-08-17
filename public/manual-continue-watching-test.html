@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Continue Watching Test</title>
+    <style>
+        body { 
+            font-family: monospace; 
+            max-width: 900px; 
+            margin: 50px auto; 
+            padding: 20px; 
+            background: #1a1a1a; 
+            color: #00ff00; 
+        }
+        .console { 
+            background: #000; 
+            padding: 20px; 
+            border-radius: 5px; 
+            height: 400px; 
+            overflow-y: auto; 
+            border: 1px solid #333; 
+            white-space: pre-wrap;
+        }
+        button { 
+            background: #333; 
+            color: #00ff00; 
+            border: 1px solid #555; 
+            padding: 10px 20px; 
+            cursor: pointer; 
+            margin: 10px 5px; 
+        }
+        button:hover { background: #444; }
+        input { 
+            background: #333; 
+            color: #00ff00; 
+            border: 1px solid #555; 
+            padding: 10px; 
+            width: 500px; 
+        }
+        .instructions {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 Manual Continue Watching Test</h1>
+    
+    <div class="instructions">
+        <h3>📋 Quick Setup:</h3>
+        <button onclick="autoGetToken()" style="background: #006600;">🚀 Auto-Get Token</button>
+        <p>Or manually paste token below if auto-get doesn't work</p>
+    </div>
+    
+    <div>
+        <label>🔑 Auth token:</label><br>
+        <input type="text" id="tokenInput" placeholder="Token will appear here automatically..." />
+        <button onclick="setToken()">Set Token</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <button onclick="testToken()">🧪 Test Token</button>
+        <button onclick="simulateWatching()">🎥 Simulate Watching Movie</button>
+        <button onclick="checkContinueWatching()">📋 Check Continue Watching</button>
+        <button onclick="clearConsole()">🧹 Clear</button>
+    </div>
+    
+    <div class="console" id="console"></div>
+
+    <script>
+        let authToken = null;
+        
+        function log(message, type = 'info') {
+            const console = document.getElementById('console');
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            const line = `[${timestamp}] ${prefix} ${message}\n`;
+            console.textContent += line;
+            console.scrollTop = console.scrollHeight;
+        }
+        
+        function clearConsole() {
+            document.getElementById('console').textContent = '';
+        }
+        
+        function setToken() {
+            const input = document.getElementById('tokenInput');
+            authToken = input.value.trim();
+            if (authToken) {
+                log('✅ Token set successfully', 'success');
+                log(`Token preview: ${authToken.substring(0, 30)}...`, 'info');
+            } else {
+                log('❌ Please enter a valid token', 'error');
+            }
+        }
+        
+        async function autoGetToken() {
+            log('🚀 Attempting to auto-get token...', 'info');
+            
+            try {
+                // Method 1: Try to get session from frontend if we're in the main app
+                if (window.location.hostname === 'localhost' && window.parent !== window) {
+                    log('🔗 Trying to get session from parent window...', 'info');
+                    try {
+                        // This might work if opened in iframe from main app
+                        const parentSession = window.parent?.supabase?.auth?.getSession();
+                        if (parentSession) {
+                            const session = await parentSession;
+                            if (session.data?.session?.access_token) {
+                                authToken = session.data.session.access_token;
+                                document.getElementById('tokenInput').value = authToken;
+                                log('✅ Got token from parent window!', 'success');
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        log('⚠️ Parent window access failed', 'warning');
+                    }
+                }
+
+                // Method 2: Use postMessage to communicate with main app
+                log('📡 Trying to communicate with main app...', 'info');
+                window.postMessage({ type: 'GET_SESSION' }, window.location.origin);
+                
+                // Listen for response
+                const messageHandler = (event) => {
+                    if (event.data.type === 'SESSION_RESPONSE' && event.data.session?.access_token) {
+                        authToken = event.data.session.access_token;
+                        document.getElementById('tokenInput').value = authToken;
+                        log('✅ Got token via postMessage!', 'success');
+                        window.removeEventListener('message', messageHandler);
+                        return;
+                    }
+                };
+                window.addEventListener('message', messageHandler);
+                
+                // Timeout after 2 seconds
+                setTimeout(() => {
+                    window.removeEventListener('message', messageHandler);
+                }, 2000);
+
+                // Method 3: Try the get-token endpoint
+                const response = await fetch('/api/get-token', {
+                    credentials: 'include' // Include cookies
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.token) {
+                        authToken = data.token;
+                        document.getElementById('tokenInput').value = authToken;
+                        log('✅ Token retrieved from API endpoint!', 'success');
+                        log(`User: ${data.user}`, 'info');
+                        return;
+                    }
+                } else {
+                    const error = await response.json();
+                    log(`⚠️ API endpoint failed: ${error.error}`, 'warning');
+                }
+                
+                // Method 4: Try to find token in localStorage
+                log('🔍 Searching localStorage...', 'info');
+                const keys = Object.keys(localStorage);
+                const supabaseKeys = keys.filter(k => k.includes('sb'));
+                
+                log(`Found ${supabaseKeys.length} supabase keys: ${supabaseKeys.join(', ')}`, 'info');
+                
+                for (const key of supabaseKeys) {
+                    try {
+                        const value = localStorage.getItem(key);
+                        if (value) {
+                            const parsed = JSON.parse(value);
+                            if (parsed.access_token) {
+                                authToken = parsed.access_token;
+                                document.getElementById('tokenInput').value = authToken;
+                                log('✅ Token found in localStorage!', 'success');
+                                log(`From key: ${key}`, 'info');
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        // Continue searching
+                    }
+                }
+                
+                // Method 5: Final attempt - load Supabase and get session directly
+                log('📦 Trying to load Supabase client...', 'info');
+                if (typeof window.supabase === 'undefined') {
+                    // Try to create supabase client
+                    if (typeof createClient !== 'undefined') {
+                        window.supabase = createClient(
+                            'https://xenqszenrnpxigsgpcrs.supabase.co',
+                            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlbnFzemVucm5weGlnc2dwY3JzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUyNTQzNjMsImV4cCI6MjA1MDgzMDM2M30.LOXKMrccLNUB1_2uW8Cv_ckgd1jSi3_0lNGiQZF1lUY'
+                        );
+                        
+                        const { data: { session } } = await window.supabase.auth.getSession();
+                        if (session?.access_token) {
+                            authToken = session.access_token;
+                            document.getElementById('tokenInput').value = authToken;
+                            log('✅ Got token from Supabase client!', 'success');
+                            return;
+                        }
+                    }
+                }
+                
+                log('❌ Could not auto-get token', 'error');
+                log('💡 Make sure you are logged in at http://localhost:3000', 'warning');
+                log('🔧 Try opening this page from the main app or manually paste token', 'info');
+                
+            } catch (error) {
+                log(`❌ Auto-get error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testToken() {
+            if (!authToken) {
+                log('❌ Please set a token first', 'error');
+                return;
+            }
+            
+            log('🧪 Testing authentication token...', 'info');
+            
+            try {
+                const response = await fetch('/api/continue-watching', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`✅ Token is valid! Found ${data.items?.length || 0} continue watching items`, 'success');
+                } else {
+                    const error = await response.json();
+                    log(`❌ Token is invalid: ${response.status} - ${error.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error testing token: ${error.message}`, 'error');
+            }
+        }
+        
+        async function simulateWatching() {
+            if (!authToken) {
+                log('❌ Please set and test a token first', 'error');
+                return;
+            }
+            
+            log('🎥 Simulating watching "The Matrix"...', 'info');
+            
+            const progressData = {
+                contentId: 'movie-the-matrix-1999',
+                currentTime: 2700, // 45 minutes
+                duration: 8160,    // 136 minutes
+                streamUrl: 'https://example.com/the-matrix.m3u8',
+                subtitles: []
+            };
+            
+            try {
+                const response = await fetch('/api/progress', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(progressData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Progress saved successfully for "The Matrix"', 'success');
+                    log(`   - Progress: ${Math.round((progressData.currentTime / progressData.duration) * 100)}% (${Math.round(progressData.currentTime / 60)} min)`, 'info');
+                } else {
+                    log(`❌ Failed to save progress: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error saving progress: ${error.message}`, 'error');
+            }
+        }
+        
+        async function checkContinueWatching() {
+            if (!authToken) {
+                log('❌ Please set and test a token first', 'error');
+                return;
+            }
+            
+            log('📋 Checking continue watching list...', 'info');
+            
+            try {
+                const response = await fetch('/api/continue-watching', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    const items = result.items || [];
+                    log(`✅ Continue watching retrieved: ${items.length} items found`, 'success');
+                    
+                    if (items.length > 0) {
+                        log('📺 Continue Watching Items:', 'info');
+                        items.forEach((item, index) => {
+                            const progress = Math.round(item.progress * 100);
+                            const timeLeft = Math.round((item.duration - item.currentTime) / 60);
+                            log(`   ${index + 1}. ${item.content_id}`, 'info');
+                            log(`      Progress: ${progress}% | ${timeLeft} min remaining`, 'info');
+                            log(`      Last watched: ${new Date(item.updated_at).toLocaleString()}`, 'info');
+                        });
+                    } else {
+                        log('📺 No items in continue watching list', 'warning');
+                        log('💡 Try simulating watching a movie first', 'info');
+                    }
+                } else {
+                    log(`❌ Failed to get continue watching: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error checking continue watching: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-run help on page load
+        window.addEventListener('load', () => {
+            log('🎬 Manual Continue Watching Test Loaded', 'info');
+            log('📋 Follow the instructions above to get your auth token', 'info');
+            log('💡 Make sure you are logged in at http://localhost:3000 first', 'info');
+        });
+    </script>
+</body>
+</html>

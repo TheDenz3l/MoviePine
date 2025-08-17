@@ -9,6 +9,7 @@ import { NetflixCarousel as NewNetflixCarousel } from '@/components/netflix-styl
 import { useMyList } from '@/components/list/useMyList'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
+import { ContinueWatching } from '@/components/continue-watching/ContinueWatching'
 
 interface TVSeriesPageProps {
   onPlay: (seriesId: string, title: string) => void
@@ -249,6 +250,12 @@ export function TVSeriesPage({
       {/* TV Series Carousels Grid */}
       <div className="relative z-10 space-y-8 pb-16 bg-[rgb(18,18,18)] overflow-visible">
         <div className="pointer-events-none absolute -top-40 left-0 right-0 h-40 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
+        
+        {/* Continue Watching Section - Modern Database-driven System */}
+        <div className="px-6 md:px-12 mb-8">
+          <ContinueWatching />
+        </div>
+        
         {/* Trending This Week */}
         <section className="px-6 md:px-12" aria-label="Trending TV Series">
           <NewNetflixCarousel

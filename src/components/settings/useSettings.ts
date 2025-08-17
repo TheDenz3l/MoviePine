@@ -26,6 +26,14 @@ export function useSettings() {
       const { data: { session: fresh } } = await supabase!.auth.getSession()
       const token = fresh?.access_token
       const res = await fetch('/api/me/settings', { headers: { Authorization: `Bearer ${token}` } })
+      
+      // Handle authentication failures silently
+      if (res.status === 401) {
+        console.warn('Settings: Authentication required, failing silently');
+        setError(null); // Clear any previous errors
+        return;
+      }
+      
       const json = await res.json()
       if (json.success) {
         const s = json.settings || {}
@@ -36,9 +44,24 @@ export function useSettings() {
           privacy: s.privacy_json || {},
           experiments: s.experiments_json || {}
         })
-      } else setError(json.error || 'Failed to load settings')
+        setError(null); // Clear errors on success
+      } else {
+        // Don't show unauthorized errors to user
+        if (json.error === 'unauthorized') {
+          console.warn('Settings: Unauthorized access, failing silently');
+          setError(null);
+        } else {
+          setError(json.error || 'Failed to load settings');
+        }
+      }
     } catch (e: any) {
-      setError(e.message)
+      // Don't show auth-related errors to user
+      if (e.message.includes('401') || e.message.includes('unauthorized')) {
+        console.warn('Settings: Authentication error, failing silently');
+        setError(null);
+      } else {
+        setError(e.message);
+      }
     } finally {
       setLoading(false)
     }
@@ -58,13 +81,35 @@ export function useSettings() {
     const token = session.access_token
     try {
       const res = await fetch('/api/me/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(patch) })
+      
+      // Handle authentication failures silently
+      if (res.status === 401) {
+        console.warn('Settings flush: Authentication failed, ignoring');
+        setPending(false);
+        return;
+      }
+      
       const json = await res.json()
-      if (!json.success) throw new Error(json.error || 'Update failed')
+      if (!json.success) {
+        // Don't show unauthorized errors
+        if (json.error === 'unauthorized') {
+          console.warn('Settings flush: Unauthorized access, ignoring');
+          setPending(false);
+          return;
+        }
+        throw new Error(json.error || 'Update failed');
+      }
       await load()
       setPending(false)
       // fire a single global event so listeners (sections) can show a toast
       try { window.dispatchEvent(new CustomEvent('settings:flushed', { detail: { patch } })) } catch {}
-    } catch (e) {
+    } catch (e: any) {
+      // Handle auth-related errors silently
+      if (e.message.includes('401') || e.message.includes('unauthorized')) {
+        console.warn('Settings flush: Authentication error, ignoring');
+        setPending(false);
+        return;
+      }
       // simple retry: requeue once
       if (pendingRef.current === null) pendingRef.current = patch
       if (!timerRef.current) timerRef.current = setTimeout(flush, 2500)

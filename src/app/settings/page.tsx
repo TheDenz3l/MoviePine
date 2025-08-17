@@ -135,28 +135,228 @@ function PlaybackSection() {
   const { settings, update, pending } = useSettings()
   const { push } = useToast()
   const prevPending = useRef(false)
+  
+  // Existing settings
   const autoplay = settings?.playback?.autoplayNext ?? true
   const preferred = settings?.playback?.preferredFormat || 'auto'
   const subLang = settings?.subtitles?.language || 'en'
-  const persist = (patch: any) => { update({ playback: { ...(settings?.playback||{}), ...patch.playback }, subtitles: { ...(settings?.subtitles||{}), ...patch.subtitles } }) }
+  
+  // New advanced settings
+  const skipIntros = settings?.playback?.skipIntros ?? false
+  const defaultQuality = settings?.playback?.defaultQuality || 'auto'
+  const defaultSpeed = settings?.playback?.defaultSpeed || 1.0
+  const autoplayCountdown = settings?.playback?.autoplayCountdown ?? 15
+  const resumeThreshold = settings?.playback?.resumeThreshold ?? 10
+  
+  // Subtitle style settings
+  const subSize = settings?.subtitles?.fontSize || 'medium'
+  const subColor = settings?.subtitles?.color || '#ffffff'
+  const subBackground = settings?.subtitles?.background || 'transparent'
+  const subOpacity = settings?.subtitles?.opacity || 1.0
+  
+  const persist = (patch: any) => { 
+    update({ 
+      playback: { ...(settings?.playback||{}), ...patch.playback }, 
+      subtitles: { ...(settings?.subtitles||{}), ...patch.subtitles } 
+    }) 
+  }
+  
   useEffect(() => {
     if (prevPending.current && !pending) push({ type:'success', message:'Playback settings saved' })
     prevPending.current = pending
   }, [pending, push])
+  
   return <PlaceholderCard title="Playback & Subtitles">
-    <div className="space-y-4">
-      <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={autoplay} onChange={e=>persist({ playback: { autoplayNext: e.target.checked } })} /> Autoplay next episode</label>
-      <div className="text-sm space-y-1">
-        <div className="font-medium">Preferred format</div>
-        <select value={preferred} onChange={e=>persist({ playback: { preferredFormat: e.target.value } })} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm">
-          <option value="auto">Auto</option>
-          <option value="hls">HLS</option>
-          <option value="mp4">MP4</option>
-        </select>
+    <div className="space-y-6">
+      {/* Playback Controls */}
+      <div className="space-y-4">
+        <h3 className="font-medium text-sm text-white">Playback</h3>
+        
+        <label className="flex items-center gap-3 text-sm">
+          <input 
+            type="checkbox" 
+            checked={autoplay} 
+            onChange={e=>persist({ playback: { autoplayNext: e.target.checked } })} 
+          /> 
+          Autoplay next episode
+        </label>
+        
+        <label className="flex items-center gap-3 text-sm">
+          <input 
+            type="checkbox" 
+            checked={skipIntros} 
+            onChange={e=>persist({ playback: { skipIntros: e.target.checked } })} 
+          /> 
+          Automatically skip intros
+        </label>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Preferred format</div>
+            <select 
+              value={preferred} 
+              onChange={e=>persist({ playback: { preferredFormat: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value="auto">Auto</option>
+              <option value="hls">HLS</option>
+              <option value="mp4">MP4</option>
+            </select>
+          </div>
+          
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Default quality</div>
+            <select 
+              value={defaultQuality} 
+              onChange={e=>persist({ playback: { defaultQuality: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value="auto">Auto</option>
+              <option value="480p">480p</option>
+              <option value="720p">720p</option>
+              <option value="1080p">1080p</option>
+              <option value="4k">4K</option>
+            </select>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Default speed</div>
+            <select 
+              value={defaultSpeed} 
+              onChange={e=>persist({ playback: { defaultSpeed: parseFloat(e.target.value) } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value={0.5}>0.5x</option>
+              <option value={0.75}>0.75x</option>
+              <option value={1}>1x (Normal)</option>
+              <option value={1.25}>1.25x</option>
+              <option value={1.5}>1.5x</option>
+              <option value={2}>2x</option>
+            </select>
+          </div>
+          
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Autoplay countdown</div>
+            <select 
+              value={autoplayCountdown} 
+              onChange={e=>persist({ playback: { autoplayCountdown: parseInt(e.target.value) } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value={5}>5 seconds</option>
+              <option value={10}>10 seconds</option>
+              <option value={15}>15 seconds</option>
+              <option value={30}>30 seconds</option>
+            </select>
+          </div>
+        </div>
+        
+        <div className="text-sm space-y-1">
+          <div className="font-medium">Resume threshold</div>
+          <div className="text-xs text-gray-400 mb-2">Skip to beginning if less than this time has passed</div>
+          <select 
+            value={resumeThreshold} 
+            onChange={e=>persist({ playback: { resumeThreshold: parseInt(e.target.value) } })} 
+            className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+          >
+            <option value={5}>5 seconds</option>
+            <option value={10}>10 seconds</option>
+            <option value={30}>30 seconds</option>
+            <option value={60}>1 minute</option>
+            <option value={120}>2 minutes</option>
+          </select>
+        </div>
       </div>
-      <div className="text-sm space-y-1">
-        <div className="font-medium">Subtitle language</div>
-        <input value={subLang} onChange={e=>persist({ subtitles: { language: e.target.value } })} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-32" />
+      
+      {/* Subtitle Settings */}
+      <div className="space-y-4 border-t border-neutral-700 pt-4">
+        <h3 className="font-medium text-sm text-white">Subtitles</h3>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Default language</div>
+            <input 
+              value={subLang} 
+              onChange={e=>persist({ subtitles: { language: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full" 
+              placeholder="en"
+            />
+          </div>
+          
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Font size</div>
+            <select 
+              value={subSize} 
+              onChange={e=>persist({ subtitles: { fontSize: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+              <option value="x-large">Extra Large</option>
+            </select>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Text color</div>
+            <input 
+              type="color" 
+              value={subColor} 
+              onChange={e=>persist({ subtitles: { color: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-1 py-1 text-sm w-full h-8" 
+            />
+          </div>
+          
+          <div className="text-sm space-y-1">
+            <div className="font-medium">Background</div>
+            <select 
+              value={subBackground} 
+              onChange={e=>persist({ subtitles: { background: e.target.value } })} 
+              className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-full"
+            >
+              <option value="transparent">Transparent</option>
+              <option value="black">Black</option>
+              <option value="semi-black">Semi-transparent Black</option>
+              <option value="white">White</option>
+            </select>
+          </div>
+        </div>
+        
+        <div className="text-sm space-y-1">
+          <div className="font-medium">Opacity</div>
+          <input 
+            type="range" 
+            min="0.1" 
+            max="1" 
+            step="0.1" 
+            value={subOpacity} 
+            onChange={e=>persist({ subtitles: { opacity: parseFloat(e.target.value) } })} 
+            className="w-full"
+          />
+          <div className="text-xs text-gray-400">{Math.round(subOpacity * 100)}%</div>
+        </div>
+        
+        {/* Subtitle Preview */}
+        <div className="mt-4 p-3 bg-neutral-900 rounded border">
+          <div className="text-xs text-gray-400 mb-2">Preview:</div>
+          <div 
+            className="text-center py-2 px-3 rounded inline-block"
+            style={{
+              color: subColor,
+              fontSize: subSize === 'small' ? '14px' : subSize === 'large' ? '20px' : subSize === 'x-large' ? '24px' : '16px',
+              backgroundColor: subBackground === 'black' ? 'rgba(0,0,0,1)' : 
+                              subBackground === 'semi-black' ? 'rgba(0,0,0,0.7)' : 
+                              subBackground === 'white' ? 'rgba(255,255,255,1)' : 'transparent',
+              opacity: subOpacity,
+              textShadow: subBackground === 'transparent' ? '1px 1px 2px rgba(0,0,0,0.7)' : 'none'
+            }}
+          >
+            Sample subtitle text
+          </div>
+        </div>
       </div>
     </div>
   </PlaceholderCard>
@@ -167,6 +367,7 @@ function UISection() {
   const { push } = useToast()
   const prevPending = useRef(false)
   const reduced = settings?.ui?.reducedMotion ?? false
+  const theme = settings?.ui?.theme || (typeof window !== 'undefined' ? (localStorage.getItem('ui_theme') || 'dark') : 'dark')
   const persist = (patch: any) => { update({ ui: { ...(settings?.ui||{}), ...patch.ui } }) }
   useEffect(() => {
     if (prevPending.current && !pending) push({ type:'success', message:'Accessibility preferences saved' })
@@ -175,7 +376,15 @@ function UISection() {
   return <PlaceholderCard title="Accessibility">
     <div className="space-y-4 text-sm">
       <label className="flex items-center gap-2"><input type="checkbox" checked={reduced} onChange={e=>persist({ ui: { reducedMotion: e.target.checked } })} /> Reduced motion</label>
-      <div className="text-[10px] text-neutral-500">Default theme is enforced globally; theme switching disabled.</div>
+      <div className="space-y-1">
+        <div className="font-medium">Theme</div>
+        <select value={theme} onChange={e=>persist({ ui: { theme: e.target.value } })} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-40">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+          <option value="system">System</option>
+        </select>
+        <div className="text-[10px] text-neutral-500">Applies instantly & persists.</div>
+      </div>
     </div>
   </PlaceholderCard>
 }

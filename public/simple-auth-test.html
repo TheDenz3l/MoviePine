@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Auth Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Simple Auth Test</h1>
+    
+    <div id="status">Loading...</div>
+    
+    <div style="margin: 20px 0;">
+        <h3>Option 1: Create Test User Directly</h3>
+        <p>This bypasses email verification for testing purposes.</p>
+        <button onclick="createTestUser()" style="padding: 10px; background: blue; color: white; border: none;">Create Test User & Session</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <h3>Option 2: Manual Session Creation</h3>
+        <p>Create a session without going through email verification.</p>
+        <button onclick="createManualSession()" style="padding: 10px; background: green; color: white; border: none;">Create Manual Session</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <h3>Test Progress & Continue Watching</h3>
+        <button onclick="createProgress()" style="padding: 10px;">Create Test Progress</button>
+        <button onclick="testContinueWatching()" style="padding: 10px;">Test Continue Watching</button>
+    </div>
+    
+    <div id="results" style="margin: 20px 0; padding: 20px; background: #f5f5f5; max-height: 400px; overflow-y: auto;">
+        <h3>Results:</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://iiwmvmhgtxosaqnpqbev.supabase.co'
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlpd212bWhndHhvc2FxbnBxYmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2ODUwMTAsImV4cCI6MjA3MDI2MTAxMH0.SyyALGKn4PIgOLCs5USBv1CKEqe9W1d5hHWUlVNepLM'
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+        
+        function log(message) {
+            const logDiv = document.getElementById('log')
+            const entry = document.createElement('div')
+            entry.style.marginBottom = '10px'
+            entry.style.fontSize = '12px'
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`
+            logDiv.insertBefore(entry, logDiv.firstChild)
+        }
+        
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = message
+        }
+        
+        async function checkAuth() {
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession()
+                if (error) {
+                    updateStatus('❌ Auth error: ' + error.message)
+                    return null
+                }
+                if (session) {
+                    updateStatus(`✅ Signed in as ${session.user.email || session.user.id}`)
+                    return session
+                } else {
+                    updateStatus('❌ Not signed in')
+                    return null
+                }
+            } catch (err) {
+                updateStatus('❌ Auth check failed: ' + err.message)
+                return null
+            }
+        }
+        
+        async function createTestUser() {
+            log('🔧 Creating test user directly via API...')
+            
+            try {
+                // Call our API to create a test user session
+                const response = await fetch('/api/create-test-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        email: 'test@example.com',
+                        userId: 'test-user-' + Date.now()
+                    })
+                })
+                
+                const result = await response.json()
+                
+                if (response.ok && result.success) {
+                    log('✅ Test user created successfully')
+                    
+                    // Set the session manually
+                    if (result.session) {
+                        log('✅ Session set successfully')
+                        updateStatus(`✅ Test user signed in as ${result.session.user.email}`)
+                    }
+                } else {
+                    log('❌ Failed to create test user: ' + (result.error || 'Unknown error'))
+                }
+            } catch (err) {
+                log('❌ Error creating test user: ' + err.message)
+            }
+        }
+        
+        async function createManualSession() {
+            log('🔧 Creating manual session...')
+            
+            // Generate a fake but valid-looking session for testing
+            const fakeSession = {
+                access_token: 'test-token-' + Date.now(),
+                refresh_token: 'test-refresh-' + Date.now(),
+                user: {
+                    id: 'test-user-' + Date.now(),
+                    email: 'test@example.com',
+                    created_at: new Date().toISOString()
+                }
+            }
+            
+            // Store it in localStorage to simulate a real session
+            localStorage.setItem('sb-iiwmvmhgtxosaqnpqbev-auth-token', JSON.stringify(fakeSession))
+            
+            log('✅ Manual session created and stored')
+            updateStatus('✅ Manual session active (test mode)')
+            
+            return fakeSession
+        }
+        
+        async function createProgress() {
+            // First ensure we have some kind of session
+            let session = await checkAuth()
+            
+            if (!session) {
+                log('ℹ️ No session found, creating manual session...')
+                session = await createManualSession()
+            }
+            
+            try {
+                const testData = {
+                    contentId: 'test-movie-' + Date.now(),
+                    currentTime: 1800, // 30 minutes
+                    duration: 7200, // 2 hours
+                    streamUrl: 'https://example.com/stream.m3u8'
+                }
+                
+                const response = await fetch('/api/progress', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`
+                    },
+                    body: JSON.stringify(testData)
+                })
+                
+                const result = await response.json()
+                
+                if (response.ok) {
+                    log(`✅ Created progress: ${testData.contentId}`)
+                } else {
+                    log(`❌ Failed to create progress: ${result.error || response.status}`)
+                }
+            } catch (err) {
+                log(`❌ Create progress error: ${err.message}`)
+            }
+        }
+        
+        async function testContinueWatching() {
+            let session = await checkAuth()
+            
+            if (!session) {
+                const stored = localStorage.getItem('sb-iiwmvmhgtxosaqnpqbev-auth-token')
+                if (stored) {
+                    session = JSON.parse(stored)
+                    log('ℹ️ Using stored session for test')
+                } else {
+                    log('❌ No session found. Create a session first.')
+                    return
+                }
+            }
+            
+            try {
+                const response = await fetch('/api/continue-watching', {
+                    headers: {
+                        'Authorization': `Bearer ${session.access_token}`
+                    }
+                })
+                
+                const result = await response.json()
+                
+                if (response.ok) {
+                    log(`✅ Continue watching returned ${result.items?.length || 0} items`)
+                    if (result.items?.length > 0) {
+                        result.items.forEach((item, i) => {
+                            log(`   ${i+1}. ${item.title || item.content_id}`)
+                        })
+                    }
+                } else {
+                    log(`❌ Continue watching error: ${result.error || response.status}`)
+                }
+            } catch (err) {
+                log(`❌ Continue watching test error: ${err.message}`)
+            }
+        }
+        
+        // Check auth on load
+        window.addEventListener('load', checkAuth)
+        
+        // Listen for auth changes
+        supabase.auth.onAuthStateChange((event, session) => {
+            log(`📡 Auth event: ${event}`)
+            checkAuth()
+        })
+    </script>
+</body>
+</html>

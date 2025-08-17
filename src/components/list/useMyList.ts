@@ -17,14 +17,34 @@ export function useMyList() {
   const authHeader: Record<string,string> = session ? { Authorization: `Bearer ${session.access_token}` } : {}
 
   const load = useCallback(async () => {
-    if (!session) return
+    if (!session?.access_token) return
+    
+    // Validate token format before making request
+    if (session.access_token.split('.').length !== 3) {
+      console.warn('useMyList: Invalid JWT token format');
+      return;
+    }
+    
     if (cache) { setState(cache); return }
     if (!inflight) {
   inflight = fetch('/api/list?meta=1', { headers: { ...authHeader } })
-        .then(r=>r.json())
+        .then(r=>{
+          if (r.status === 401) {
+            console.warn('useMyList: Authentication required');
+            throw new Error('AUTH_REQUIRED');
+          }
+          return r.json();
+        })
         .then(json => {
           if (json.success) return { watchlist: json.watchlist } as State
           throw new Error(json.error||'Failed to load list')
+        })
+        .catch(error => {
+          if (error.message === 'AUTH_REQUIRED') {
+            // Silent fail for auth issues
+            throw error;
+          }
+          throw error;
         })
         .finally(()=>{ inflight=null })
     }
@@ -33,11 +53,24 @@ export function useMyList() {
       const data = await inflight
       cache = data
       setState(data)
-    } catch (e:any) { push({ type:'error', message:e.message }) }
+    } catch (e:any) { 
+      if (e.message !== 'AUTH_REQUIRED') {
+        push({ type:'error', message:e.message })
+      }
+    }
     finally { setLoading(false) }
   }, [session])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { 
+    if (!session?.access_token) return;
+    
+    // Add a small delay to ensure auth is fully established
+    const timeoutId = setTimeout(() => {
+      load();
+    }, 200);
+    
+    return () => clearTimeout(timeoutId);
+  }, [load])
 
   const mutate = (fn: (prev: State) => State) => {
     if (state) {
@@ -52,15 +85,43 @@ export function useMyList() {
     const optimistic: ListItem = { content_id, content_type, added_at: new Date().toISOString() }
     mutate(prev => ({ ...prev, watchlist: [optimistic, ...prev.watchlist] }))
   try { window.dispatchEvent(new CustomEvent('app:watchlistAdded', { detail: { id: content_id, type: content_type } })) } catch {}
-  const res = await fetch('/api/list/watchlist', { method:'POST', headers: { 'Content-Type':'application/json', ...authHeader }, body: JSON.stringify({ contentId: content_id, contentType: content_type }) })
-    const json = await res.json(); if (!json.success) { push({ type:'error', message:'Failed to add to watchlist' }); load() }
+  try {
+    const res = await fetch('/api/list/watchlist', { method:'POST', headers: { 'Content-Type':'application/json', ...authHeader }, body: JSON.stringify({ contentId: content_id, contentType: content_type }) })
+    if (res.status === 401) {
+      // Authentication failed - fail silently and reload
+      load();
+      return;
+    }
+    const json = await res.json(); 
+    if (!json.success) { 
+      push({ type:'error', message:'Failed to add to watchlist' }); 
+      load();
+    }
+  } catch (error) {
+    console.error('Add to watchlist error:', error);
+    load();
+  }
   }
   const removeWatch = async (content_id: string) => {
     if (!session) return
     mutate(prev => ({ ...prev, watchlist: prev.watchlist.filter(f=>f.content_id!==content_id) }))
   try { window.dispatchEvent(new CustomEvent('app:watchlistRemoved', { detail: { id: content_id } })) } catch {}
-  const res = await fetch(`/api/list/watchlist?id=${encodeURIComponent(content_id)}`, { method:'DELETE', headers: { ...authHeader } })
-    const json = await res.json(); if (!json.success) { push({ type:'error', message:'Failed to remove from watchlist' }); load() }
+  try {
+    const res = await fetch(`/api/list/watchlist?id=${encodeURIComponent(content_id)}`, { method:'DELETE', headers: { ...authHeader } })
+    if (res.status === 401) {
+      // Authentication failed - fail silently and reload  
+      load();
+      return;
+    }
+    const json = await res.json(); 
+    if (!json.success) { 
+      push({ type:'error', message:'Failed to remove from watchlist' }); 
+      load();
+    }
+  } catch (error) {
+    console.error('Remove from watchlist error:', error);
+    load();
+  }
   }
 
   // Global event listener to centralize toggle operations. Any component can dispatch:

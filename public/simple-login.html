@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Login</title>
+    <style>
+        body { 
+            font-family: system-ui; 
+            max-width: 500px; 
+            margin: 100px auto; 
+            padding: 20px; 
+            background: #111; 
+            color: #fff; 
+        }
+        input, button { 
+            padding: 12px; 
+            font-size: 16px; 
+            margin: 8px 0; 
+            border: 1px solid #444; 
+            background: #222; 
+            color: #fff; 
+            border-radius: 4px; 
+        }
+        input { width: 100%; box-sizing: border-box; }
+        button { cursor: pointer; }
+        button:hover { background: #333; }
+        .status { 
+            margin: 20px 0; 
+            padding: 12px; 
+            border-radius: 4px; 
+            background: #333; 
+        }
+        .success { background: #006600; }
+        .error { background: #660000; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Direct Login</h1>
+    <p>No magic links, no bullshit. Just instant authentication.</p>
+    
+    <form id="loginForm">
+        <input type="email" id="email" placeholder="Enter your email" required>
+        <button type="submit">Login Now</button>
+    </form>
+    
+    <div id="status"></div>
+    
+    <script>
+        const form = document.getElementById('loginForm');
+        const emailInput = document.getElementById('email');
+        const statusDiv = document.getElementById('status');
+        
+        function showStatus(message, isError = false) {
+            statusDiv.innerHTML = message;
+            statusDiv.className = isError ? 'status error' : 'status success';
+        }
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = emailInput.value.trim();
+            
+            if (!email) {
+                showStatus('Please enter an email', true);
+                return;
+            }
+            
+            showStatus('Logging in...');
+            
+            try {
+                const response = await fetch('/api/auth/direct-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Login failed');
+                }
+                
+                // Store tokens in localStorage for now
+                localStorage.setItem('supabase_access_token', data.access_token);
+                localStorage.setItem('supabase_refresh_token', data.refresh_token);
+                localStorage.setItem('supabase_user', JSON.stringify(data.user));
+                
+                showStatus(`✅ Logged in as ${data.user.email}! Redirecting...`);
+                
+                // Redirect to home after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 2000);
+                
+            } catch (error) {
+                showStatus(`❌ ${error.message}`, true);
+            }
+        });
+    </script>
+</body>
+</html>

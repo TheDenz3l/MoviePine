@@ -30,7 +30,8 @@ import { TVSeriesPage } from '@/components/tv-series-page'
 import { TVGardenLiveTVPage } from '@/components/tv-garden-live-tv-page'
 import { LiveTVPage } from '@/components/live-tv-page'
 import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
-import { RecentlyPlayedService, RecentlyPlayedMovie } from '@/lib/services/recently-played-service'
+import { RecentlyPlayedService } from '@/lib/services/recently-played-service'
+import { ContinueWatching } from '@/components/continue-watching/ContinueWatching'
 import { useWatchlistToast } from '@/components/watchlist/WatchlistToast'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
@@ -80,7 +81,6 @@ export default function ClientOnlyMovieApp() {
   const [seamlessSearchQuery, setSeamlessSearchQuery] = useState("")
   const [isSeamlessSearching, setIsSeamlessSearching] = useState(false)
   // Remove legacy overlay state
-  const [recentlyPlayedMovies, setRecentlyPlayedMovies] = useState<RecentlyPlayedMovie[]>([])
   const [playingMovieData, setPlayingMovieData] = useState<{
     id: string
     title: string
@@ -302,16 +302,6 @@ export default function ClientOnlyMovieApp() {
       window.removeEventListener('app:searchMoreInfo', handleSearchMoreInfo)
     }
   }, [showRealTimeSearch, isModalOpen])
-
-  // Load recently played movies
-  useEffect(() => {
-    loadRecentlyPlayedMovies()
-  }, [])
-
-  const loadRecentlyPlayedMovies = () => {
-    const movies = RecentlyPlayedService.getAll()
-    setRecentlyPlayedMovies(movies)
-  }
 
   // Navigation handler
   const handleNavigate = async (category: string) => {
@@ -661,8 +651,7 @@ export default function ClientOnlyMovieApp() {
     setPlayingMovieData(null)
     setResumeTime(0)
     setDirectStreamingUrl(null) // Clear direct streaming URL
-    // Refresh recently played list when video player closes
-    loadRecentlyPlayedMovies()
+    // Note: Continue Watching will automatically refresh via modern database system
   }
 
   // Search handlers - separate from main app to avoid affecting hero section
@@ -1211,6 +1200,11 @@ export default function ClientOnlyMovieApp() {
           <div className="pointer-events-none absolute -top-40 left-0 right-0 h-40 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
           {activeCategory === 'home' && (
             <>
+              {/* Continue Watching Section - Shows before other rails for better UX */}
+              <div className="px-6 md:px-12 mb-8">
+                <ContinueWatching />
+              </div>
+              
               {/* Replacing all legacy rails with categorized poster grids */}
               <div className="space-y-6">
                 <section className="px-6 md:px-12" aria-label="Trending This Week Carousel">
@@ -1383,30 +1377,11 @@ export default function ClientOnlyMovieApp() {
           )}
           {activeCategory === 'watchlist' && (
             <>
-              {recentlyPlayedMovies.length > 0 ? (
-                <section className="px-6 md:px-12" aria-label="Continue Watching Carousel">
-                  <NewNetflixCarousel
-                    title="Continue Watching"
-                    movies={recentlyPlayedMovies.slice(0,36).map(r => ({
-                      id: r.id,
-                      title: r.title,
-                      poster: r.poster,
-                      backdrop: r.poster,
-                      year: r.year,
-                      rating: 0,
-                      genre: r.genre
-                    }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
-                    onMoreInfo={(movie) => handleMoreInfo(movie.id)}
-                  />
-                </section>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <Film className="w-16 h-16 text-gray-600 mb-4" />
-                  <h2 className="text-2xl font-semibold text-gray-400 mb-2">No Recently Played Movies</h2>
-                  <p className="text-gray-500">Movies you watch will appear here</p>
-                </div>
-              )}
+              {/* Continue Watching Section - Modern Database-driven System */}
+              <div className="px-6 md:px-12 mb-8">
+                <ContinueWatching />
+              </div>
+              
               <section className="px-6 md:px-12 mt-10" aria-label="Watchlist Carousel">
                 <NewNetflixCarousel
                   title="Watch List"

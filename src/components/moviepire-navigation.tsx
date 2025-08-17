@@ -18,7 +18,6 @@ interface SearchResult {
 interface NavItem {
   name: string
   icon: React.ComponentType<{ className?: string }>
-  url?: string
 }
 
 interface MoviepireNavigationProps {
@@ -171,7 +170,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
   }
 
   const navItems = [
-    { id: 'home', label: 'Browse', icon: Home, url: 'http://localhost:3000/' },
+    { id: 'home', label: 'Browse', icon: Home },
     { id: 'explore-movies', label: 'Movies', icon: Film },
     { id: 'tv-series', label: 'TV Series', icon: Tv },
     { id: 'live-tv', label: 'Live TV', icon: Zap },
@@ -204,13 +203,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
           return (
             <button
               key={item.id}
-              onClick={() => {
-                if (item.url) {
-                  window.location.href = item.url
-                } else {
-                  onNavigate(item.id)
-                }
-              }}
+              onClick={() => onNavigate(item.id)}
               className={`flex items-center text-sm font-bold transition-colors duration-200 hover:text-white ${
                 activeCategory === item.id
                   ? 'text-red-600'
