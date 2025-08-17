@@ -99,6 +99,19 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
   // View mode toggle (grid/list)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
+  // Ensure search overlay events are handled
+  useEffect(() => {
+    const handleOpenSearch = (e: CustomEvent) => {
+      // Handle search overlay opening if needed
+    }
+    
+    window.addEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
+    
+    return () => {
+      window.removeEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
+    }
+  }, [])
+
   // Load genres once
   useEffect(() => {
     let mounted = true

@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { rateLimiters } from '@/lib/rateLimitMiddleware'
+import { ServerAuditLogger } from '@/lib/serverAuditLogger'
 
 export async function POST(req: NextRequest) {
+  // Apply strict rate limiting for auth endpoints
+  const rateLimitResponse = await rateLimiters.auth(req, { waitUntil: () => {} } as any);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const { email } = await req.json();
 
@@ -31,6 +39,10 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error('[Magic Link API] signInWithOtp failed:', { error_message: error.message, error_details: error });
+      
+      // Log failed attempt
+      await ServerAuditLogger.logFailedLogin(req, email, error.message);
+      
       let userMessage = 'Failed to send magic link. Please check your email and try again.';
       let errorCode = 'MAGIC_LINK_SEND_FAILED';
       let statusCode = error.status || 500; // Default to 500 if error.status is not available
@@ -48,11 +60,15 @@ export async function POST(req: NextRequest) {
         errorCode = 'SERVICE_UNAVAILABLE';
         statusCode = 503; // HTTP status code for Service Unavailable
       }
-      
       return NextResponse.json({ error: userMessage, errorCode }, { status: statusCode });
     }
 
     console.log('[Magic Link API] signInWithOtp successful:', data);
+    
+    // Log successful attempt (we don't have user ID yet, but we can log the email)
+    // The actual login will be logged in the callback
+    await ServerAuditLogger.logEvent(req, 'login_attempt', undefined, { email });
+    
     return NextResponse.json({
       success: true,
       message: 'Magic link sent! Check your email.',

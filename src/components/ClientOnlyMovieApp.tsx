@@ -182,8 +182,7 @@ export default function ClientOnlyMovieApp() {
     }
   }, [searchParams])
 
-  // Global event listener (radically different approach) to decouple real-time search overlay from modal open
-  // Any component can dispatch window.dispatchEvent(new CustomEvent('app:openModal', { detail: { id: movieId } }))
+  // Global event listener for search overlay and modal coordination
   useEffect(() => {
     const handleGlobalOpenModal = (e: Event) => {
       const custom = e as CustomEvent<any>

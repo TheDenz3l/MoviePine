@@ -621,7 +621,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
               </div>
 
               {/* Similar Section - Redesigned */}
-              <div className="mt-14">
+              <div className="mt-14"> 
                 <h3 className="text-2xl font-semibold mb-5 text-white">More Like This</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-5">
                   {isLoadingSimilar ? (
@@ -632,7 +632,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
           similarMovies.map(similarMovie => (
                       <div
                         key={similarMovie.id}
-                        className="group relative aspect-[2/3] cursor-pointer outline-none rounded-md overflow-hidden bg-zinc-900/60 ring-1 ring-zinc-800 shadow-sm focus-visible:ring-2 focus-visible:ring-white/40 transform-gpu transition-transform duration-300 will-change-transform hover:scale-[1.045] hover:-translate-y-2"
+                        className="group relative aspect-[2/3] cursor-pointer rounded-md overflow-hidden bg-zinc-900/60 shadow-sm transform-gpu transition-transform duration-300 hover:scale-[1.045] hover:-translate-y-2 outline-none"
                         tabIndex={0}
                         aria-label={`Open details for ${similarMovie.title}`}
                         data-testid="more-like-tile"
@@ -643,23 +643,44 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                           <img
                             src={similarMovie.poster}
                             alt={similarMovie.title}
-                            className="absolute inset-0 w-full h-full object-cover select-none will-change-transform"
-                            draggable={false}
+                            className="absolute inset-0 w-full h-full object-cover"
                             loading="lazy"
                           />
                         ) : (
                           <div className="absolute inset-0 w-full h-full bg-zinc-700 flex items-center justify-center p-2">
-                            <span className="text-gray-300 text-[11px] text-center leading-tight line-clamp-3">{similarMovie.title}</span>
+                            <span className="text-gray-300 text-xs text-center line-clamp-3">{similarMovie.title}</span>
                           </div>
                         )}
-                        <div className="pointer-events-none absolute inset-0 flex items-end justify-center p-2">
-                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden="true">
-                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }} className="pointer-events-auto h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-white"><Play className="h-5 w-5" /></button>
-                            <div className="h-10 w-10 flex items-center justify-center pointer-events-auto" onClick={(e)=>e.stopPropagation()}>
-                              <WatchlistToggleButton inList={inWatch(similarMovie.id)} size={40} variant="overlay" onToggle={()=>toggleWatch(similarMovie.id)} />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
+                          <div className="flex gap-2">
+                            <button
+                              data-testid="tile-play"
+                              onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie, { play: true }) }}
+                              className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
+                              title="Play"
+                            >
+                              <Play className="h-5 w-5" />
+                            </button>
+                            <div className="h-10 w-10 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                              <WatchlistToggleButton 
+                                inList={inWatch(similarMovie.id)} 
+                                size={40} 
+                                variant="overlay" 
+                                onToggle={() => toggleWatch(similarMovie.id)} 
+                              />
                             </div>
-                            <button type="button" onClick={(e)=>{ e.stopPropagation(); handleSimilarMovieClick(similarMovie) }} className="pointer-events-auto h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white" aria-label="More info"><Info className="h-5 w-5" /></button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleSimilarMovieClick(similarMovie) }}
+                              className="h-10 w-10 rounded-full bg-zinc-800/70 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-white"
+                              title="More Info"
+                              aria-label="More Info"
+                            >
+                              <Info className="h-5 w-5" />
+                            </button>
                           </div>
+                        </div>
+                        <div className="absolute top-2 right-2">
+                          <ImdbRating rating={similarMovie.rating} size="micro" testId="tmdb-rating" />
                         </div>
                       </div>
                     ))

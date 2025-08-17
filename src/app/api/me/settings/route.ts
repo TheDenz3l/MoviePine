@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireEmailVerification, isEmailVerified } from '@/lib/emailVerification'
+import { ServerAuditLogger } from '@/lib/serverAuditLogger'
 
 function getSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -13,6 +15,9 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabase(req)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+
+    // Log settings access
+    await ServerAuditLogger.logEvent(req, 'settings_access', user.id);
 
     const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', user.id).single()
     return new Response(JSON.stringify({ success: true, settings }), { status: 200 })
@@ -28,6 +33,25 @@ export async function PUT(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
 
+    // Check email verification for sensitive settings changes
+    const verificationCheck = requireEmailVerification(user, 'changing settings');
+    if (!verificationCheck.authorized) {
+      await ServerAuditLogger.logEvent(req, 'settings_change_blocked', user.id, {
+        reason: 'email_not_verified',
+        error: verificationCheck.error
+      });
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: verificationCheck.error,
+        errorCode: verificationCheck.errorCode
+      }), { status: 403 });
+    }
+
+    // Log settings change attempt
+    await ServerAuditLogger.logEvent(req, 'settings_change_attempt', user.id, {
+      changes: Object.keys(body)
+    });
+
     // Merge patch: read existing first
     const { data: existing } = await supabase.from('user_settings').select('*').eq('user_id', user.id).single()
     const merged = {
@@ -39,6 +63,12 @@ export async function PUT(req: NextRequest) {
     }
     const { data, error } = await supabase.from('user_settings').upsert({ user_id: user.id, ...merged, updated_at: new Date().toISOString() })
     if (error) throw error
+    
+    // Log successful settings change
+    await ServerAuditLogger.logEvent(req, 'settings_change', user.id, {
+      changes: Object.keys(body)
+    });
+    
     return new Response(JSON.stringify({ success: true, settings: merged }), { status: 200 })
   } catch (e: any) {
     return new Response(JSON.stringify({ success: false, error: e.message }), { status: 500 })

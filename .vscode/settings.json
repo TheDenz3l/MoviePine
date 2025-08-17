@@ -62,5 +62,7 @@
     "plaintext": false,
     "markdown": false
   },
-  "github.copilot.chat.defaultMode": "router"
+  "github.copilot.chat.defaultMode": "router",
+  "claude.anthropic.baseUrl": "http://127.0.0.1:8001",
+  "claude.anthropic.apiKey": "local-any"
 }

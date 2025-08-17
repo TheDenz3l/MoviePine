@@ -146,7 +146,10 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
   const handleSearchClick = () => {
     setShowSearch(true)
     setOverlayTriggered(false) // Reset overlay trigger state
-    // Don't immediately open overlay, just show the search input
+    // Dispatch global event to open real-time search overlay
+    window.dispatchEvent(new CustomEvent('app:openRealTimeSearch', { 
+      detail: { query: searchQuery } 
+    }))
     // Focus will be handled automatically by autoFocus on input
   }
 

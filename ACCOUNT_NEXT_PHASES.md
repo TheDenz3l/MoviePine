@@ -71,18 +71,20 @@ Goal: Introduce subscription gating groundwork (even if monetization later).
 Exit Criteria: User can start test subscription in dev mode; gated feature toggleable via plan status.
 
 ---
-## Phase 5 – Security & Reliability Hardening
+## Phase 5 – Security & Reliability Hardening ✅ COMPLETE
 Goal: Reduce attack surface, add observability, strengthen account integrity.
 
-1. Rate Limiting Middleware (P1, M) – per IP+route (e.g., settings, auth actions).
-2. Audit Log Table (P1, S) – store key events: login, email change, password change, session revoke.
-3. Session Anomaly Detection (P2, M) – flag impossible travel (geo based on IP) -> optional email alert.
-4. Email Verification Enforcement (P1, S) – block privileged actions if unverified.
-5. Optional MFA (TOTP) Research / Spike (P3, L) – table + secret enrollment (defer if scope creep).
-6. Automated Integration Tests (P1, M) – Playwright flows: sign-in, settings update, session revoke.
-7. Load Test Script (P3, S) – k6 or autocannon for /api/progress & settings throughput.
+1. Rate Limiting Middleware (P1, M) – per IP+route (e.g., settings, auth actions). ✅ IMPLEMENTED
+2. Audit Log Table (P1, S) – store key events: login, email change, password change, session revoke. ✅ IMPLEMENTED
+3. Session Anomaly Detection (P2, M) – flag impossible travel (geo based on IP) -> optional email alert. ✅ IMPLEMENTED
+4. Email Verification Enforcement (P1, S) – block privileged actions if unverified. ✅ IMPLEMENTED
+5. Optional MFA (TOTP) Research / Spike (P3, L) – table + secret enrollment (defer if scope creep). ⏭️ DEFERRED
+6. Automated Integration Tests (P1, M) – Playwright flows: sign-in, settings update, session revoke. ✅ IMPLEMENTED
+7.  Load Test Script (P3, S) – k6 or autocannon for /api/progress & settings throughput. ✅ IMPLEMENTED
 
-Exit Criteria: Rate limiting active; audit logs capture core events; integration tests pass in CI.
+Exit Criteria: Rate limiting active; audit logs capture core events; integration tests pass in CI. ✅ ACHIEVED
+
+See [PHASE_5_SECURITY_HARDENING_COMPLETE.md](PHASE_5_SECURITY_HARDENING_COMPLETE.md) for full implementation details.
 
 ---
 ## Phase 6 – Admin, Analytics & Growth

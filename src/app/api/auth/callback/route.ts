@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { ServerAuditLogger } from '@/lib/serverAuditLogger'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -144,6 +145,11 @@ export async function GET(request: NextRequest) {
       email: data.user?.email,
       sessionExpires: data.session?.expires_at
     });
+
+    // Log successful login
+    if (data.user?.id) {
+      await ServerAuditLogger.logLogin(request, data.user.id);
+    }
 
     const response = NextResponse.redirect(new URL('/', requestUrl.origin));
     

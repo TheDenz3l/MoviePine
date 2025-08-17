@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Convenience multi-command launcher for Claude bridge & env.
+# Usage examples:
+#   claude code      # start bridge + prepare env for Claude Code
+#   claude status    # bridge status
+#   claude stop      # stop bridge
+#   claude logs      # tail bridge logs
+#   claude shell     # activate venv + export vars in current shell
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_DIR"
+
+ENV_FILE=".env.local"
+BRIDGE_SCRIPT="scripts/start_claude_bridge.sh"
+BRIDGE_PID=.bridge.pid
+BRIDGE_LOG=.bridge.out.log
+
+load_env() {
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC2046
+    export $(grep -v '^#' "$ENV_FILE" | grep -E '^(ANTHROPIC_|A4F_)' | xargs || true)
+  fi
+  export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://127.0.0.1:8001}"
+  export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-local-any}"
+  export A4F_RPM="${A4F_RPM:-15}"
+}
+
+ensure_venv() {
+  if [ ! -f .venv/bin/activate ]; then
+    echo "[claude] Python venv missing; creating..." >&2
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -q -r ai/requirements-litellm.txt
+  else
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+  fi
+}
+
+start_bridge() {
+  load_env
+  ensure_venv
+  bash "$BRIDGE_SCRIPT" start >/dev/null 2>&1 || true
+  bash "$BRIDGE_SCRIPT" status
+}
+
+stop_bridge() {
+  if [ -f "$BRIDGE_PID" ]; then
+    bash "$BRIDGE_SCRIPT" stop || true
+  else
+    echo "[claude] Bridge not running"
+  fi
+}
+
+status_bridge() {
+  bash "$BRIDGE_SCRIPT" status || true
+}
+
+shell_env() {
+  load_env
+  ensure_venv
+  echo "[claude] Env ready. Variables exported for this shell." 
+  echo "A4F models: ${A4F_BASE_URL:-unset} | Bridge: ${ANTHROPIC_BASE_URL}"
+  $SHELL
+}
+
+tail_logs() {
+  if [ -f "$BRIDGE_LOG" ]; then
+    echo "[claude] Tailing $BRIDGE_LOG (Ctrl-C to exit)" >&2
+    tail -f "$BRIDGE_LOG"
+  else
+    echo "[claude] No log file yet." >&2
+  fi
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  code|start)
+    start_bridge
+    echo "[claude] Claude Code can now use base URL: $ANTHROPIC_BASE_URL (key: $ANTHROPIC_API_KEY)"
+    ;;
+  status)
+    status_bridge
+    ;;
+  stop)
+    stop_bridge
+    ;;
+  restart)
+    stop_bridge || true
+    start_bridge
+    ;;
+  logs)
+    tail_logs
+    ;;
+  shell)
+    shell_env
+    ;;
+  help|--help|-h)
+    cat <<EOF
+Claude Bridge Helper
+Commands:
+  claude code|start   Start bridge (idempotent)
+  claude restart      Restart bridge
+  claude status       Show bridge status
+  claude stop         Stop bridge
+  claude logs         Tail bridge log
+  claude shell        Open subshell with env + venv active
+EOF
+    ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    exit 1
+    ;;
+ esac
