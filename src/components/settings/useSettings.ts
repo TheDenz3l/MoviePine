@@ -20,12 +20,21 @@ export function useSettings() {
   const [pending, setPending] = useState(false)
 
   const load = useCallback(async () => {
-    if (!session) return
+    if (!session || !session.access_token) {
+      console.log('[useSettings] No session or access token available, skipping settings load');
+      return;
+    }
     setLoading(true)
     try {
-      const { data: { session: fresh } } = await supabase!.auth.getSession()
-      const token = fresh?.access_token
+      console.log('[useSettings] Loading settings with session token:', session.access_token?.substring(0, 20) + '...');
+      const token = session.access_token
+      if (!token || token.length < 100) {
+        console.warn('[useSettings] Invalid or too short access token, skipping settings load');
+        setLoading(false);
+        return;
+      }
       const res = await fetch('/api/me/settings', { headers: { Authorization: `Bearer ${token}` } })
+      console.log('[useSettings] Settings API response:', { status: res.status, ok: res.ok });
       
       // Handle authentication failures silently
       if (res.status === 401) {
@@ -75,12 +84,19 @@ export function useSettings() {
   const flushRef = useRef<() => Promise<void>>(async () => {})
 
   const flush = useCallback(async () => {
-    if (!session || !pendingRef.current) return
+    if (!session || !session.access_token || !pendingRef.current) return
     const patch = pendingRef.current
     pendingRef.current = null
     const token = session.access_token
+    console.log('[useSettings] Flushing settings with token:', token?.substring(0, 20) + '...');
+    if (!token || token.length < 100) {
+      console.warn('[useSettings] Invalid or too short access token for flush');
+      setPending(false);
+      return;
+    }
     try {
       const res = await fetch('/api/me/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(patch) })
+      console.log('[useSettings] Settings flush response:', { status: res.status, ok: res.ok });
       
       // Handle authentication failures silently
       if (res.status === 401) {

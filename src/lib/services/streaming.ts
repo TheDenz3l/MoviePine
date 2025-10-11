@@ -4,7 +4,9 @@ import { TMDBAPI, TMDBMovie, TMDBTVShow, TMDBGenre } from '../api/tmdb'
 import { TorrentioAPI, TorrentioStream } from '../api/torrentio'
 import { TorboxAPI, TorboxTorrent } from '../api/torbox'
 import RealDebridAPI, { RealDebridTorrent } from '../api/realdebrid'
+import { DebridioAPI } from '../api/debridio'
 import { fetchMovieSubtitles, type ProcessedSubtitle } from './subtitle-service'
+import { StreamHealthChecker, validateStreamBeforePlay } from '../video/stream-health-checker'
 // Debug utilities temporarily disabled to avoid reserved keyword issues
 // import { streamingDebugger, logStreamingStep, logStreamingError, logStreamingSuccess } from '../utils/debug'
 
@@ -68,11 +70,14 @@ export interface StreamingConfig {
   torrentioProviders?: string[]
   debridService?: 'realdebrid' | 'premiumize' | 'alldebrid'
   debridApiKey?: string
+  debridioManifestUrl?: string
+  debridioEnabled?: boolean
 }
 
 export class StreamingService {
   private tmdb: TMDBAPI
   private torrentio: TorrentioAPI
+  private debridio?: DebridioAPI
   private torbox?: TorboxAPI
   private realdebrid?: RealDebridAPI
   private config: StreamingConfig
@@ -98,6 +103,17 @@ export class StreamingService {
 
   constructor(config: StreamingConfig) {
     this.config = config
+    
+    // Debug: Log config to see what's being passed
+    console.log('🔧 [STREAMING SERVICE] Initializing with config:', {
+      hasTmdbApiKey: !!config.tmdbApiKey,
+      hasTorboxApiKey: !!config.torboxApiKey,
+      hasDebridApiKey: !!config.debridApiKey,
+      debridService: config.debridService,
+      hasDebridioManifestUrl: !!config.debridioManifestUrl,
+      debridioEnabled: config.debridioEnabled,
+      torrentioProviders: config.torrentioProviders?.length || 0
+    })
 
     // Only initialize TMDB if API key is provided
     if (config.tmdbApiKey) {
@@ -115,6 +131,23 @@ export class StreamingService {
 
     if (config.torboxApiKey) {
       this.torbox = new TorboxAPI(config.torboxApiKey)
+    }
+
+    // Initialize Debridio if configured and enabled
+    if (config.debridioManifestUrl && config.debridioEnabled) {
+      this.debridio = new DebridioAPI({ manifestUrl: config.debridioManifestUrl })
+      console.log('🎬 [DEBRIDIO] Initialized - will use Debridio for stream sources')
+      
+      // Test connection in background
+      this.debridio.testConnection().then(result => {
+        if (result.success) {
+          console.log('✅ [DEBRIDIO] Connection test successful')
+        } else {
+          console.warn('⚠️ [DEBRIDIO] Connection test failed:', result.error)
+        }
+      }).catch(error => {
+        console.warn('⚠️ [DEBRIDIO] Connection test error:', error)
+      })
     }
 
     // Initialize Real-Debrid if configured
@@ -408,17 +441,50 @@ export class StreamingService {
 
       let allStreams: any[] = []
 
-      // Try each ID until we find streams
-      for (const searchId of searchIds) {
-        console.log(`🔄 Searching streams with ID: ${searchId.id} (${searchId.type})`)
+      // Priority 1: Try Debridio first if enabled (provides cached streams directly)
+      if (this.debridio) {
+        console.log(`🎬 [DEBRIDIO] Attempting to fetch streams from Debridio...`)
+        
+        try {
+          const debridioStreams = await this.debridio.getMovieStreams(movieId)
+          
+          if (debridioStreams.length > 0) {
+            console.log(`✅ [DEBRIDIO] Found ${debridioStreams.length} streams from Debridio`)
+            
+            // CRITICAL: Debridio URLs are Stremio addon resolve URLs, not direct video URLs
+            // They need to be resolved through /api/resolve-stream just like Torrentio
+            allStreams = debridioStreams.map(stream => ({
+              name: stream.name || stream.title,
+              title: stream.title,
+              url: stream.url,  // This is a Stremio resolve URL that needs resolution
+              infoHash: stream.infoHash || '',  // Preserve info hash if available
+              subtitles: []
+            }))
+            
+            console.log(`✅ [DEBRIDIO] Using Debridio streams (will resolve to Real-Debrid URLs)`)
+          } else {
+            console.log(`⚠️ [DEBRIDIO] No streams found, falling back to Torrentio`)
+          }
+        } catch (error) {
+          console.error(`❌ [DEBRIDIO] Error fetching streams:`, error)
+          console.log(`⚠️ [DEBRIDIO] Falling back to Torrentio`)
+        }
+      }
 
-        const streams = await this.torrentio.getMovieStreams(searchId.id, isSafari)
-        console.log(`📊 Found ${streams.length} streams for ${searchId.id} (${searchId.type})`)
+      // Priority 2: Try Torrentio if Debridio didn't return streams
+      if (allStreams.length === 0) {
+        // Try each ID until we find streams
+        for (const searchId of searchIds) {
+          console.log(`🔄 Searching streams with ID: ${searchId.id} (${searchId.type})`)
 
-        if (streams.length > 0) {
-          allStreams = streams
-          console.log(`✅ Successfully found streams using ${searchId.type}: ${searchId.id}`)
-          break
+          const streams = await this.torrentio.getMovieStreams(searchId.id, isSafari)
+          console.log(`📊 Found ${streams.length} streams for ${searchId.id} (${searchId.type})`)
+
+          if (streams.length > 0) {
+            allStreams = streams
+            console.log(`✅ Successfully found streams using ${searchId.type}: ${searchId.id}`)
+            break
+          }
         }
       }
 
@@ -444,8 +510,52 @@ export class StreamingService {
       // Convert to StreamingSource format
       const streamingSources: StreamingSource[] = []
 
+      // Log format distribution BEFORE filtering
+      const formatDistBefore = allStreams.reduce((acc, s) => {
+        const q = this.torrentio.parseStreamQuality(s.title)
+        const fmt = q.format || 'OTHER'
+        acc[fmt] = (acc[fmt] || 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+      console.log(`📊 [BEFORE FILTER] Format distribution:`, formatDistBefore)
+      
+      let mkvFilteredCount = 0
+      let aviFilteredCount = 0
+      
       for (const stream of allStreams) {
         const quality = this.torrentio.parseStreamQuality(stream.title)
+
+        // CRITICAL: Filter out MKV files immediately - browsers CANNOT play them
+        const streamName = stream.title.toLowerCase()
+        const streamUrl = (stream.url || '').toLowerCase()
+        
+        // Enhanced MKV detection - check title, URL, and format field
+        const isMKV = streamName.includes('.mkv') ||
+                      streamName.includes('mkv') ||
+                      streamName.includes('matroska') ||
+                      streamUrl.includes('.mkv') ||
+                      streamUrl.includes('%2emkv') ||
+                      streamUrl.includes('%2Emkv') ||
+                      quality.format?.toLowerCase() === 'mkv'
+        
+        if (isMKV) {
+          mkvFilteredCount++
+          console.log(`🚫 [MKV FILTER #${mkvFilteredCount}] Blocked: ${stream.title.substring(0, 70)}...`)
+          continue
+        }
+
+        // Filter out AVI and other incompatible containers
+        const isAVI = streamName.includes('.avi') ||
+                      streamName.includes('avi') ||
+                      streamUrl.includes('.avi') ||
+                      streamUrl.includes('%2eavi') ||
+                      quality.format?.toLowerCase() === 'avi'
+        
+        if (isAVI) {
+          aviFilteredCount++
+          console.log(`🚫 [AVI FILTER #${aviFilteredCount}] Blocked: ${stream.title.substring(0, 70)}...`)
+          continue
+        }
 
         // Skip only obviously bad quality (screeners, cams, etc.)
         if (quality.quality.toLowerCase().includes('cam') ||
@@ -512,9 +622,25 @@ export class StreamingService {
         })
       }
 
+      // Log filtering summary
+      console.log(`\n📊 [FILTER SUMMARY] MKV Filtering Results:`)
+      console.log(`  🚫 MKV streams blocked: ${mkvFilteredCount}`)
+      console.log(`  🚫 AVI streams blocked: ${aviFilteredCount}`)
+      console.log(`  ✅ Browser-compatible streams: ${streamingSources.length}`)
+      
+      // Log format distribution AFTER filtering
+      const formatDistAfter = streamingSources.reduce((acc, s) => {
+        const fmt = s.format || 'OTHER'
+        acc[fmt] = (acc[fmt] || 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+      console.log(`📊 [AFTER FILTER] Format distribution:`, formatDistAfter)
+
       console.log(`✅ Stream search completed for ${movieId}:`, {
         totalSources: streamingSources.length,
-        readySources: streamingSources.filter(s => s.isReady).length
+        readySources: streamingSources.filter(s => s.isReady).length,
+        mkvFiltered: mkvFilteredCount,
+        aviFiltered: aviFilteredCount
       })
 
       return streamingSources
@@ -533,6 +659,33 @@ export class StreamingService {
       
       console.log(`🔗 PREPARING STREAM: ${source.name}`)
       console.log(`📊 SOURCE URL: ${source.url}`)
+      
+      // Helper function to wrap Real-Debrid URLs with our proxy
+      // CRITICAL: This must be called BEFORE health checks to avoid CORS errors
+      const wrapRealDebridUrl = (url: string): string => {
+        // Check if it's a Real-Debrid URL that needs proxying
+        if (url && (url.includes('real-debrid.com') || url.includes('.download.'))) {
+          // Avoid double-wrapping if already proxied
+          if (!url.startsWith('/api/stream-proxy') && !url.includes('stream-proxy')) {
+            const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(url)}`
+            console.log(`🔄 [PROXY WRAP] Real-Debrid URL wrapped: ${proxiedUrl.substring(0, 80)}...`)
+            return proxiedUrl
+          }
+        }
+        return url
+      }
+      
+      // CRITICAL: Validate source URL before proceeding
+      if (!source.url) {
+        console.error('❌ [PREPARE STREAM] No URL in source')
+        throw new Error('Stream source has no URL')
+      }
+      
+      const urlValidation = StreamHealthChecker.validateStreamURL(source.url)
+      if (!urlValidation.isValid) {
+        console.error('❌ [PREPARE STREAM] Invalid URL format:', urlValidation.reason)
+        throw new Error(`Invalid stream URL: ${urlValidation.reason}`)
+      }
       
       if (isSafari) {
         console.log(`🍎 [SAFARI] Preparing stream for Safari browser`)
@@ -559,8 +712,113 @@ export class StreamingService {
         }
       }
 
+      // CRITICAL: Check if this is a Debridio/Stremio addon URL that needs resolution
+      const isDebridioUrl = source.url && (
+        source.url.includes('stremio-debridio.com') ||
+        source.url.includes('addon.debridio.com/play/') ||
+        source.url.includes('addon.debridio.com') && source.url.includes('/play/')
+      )
+      
+      const isTorrentioResolveUrl = source.url && source.url.includes('/resolve/')
+      
+      // Check if this is a direct playable URL (NOT a Stremio addon URL)
+      if (source.url && 
+          (source.url.startsWith('http://') || source.url.startsWith('https://')) && 
+          !isTorrentioResolveUrl && 
+          !isDebridioUrl) {
+        console.log(`🎯 [DIRECT URL] Stream has direct playable URL`)
+        console.log(`🔗 Direct URL: ${source.url.substring(0, 100)}...`)
+        
+        // CRITICAL FIX: Wrap Real-Debrid URLs BEFORE health check to avoid CORS
+        const finalUrl = wrapRealDebridUrl(source.url)
+        console.log(`🔗 Final URL (after proxy wrap): ${finalUrl.substring(0, 100)}...`)
+        
+        // Validate direct URL health before returning (non-blocking)
+        // Now using proxied URL if applicable, avoiding CORS errors
+        console.log('🏥 [HEALTH CHECK] Validating final URL...')
+        const healthCheck = await validateStreamBeforePlay(finalUrl)
+        
+        if (!healthCheck.canPlay) {
+          console.warn('⚠️ [HEALTH CHECK] URL validation warning:', healthCheck.error)
+          // Don't throw - the health checker is now lenient, let the player try
+        } else {
+          console.log('✅ [HEALTH CHECK] URL is healthy and playable')
+        }
+        
+        // Return proxied URL if Real-Debrid, otherwise original
+        return finalUrl
+      }
+      
+      // Handle Debridio URLs that need resolution
+      if (isDebridioUrl) {
+        console.log(`✅ DEBRIDIO RESOLVE URL DETECTED! 🎯`)
+        console.log(`🎬 STREMIO MODE: Resolving Debridio URL to get actual video URL`)
+        console.log(`🔗 DEBRIDIO URL: ${source.url}`)
+
+        try {
+          // Use the proxy endpoint to resolve the Debridio URL (same as Torrentio)
+          const proxyUrl = `/api/resolve-stream?url=${encodeURIComponent(source.url)}`
+          console.log(`🔗 Using proxy URL: ${proxyUrl}`)
+
+          const response = await fetch(proxyUrl)
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.resolvedUrl) {
+              console.log(`🚀 RESOLVED VIDEO URL FROM DEBRIDIO: ${data.resolvedUrl.substring(0, 100)}...`)
+              console.log(`📹 Content Type: ${data.contentType || 'unknown'}`)
+              console.log(`🎬 Is Video: ${data.isVideo ? 'Yes' : 'No'}`)
+
+              // CRITICAL FIX: Wrap Real-Debrid URLs BEFORE health check
+              const finalUrl = wrapRealDebridUrl(data.resolvedUrl)
+              console.log(`🔗 Final resolved URL (after proxy wrap): ${finalUrl.substring(0, 100)}...`)
+              
+              // Validate resolved URL (now using proxied URL if applicable)
+              console.log('🏥 [HEALTH CHECK] Validating final resolved URL...')
+              const healthCheck = await validateStreamBeforePlay(finalUrl)
+              
+              if (!healthCheck.canPlay) {
+                console.warn('⚠️ [HEALTH CHECK] Resolved URL validation warning:', healthCheck.error)
+              } else {
+                console.log('✅ [HEALTH CHECK] Resolved URL is healthy')
+              }
+
+              if (isSafari) {
+                console.log(`🍎 [SAFARI] Returning URL: ${finalUrl.substring(0, 100)}...`)
+              }
+              
+              return finalUrl
+            } else {
+              console.log(`❌ Failed to resolve Debridio URL: ${data.error || 'Unknown error'}`)
+              
+              if (data.error === 'NOT_CACHED') {
+                throw new Error('This stream is not cached on Real-Debrid. Try a different quality or more popular movie.')
+              }
+              
+              throw new Error(data.error || 'Failed to resolve stream URL')
+            }
+          } else {
+            const errorText = await response.text().catch(() => 'Unable to read error response')
+            console.log(`❌ Proxy request failed: ${response.status} ${response.statusText}`)
+            console.log(`❌ Error details: ${errorText}`)
+            
+            if (response.status === 404) {
+              throw new Error('Stream not found (404). The content may not be cached on Real-Debrid.')
+            }
+            
+            throw new Error(`Stream resolution failed: ${response.status} ${response.statusText}`)
+          }
+        } catch (error) {
+          console.error(`❌ Error resolving Debridio URL:`, error)
+          if (error instanceof TypeError && error.message.includes('fetch')) {
+            console.error(`❌ This appears to be a network/CORS error. Check if the proxy endpoint is working.`)
+          }
+          return null
+        }
+      }
+
       // STREMIO MODE: If this is a Torrentio resolve URL, resolve it to get the actual video URL
-      if (source.url && source.url.includes('/resolve/realdebrid/')) {
+      if (source.url && source.url.includes('/resolve/')) {
         console.log(`✅ TORRENTIO RESOLVE URL DETECTED! 🎯`)
         console.log(`🎬 STREMIO MODE: Resolving Torrentio URL to get actual video URL`)
         console.log(`🔗 RESOLVE URL: ${source.url}`)
@@ -580,45 +838,46 @@ export class StreamingService {
               console.log(`🎬 Is Video: ${data.isVideo ? 'Yes' : 'No'}`)
               console.log(`📝 Available subtitles: ${source.subtitles?.join(', ') || 'None detected'}`)
 
-              // Use stream proxy for Real-Debrid URLs to handle CORS and streaming
-              if (data.resolvedUrl.includes('real-debrid.com') || data.resolvedUrl.includes('download.')) {
-                const proxiedUrl = `/api/stream-proxy?url=${encodeURIComponent(data.resolvedUrl)}`
-                console.log(`🔄 Using stream proxy for Real-Debrid URL: ${proxiedUrl.substring(0, 100)}...`)
-                
-                if (isSafari) {
-                  console.log(`🍎 [SAFARI] Using proxied Real-Debrid URL for Safari compatibility`)
-                }
-                
-                return proxiedUrl
+              // CRITICAL FIX: Wrap Real-Debrid URLs BEFORE health check
+              const finalUrl = wrapRealDebridUrl(data.resolvedUrl)
+              console.log(`🔗 Final resolved URL (after proxy wrap): ${finalUrl.substring(0, 100)}...`)
+              
+              // Validate resolved URL (now using proxied URL if applicable)
+              console.log('🏥 [HEALTH CHECK] Validating final resolved URL...')
+              const healthCheck = await validateStreamBeforePlay(finalUrl)
+              
+              if (!healthCheck.canPlay) {
+                console.warn('⚠️ [HEALTH CHECK] Resolved URL validation warning:', healthCheck.error)
+                // Don't throw - the health checker is now lenient, let the player try
+              } else {
+                console.log('✅ [HEALTH CHECK] Resolved URL is healthy')
               }
 
-              // Return the actual video URL for other sources
               if (isSafari) {
-                console.log(`🍎 [SAFARI] Returning direct URL: ${data.resolvedUrl.substring(0, 100)}...`)
-                // For Safari, we might want to check the URL format/headers
-                try {
-                  const testResponse = await fetch(data.resolvedUrl, { method: 'HEAD' })
-                  const contentType = testResponse.headers.get('content-type')
-                  console.log(`🍎 [SAFARI] Stream content-type: ${contentType}`)
-                  
-                  if (contentType && !contentType.includes('video/mp4')) {
-                    console.warn(`🍎 [SAFARI WARNING] Non-MP4 content-type: ${contentType}`)
-                  }
-                } catch (error) {
-                  console.warn(`🍎 [SAFARI WARNING] Could not test stream headers:`, error)
-                }
+                console.log(`🍎 [SAFARI] Returning URL: ${finalUrl.substring(0, 100)}...`)
               }
               
-              return data.resolvedUrl
+              return finalUrl
             } else {
               console.log(`❌ Failed to resolve Torrentio URL: ${data.error || 'Unknown error'}`)
-              return null
+              
+              // Provide more specific error message
+              if (data.error === 'NOT_CACHED') {
+                throw new Error('This stream is not cached on Real-Debrid. Try a different quality or more popular movie.')
+              }
+              
+              throw new Error(data.error || 'Failed to resolve stream URL')
             }
           } else {
             const errorText = await response.text().catch(() => 'Unable to read error response')
             console.log(`❌ Proxy request failed: ${response.status} ${response.statusText}`)
             console.log(`❌ Error details: ${errorText}`)
-            return null
+            
+            if (response.status === 404) {
+              throw new Error('Stream not found (404). The content may not be cached on Real-Debrid.')
+            }
+            
+            throw new Error(`Stream resolution failed: ${response.status} ${response.statusText}`)
           }
         } catch (error) {
           console.error(`❌ Error resolving Torrentio URL:`, error)
@@ -633,7 +892,10 @@ export class StreamingService {
       if (this.realdebrid && source.realDebridId) {
         const torrent = await this.realdebrid.getTorrent(source.realDebridId)
         if (this.realdebrid.isReady(torrent)) {
-          return await this.realdebrid.getStreamingUrl(torrent)
+          const streamingUrl = await this.realdebrid.getStreamingUrl(torrent)
+          if (streamingUrl) {
+            return wrapRealDebridUrl(streamingUrl)
+          }
         }
       }
 
@@ -657,14 +919,14 @@ export class StreamingService {
           const streamingUrl = await this.realdebrid.getStreamingUrl(torrent)
           console.log(`🎬 Streaming URL obtained: ${streamingUrl?.substring(0, 50)}...`)
 
-          // Use proxy to handle CORS issues with Real-Debrid URLs
+          // Wrap with proxy (BEFORE any validation)
           if (streamingUrl) {
-            const proxyUrl = `/api/stream?url=${encodeURIComponent(streamingUrl)}`
-            console.log(`🔄 Using proxy URL for Real-Debrid stream`)
-            return proxyUrl
+            const finalUrl = wrapRealDebridUrl(streamingUrl)
+            console.log(`🔗 Final URL (after proxy wrap): ${finalUrl.substring(0, 100)}...`)
+            return finalUrl
           }
-
-          return streamingUrl
+          
+          return null
         } catch (error) {
           console.error('💥 Real-Debrid failed:', error)
 
@@ -715,7 +977,15 @@ export class StreamingService {
 
       // Get streaming URL
       const streamingUrl = await this.torbox.getStreamingUrl(torrent.id, videoFile.id)
-      return streamingUrl
+      
+      // Wrap URLs if needed (typically Torbox doesn't need proxying, but check anyway)
+      if (streamingUrl) {
+        const finalUrl = wrapRealDebridUrl(streamingUrl)
+        console.log(`🔗 Final Torbox URL: ${finalUrl.substring(0, 100)}...`)
+        return finalUrl
+      }
+      
+      return null
 
     } catch (error) {
       console.error('Error preparing stream:', error)
@@ -1214,15 +1484,35 @@ export class StreamingService {
       scored.slice(0, 5).forEach((d, i) => {
         console.log(`${i + 1}. Q=${d.s.quality} Name=${d.s.name.substring(0, 70)}... score=${d.composite.toFixed(1)}`)
       })
+      
+      // Track failed streams for better error reporting
+      const failedStreams: Array<{ name: string; reason: string }> = []
+      
       for (const { s } of scored) {
         try {
           const streamingUrl = await this.prepareStream(s, isSafariBrowser)
           if (streamingUrl) return streamingUrl
+          
+          failedStreams.push({ name: s.name, reason: 'No URL returned' })
         } catch (err) {
-          console.warn('⚠️ Scored movie URL source failed, trying next:', err instanceof Error ? err.message : err)
+          const reason = err instanceof Error ? err.message : String(err)
+          failedStreams.push({ name: s.name, reason })
+          console.warn('⚠️ Scored movie URL source failed, trying next:', reason)
         }
       }
+      
       console.log('❌ All scored movie URL sources failed, falling back to legacy fallback method...')
+      console.log(`📊 Failed streams summary: ${failedStreams.length} streams tried`)
+      
+      // Check if all failures are "NOT_CACHED" errors
+      const allNotCached = failedStreams.every(f => f.reason.includes('NOT_CACHED') || f.reason.includes('404'))
+      if (allNotCached && failedStreams.length > 0) {
+        console.log(`⚠️ ALL STREAMS NOT CACHED ON REAL-DEBRID`)
+        console.log(`💡 This content is very new or unpopular. Try:`)
+        console.log(`   1. A different, more popular movie`)
+        console.log(`   2. Waiting a few hours for torrents to be cached`)
+        console.log(`   3. Manually adding a torrent to Real-Debrid first`)
+      }
 
       // Enhanced priority algorithm with fallback logic
       const streamingUrl = await this.selectOptimalStreamWithFallback(sources, preferredQuality, isSafariBrowser)
@@ -1347,15 +1637,39 @@ export class StreamingService {
 
     if (movieId.startsWith('tmdb_')) {
       const tmdbId = parseInt(movieId.replace('tmdb_', ''))
+      
+      // Add validation for TMDB ID
+      if (isNaN(tmdbId) || tmdbId <= 0) {
+        console.warn(`⚠️ Invalid TMDB ID: ${movieId}`)
+        searchIds.push({ id: movieId, type: 'Invalid TMDB ID (as-is)' })
+        return searchIds
+      }
+      
       console.log(`🔄 Converting TMDB ID ${tmdbId} to IMDB ID...`)
 
       try {
         // Get external IDs from TMDB
-        const externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
-        console.log(`📊 TMDB External IDs:`, {
-          imdb_id: externalIds.imdb_id,
-          facebook_id: (externalIds as any).facebook_id
-        })
+        let externalIds
+        try {
+          externalIds = await this.tmdb.getMovieExternalIds(tmdbId)
+          console.log(`📊 TMDB External IDs:`, {
+            imdb_id: externalIds.imdb_id,
+            facebook_id: (externalIds as any).facebook_id
+          })
+        } catch (error) {
+          console.warn(`⚠️ Failed to fetch external IDs for TMDB ${tmdbId}:`, error)
+          
+          // If it's a 404, the movie doesn't exist
+          if (error instanceof Error && error.message.includes('404')) {
+            console.log(`📝 Movie with TMDB ID ${tmdbId} not found (404) - using fallback IDs`)
+            searchIds.push({ id: movieId, type: 'TMDB ID (404 fallback)' })
+            searchIds.push({ id: tmdbId.toString(), type: 'TMDB ID numeric (404 fallback)' })
+            return searchIds
+          }
+          
+          // For other errors, continue with fallbacks
+          throw error
+        }
 
         // Primary: Use IMDB ID if available
         if (externalIds.imdb_id) {
@@ -1383,6 +1697,7 @@ export class StreamingService {
             }
           } catch (error) {
             console.warn(`⚠️ Could not get movie details for TMDB ${tmdbId}:`, error)
+            // Don't throw here, we already have some fallback IDs
           }
         }
 
@@ -1474,7 +1789,31 @@ export class StreamingService {
 
     try {
       const tmdbId = parseInt(movieId.replace('tmdb_', ''))
-      const movieDetails = await this.tmdb.getMovieDetails(tmdbId)
+      
+      // Add validation for TMDB ID
+      if (isNaN(tmdbId) || tmdbId <= 0) {
+        console.warn(`⚠️ Invalid TMDB ID: ${movieId}`)
+        return []
+      }
+
+      console.log(`🔍 Attempting to fetch movie details for TMDB ID: ${tmdbId}`)
+      
+      let movieDetails
+      try {
+        movieDetails = await this.tmdb.getMovieDetails(tmdbId)
+      } catch (error) {
+        console.warn(`⚠️ Failed to fetch movie details for TMDB ${tmdbId}:`, error)
+        
+        // If it's a 404, the movie doesn't exist - this is not necessarily an error
+        if (error instanceof Error && error.message.includes('404')) {
+          console.log(`📝 Movie with TMDB ID ${tmdbId} not found (404) - skipping title search`)
+          return []
+        }
+        
+        // For other errors, still try to continue but log the issue
+        console.error(`❌ TMDB API error for ID ${tmdbId}:`, error)
+        return []
+      }
 
       if (!movieDetails.title || !movieDetails.release_date) {
         console.log(`⚠️ Missing title or release date for TMDB ${tmdbId}`)
@@ -1515,7 +1854,7 @@ export class StreamingService {
         }
       }
     } catch (error) {
-      console.error(`❌ Title-based search failed:`, error)
+      console.error(`❌ Title-based search failed for movieId ${movieId}:`, error)
     }
 
     return []
@@ -1579,58 +1918,61 @@ export class StreamingService {
   private getFormatCompatibilityScore(streamName: string, format?: string): number {
     const isSafari = (this as any).isSafariRuntime === true
     
-    // Use format field if available (more reliable than parsing name)
-    if (format) {
-      console.log(`🎯 [FORMAT FIELD] Using format field: ${format}`)
-      if (format.toLowerCase() === 'mp4') {
-        // For Safari, still need to check codec compatibility within MP4
-        if (isSafari) {
-          return this.getSafariMp4CompatibilityScore(streamName)
-        }
-        return 100
-      }
-      if (format.toLowerCase() === 'webm') return isSafari ? 0 : 60  // Safari doesn't support WebM
-      if (format.toLowerCase() === 'mkv') return isSafari ? 0 : 40   // Safari doesn't support MKV
-      if (format.toLowerCase() === 'avi') return isSafari ? 0 : 30   // Safari doesn't support AVI
-      return isSafari ? 0 : 20
-    }
+    // Import the compatibility checker for consistent format detection
+    const { StreamCompatibilityChecker } = require('@/lib/utils/stream-compatibility')
     
-    // Fallback to name parsing
+    // Use the compatibility checker's format detection
+    const detectedContainer = StreamCompatibilityChecker.detectContainer?.(streamName) || format
     const name = streamName.toLowerCase()
     
-    // MP4 format indicators - but Safari needs codec verification too
-    if (name.includes('.mp4') || name.includes('mp4') || 
-        name.includes('h264.mp4') || name.includes('x264.mp4') ||
-        name.includes('hevc.mp4') || name.includes('x265.mp4')) {
-      console.log(`🎯 [MP4 DETECTED] ${streamName.substring(0, 60)}...`)
+    console.log(`🔍 [FORMAT SCORE] Analyzing: container=${detectedContainer}, Safari=${isSafari}`)
+    
+    // CRITICAL: MKV is absolutely incompatible with web browsers
+    if (detectedContainer === 'MKV' || name.includes('.mkv') || name.includes('mkv')) {
+      console.log(`🚫 [MKV REJECTED] Web browsers cannot play MKV: ${streamName.substring(0, 60)}...`)
+      return -2000  // Massive negative score ensures it's never selected
+    }
+    
+    // AVI is also incompatible
+    if (detectedContainer === 'AVI' || name.includes('.avi') || name.includes('avi')) {
+      console.log(`🚫 [AVI REJECTED] Web browsers cannot play AVI: ${streamName.substring(0, 60)}...`)
+      return -1000
+    }
+    
+    // WebM handling
+    if (detectedContainer === 'WebM' || name.includes('.webm') || name.includes('webm')) {
+      if (isSafari) {
+        console.log(`🚫 [WEBM REJECTED] Safari cannot play WebM: ${streamName.substring(0, 60)}...`)
+        return -500
+      }
+      console.log(`✅ [WEBM ACCEPTED] Chrome/Firefox compatible: ${streamName.substring(0, 60)}...`)
+      return 900  // Good browser support but lower than MP4
+    }
+    
+    // MP4 - best browser support
+    if (detectedContainer === 'MP4' || name.includes('.mp4') || name.includes('mp4')) {
+      console.log(`✅ [MP4 DETECTED] ${streamName.substring(0, 60)}...`)
       
       if (isSafari) {
-        return this.getSafariMp4CompatibilityScore(streamName)
+        // Safari needs additional codec checks
+        const safariScore = this.getSafariMp4CompatibilityScore(streamName)
+        console.log(`🍎 [SAFARI MP4] Score: ${safariScore}`)
+        return safariScore
       }
-      return 100 // Maximum score for MP4 on non-Safari browsers
+      
+      console.log(`✅ [MP4 ACCEPTED] Maximum browser compatibility`)
+      return 1000 // Highest score for MP4 on non-Safari browsers
     }
     
-    // For Safari, reject everything that's not MP4
-    if (isSafari) {
-      console.log(`🍎 [SAFARI REJECT] Non-MP4 format: ${streamName.substring(0, 60)}...`)
-      return 0
+    // MOV has limited support
+    if (detectedContainer === 'MOV' || name.includes('.mov')) {
+      console.log(`⚠️ [MOV DETECTED] Limited browser support: ${streamName.substring(0, 60)}...`)
+      return 500
     }
     
-    // Non-Safari browsers can handle other formats
-    if (name.includes('.webm') || name.includes('webm')) {
-      return 60
-    }
-    
-    if (name.includes('.mkv') || name.includes('mkv')) {
-      return 40
-    }
-    
-    if (name.includes('.avi') || name.includes('avi')) {
-      return 30
-    }
-    
-    // Unknown or problematic formats
-    return 20
+    // Unknown format - reject to be safe (Stremio behavior)
+    console.log(`🚫 [UNKNOWN FORMAT] Cannot determine format, rejecting: ${streamName.substring(0, 60)}...`)
+    return -100
   }
 
   private getSafariMp4CompatibilityScore(streamName: string): number {

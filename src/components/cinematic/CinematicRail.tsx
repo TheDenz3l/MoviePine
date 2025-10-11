@@ -138,7 +138,7 @@ export function CinematicRail<T extends CinematicItemBase>({
   return (
     <section id={id} className="relative group px-6" aria-label={title || 'media rail'}>
       {title && <h2 className="mb-2 text-xl font-semibold tracking-wide text-white/95">{title}</h2>}
-      <div role="listbox" aria-label={title} ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} className="relative overflow-x-auto overflow-y-visible scrollbar-hide outline-none" style={{ paddingBottom: 6, paddingLeft: 8, paddingRight: 8 }} onMouseLeave={scheduleClear}>
+      <div role="listbox" aria-label={title} ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} className="relative overflow-x-auto overflow-y-visible scrollbar-hide outline-none" style={{ paddingBottom: 16, paddingTop: 8, paddingLeft: 8, paddingRight: 8 }} onMouseLeave={scheduleClear}>
         <div className="flex py-2 relative" style={{ gap: merged.card.gap, height: cardHeight }}>
           <div style={{ width: range.start * (merged.card.width + merged.card.gap), flexShrink: 0 }} />
           {sliced.map((item, i) => {
@@ -146,9 +146,10 @@ export function CinematicRail<T extends CinematicItemBase>({
             const isHovered = hovered?.item.id === item.id
             const dim = hovered && !isHovered
             return (
-              <div key={item.id} data-cindex={absoluteIndex} role="option" aria-selected={isHovered} tabIndex={0} className={clsx('relative flex-shrink-0 rounded-md bg-zinc-900/60 overflow-hidden ring-1 ring-zinc-800 focus-visible:ring-2 focus-visible:ring-white/70 outline-none','transition-all duration-200 ease-out',dim ? 'opacity-70' : 'opacity-100')} style={{ width: merged.card.width, height: cardHeight }} onMouseEnter={(e) => handleEnter(item, absoluteIndex, e.currentTarget)} onMouseLeave={() => { }} onFocus={(e) => { focusIndexRef.current = absoluteIndex; ensureVisible(e.currentTarget); handleEnter(item, absoluteIndex, e.currentTarget) }} onBlur={scheduleClear}>
+              <div key={item.id} data-cindex={absoluteIndex} role="option" aria-selected={isHovered} tabIndex={0} className={clsx('relative flex-shrink-0 rounded-md bg-zinc-900/60 overflow-hidden ring-1 ring-zinc-800 focus-visible:ring-2 focus-visible:ring-white/70 outline-none','transition-all duration-300 ease-out transform-gpu hover:scale-[1.045] hover:-translate-y-2 hover:z-10',dim ? 'opacity-70' : 'opacity-100')} style={{ width: merged.card.width, height: cardHeight, boxShadow: isHovered ? '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)' : undefined }} onMouseEnter={(e) => handleEnter(item, absoluteIndex, e.currentTarget)} onMouseLeave={() => { }} onFocus={(e) => { focusIndexRef.current = absoluteIndex; ensureVisible(e.currentTarget); handleEnter(item, absoluteIndex, e.currentTarget) }} onBlur={scheduleClear}>
                 <PosterImage src={item.poster || item.backdrop || ''} alt={item.title || ''} className="w-full h-full object-cover transition-transform duration-500 ease-[cubic-bezier(.33,.66,.4,1)] will-change-transform group-hover:scale-105 group-hover:brightness-110" />
-                {/* Removed gradient overlay */}
+                {/* Add dark overlay on hover to match movies page shadow effect */}
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
               </div>
             )
           })}

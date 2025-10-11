@@ -133,11 +133,11 @@ export function createRateLimitMiddleware(options: RateLimitOptions) {
  */
 export const rateLimiters = {
   /**
-   * Strict rate limiting for authentication endpoints
-   * 5 requests per minute per IP
+   * Reasonable rate limiting for authentication endpoints
+   * 10 requests per minute per IP (increased from 5)
    */
   auth: createRateLimitMiddleware({
-    maxRequests: 5,
+    maxRequests: 10,
     windowMs: 60 * 1000, // 1 minute
     message: 'Too many authentication attempts. Please try again later.',
     auditLogging: true
@@ -145,10 +145,10 @@ export const rateLimiters = {
 
   /**
    * Standard rate limiting for API endpoints
-   * 100 requests per 15 minutes per IP
+   * 200 requests per 15 minutes per IP (increased from 100)
    */
   api: createRateLimitMiddleware({
-    maxRequests: 100,
+    maxRequests: 200,
     windowMs: 15 * 60 * 1000, // 15 minutes
     message: 'API rate limit exceeded. Please try again later.',
     auditLogging: true

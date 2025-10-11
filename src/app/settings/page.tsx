@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useToast } from '@/components/ui/toast'
 import { Button } from '@/components/ui/button'
 import { useSettings } from '@/components/settings/useSettings'
+import { ArrowLeft } from 'lucide-react'
 
 export default function SettingsPage() {
   const { user, loading } = useAuth()
@@ -19,7 +20,6 @@ export default function SettingsPage() {
   const sections = [
     { id: 'profile', label: 'Profile' },
     { id: 'playback', label: 'Playback & Subtitles' },
-    { id: 'ui', label: 'UI & Accessibility' },
     { id: 'privacy', label: 'Privacy' },
     { id: 'devices', label: 'Devices' },
     { id: 'security', label: 'Account Security' },
@@ -28,7 +28,16 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen pt-24 px-8 pb-16">
-      <h1 className="text-3xl font-bold mb-8">Settings</h1>
+      <div className="flex items-center gap-4 mb-8">
+        <button
+          onClick={() => window.history.back()}
+          className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          <span>Back</span>
+        </button>
+        <h1 className="text-3xl font-bold">Settings</h1>
+      </div>
       <div className="flex gap-10">
         <aside className="w-56 space-y-1">
           {sections.map(s => (
@@ -38,8 +47,7 @@ export default function SettingsPage() {
         <main className="flex-1 max-w-3xl space-y-10">
           {active === 'profile' && <ProfileSection />}
           {active === 'playback' && <PlaybackSection />}
-          {active === 'ui' && <UISection />}
-            {active === 'privacy' && <PrivacySection />}
+          {active === 'privacy' && <PrivacySection />}
           {active === 'devices' && <DevicesSection />}
           {active === 'security' && <SecuritySection />}
           {active === 'billing' && <BillingSection />}
@@ -97,7 +105,7 @@ function ProfileSection() {
       const { supabase } = await import('@/lib/supabaseClient')
       if (!supabase) throw new Error('Supabase not configured')
       const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
-      const path = `${user.id}/${Date.now()}.${ext}`
+      const path = `${user?.id}/${Date.now()}.${ext}`
       const { data: upload, error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
       if (error) throw error
       // Try to get a public URL (bucket should be public or use signed URL fallback)
@@ -362,32 +370,6 @@ function PlaybackSection() {
   </PlaceholderCard>
 }
 
-function UISection() {
-  const { settings, update, pending } = useSettings()
-  const { push } = useToast()
-  const prevPending = useRef(false)
-  const reduced = settings?.ui?.reducedMotion ?? false
-  const theme = settings?.ui?.theme || (typeof window !== 'undefined' ? (localStorage.getItem('ui_theme') || 'dark') : 'dark')
-  const persist = (patch: any) => { update({ ui: { ...(settings?.ui||{}), ...patch.ui } }) }
-  useEffect(() => {
-    if (prevPending.current && !pending) push({ type:'success', message:'Accessibility preferences saved' })
-    prevPending.current = pending
-  }, [pending, push])
-  return <PlaceholderCard title="Accessibility">
-    <div className="space-y-4 text-sm">
-      <label className="flex items-center gap-2"><input type="checkbox" checked={reduced} onChange={e=>persist({ ui: { reducedMotion: e.target.checked } })} /> Reduced motion</label>
-      <div className="space-y-1">
-        <div className="font-medium">Theme</div>
-        <select value={theme} onChange={e=>persist({ ui: { theme: e.target.value } })} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-sm w-40">
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="system">System</option>
-        </select>
-        <div className="text-[10px] text-neutral-500">Applies instantly & persists.</div>
-      </div>
-    </div>
-  </PlaceholderCard>
-}
 
 function PrivacySection() {
   const { settings, update, pending } = useSettings()
@@ -476,54 +458,69 @@ function DevicesSection() {
 
 function SecuritySection() {
   const { session } = useAuth()
-  const [email, setEmail] = useState(session?.user?.email || '')
   const [newEmail, setNewEmail] = useState('')
-  const [pw1, setPw1] = useState('')
-  const [pw2, setPw2] = useState('')
   const { push } = useToast()
   const [loading, setLoading] = useState(false)
+  
   const submitEmail = async () => {
     if (!newEmail) return
-  setLoading(true)
+    setLoading(true)
     try {
       const { error } = await (await import('@/lib/supabaseClient')).supabase!.auth.updateUser({ email: newEmail })
       if (error) {
-    push({ type:'error', message:error.message })
+        push({ type:'error', message:error.message })
       } else {
-    push({ type:'success', message:'Verification email sent' })
+        push({ type:'success', message:'Verification email sent to your new address' })
+        setNewEmail('')
       }
-  } catch (e:any) { push({ type:'error', message:e.message }) } finally { setLoading(false) }
+    } catch (e:any) {
+      push({ type:'error', message:e.message })
+    } finally {
+      setLoading(false)
+    }
   }
-  const submitPassword = async () => {
-  if (!pw1 || pw1 !== pw2 || pw1.length < 8) { push({ type:'error', message:'Passwords must match & be ≥8 chars' }); return }
-  setLoading(true)
-    try {
-      const { error } = await (await import('@/lib/supabaseClient')).supabase!.auth.updateUser({ password: pw1 })
-      if (error) {
-    push({ type:'error', message:error.message })
-      } else {
-    push({ type:'success', message:'Password updated' })
-      }
-      setPw1(''); setPw2('')
-  } catch (e:any) { push({ type:'error', message:e.message }) } finally { setLoading(false) }
-  }
+  
   return <PlaceholderCard title="Account Security">
-    <div className="space-y-8 text-sm">
-      <div>
-        <div className="font-medium mb-2">Change Email</div>
-        <div className="flex flex-col gap-2 max-w-sm">
-          <input disabled value={email} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-xs opacity-70" />
-          <input type="email" placeholder="New email" value={newEmail} onChange={e=>setNewEmail(e.target.value)} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-xs" />
-          <Button size="sm" onClick={submitEmail} disabled={!newEmail || loading}>Update Email</Button>
+    <div className="space-y-6 text-sm">
+      <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg p-4">
+        <div className="text-blue-300 text-sm font-medium mb-2">Magic Link Authentication</div>
+        <div className="text-blue-200/80 text-xs">
+          This account uses magic link authentication. You'll receive a secure login link via email instead of using passwords.
         </div>
       </div>
+      
       <div>
-        <div className="font-medium mb-2">Change Password</div>
-        <div className="flex flex-col gap-2 max-w-sm">
-          <input type="password" placeholder="New password" value={pw1} onChange={e=>setPw1(e.target.value)} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-xs" />
-          <input type="password" placeholder="Confirm password" value={pw2} onChange={e=>setPw2(e.target.value)} className="bg-neutral-800 border border-neutral-600 rounded px-2 py-1 text-xs" />
-          <Button size="sm" variant="secondary" onClick={submitPassword} disabled={!pw1 || pw1!==pw2 || loading}>Update Password</Button>
-          <div className="text-[10px] text-neutral-500">Minimum 8 characters</div>
+        <div className="font-medium mb-3">Change Email Address</div>
+        <div className="space-y-3 max-w-sm">
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">Current Email</label>
+            <input
+              disabled
+              value={session?.user?.email || ''}
+              className="w-full bg-neutral-800 border border-neutral-600 rounded px-3 py-2 text-sm opacity-70"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">New Email</label>
+            <input
+              type="email"
+              placeholder="Enter new email address"
+              value={newEmail}
+              onChange={e=>setNewEmail(e.target.value)}
+              className="w-full bg-neutral-800 border border-neutral-600 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
+            />
+          </div>
+          <Button
+            size="sm"
+            onClick={submitEmail}
+            disabled={!newEmail || loading}
+            className="w-full"
+          >
+            {loading ? 'Sending...' : 'Update Email'}
+          </Button>
+          <div className="text-xs text-neutral-500">
+            A verification email will be sent to your new address. Click the magic link to confirm the change.
+          </div>
         </div>
       </div>
     </div>

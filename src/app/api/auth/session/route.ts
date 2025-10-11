@@ -1,21 +1,37 @@
 import { NextResponse } from 'next/server';
-import { getSessionServer } from '@/lib/sessionUtils';
-
 import { NextRequest } from 'next/server';
+import { getSessionServer } from '@/lib/sessionUtils';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getSessionServer(request);
+    console.log('[Auth Session API] GET request received');
+    
+    const sessionData = await getSessionServer(request);
 
-    if (!session) {
-      console.log('[Auth Session API] No active session found.');
+    if (sessionData.error) {
+      console.log('[Auth Session API] Session error:', sessionData.error);
+      return NextResponse.json({
+        session: null,
+        error: sessionData.error
+      }, { status: 401 });
+    }
+
+    if (!sessionData.session) {
+      console.log('[Auth Session API] No active session found');
       return NextResponse.json({ session: null }, { status: 200 });
     }
 
-    console.log('[Auth Session API] Active session found for user:', session.user?.id);
-    return NextResponse.json({ session });
+    console.log('[Auth Session API] Active session found for user:', sessionData.user?.email);
+    return NextResponse.json({
+      session: sessionData.session,
+      user: sessionData.user
+    }, { status: 200 });
+
   } catch (error: any) {
-    console.error('[Auth Session API] Error fetching session:', error.message);
-    return NextResponse.json({ session: null, error: error.message }, { status: 500 });
+    console.error('[Auth Session API] Unexpected error:', error);
+    return NextResponse.json({
+      session: null,
+      error: 'Internal server error'
+    }, { status: 500 });
   }
 }

@@ -23,6 +23,8 @@ export async function GET() {
         torrentioProviders: config.torrentioProviders,
         debridService: config.debridService,
         debridApiKey: config.debridApiKey,
+        debridioApiKey: config.debridioApiKey,
+        debridioEnabled: config.debridioEnabled,
       }
     })
   } catch (error) {

@@ -399,7 +399,31 @@ export class TMDBAPI {
     const response = await fetch(url.toString(), { headers })
 
     if (!response.ok) {
-      throw new Error(`TMDB API error: ${response.status} ${response.statusText}`)
+      // Provide more detailed error information
+      let errorMessage = `TMDB API error: ${response.status} ${response.statusText}`
+      
+      // Add specific guidance for common errors
+      if (response.status === 404) {
+        errorMessage += ` - Resource not found. The requested movie/TV show may not exist in TMDB database.`
+      } else if (response.status === 401) {
+        errorMessage += ` - Unauthorized. Please check your TMDB API key.`
+      } else if (response.status === 429) {
+        errorMessage += ` - Rate limit exceeded. Please wait before making more requests.`
+      } else if (response.status >= 500) {
+        errorMessage += ` - TMDB server error. Please try again later.`
+      }
+      
+      // Try to get additional error details from response body
+      try {
+        const errorBody = await response.text()
+        if (errorBody) {
+          console.warn(`TMDB API error details:`, errorBody)
+        }
+      } catch {
+        // Ignore errors when reading error body
+      }
+      
+      throw new Error(errorMessage)
     }
 
     return await response.json()

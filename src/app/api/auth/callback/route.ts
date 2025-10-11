@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     try {
       const response = NextResponse.redirect(new URL('/', requestUrl.origin));
       
+      // Set httpOnly cookies for server-side authentication
       response.cookies.set('sb-access-token', access_token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -51,6 +52,20 @@ export async function GET(request: NextRequest) {
       });
       response.cookies.set('sb-refresh-token', refresh_token, {
         httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 30 // 30 days
+      });
+      
+      // Set client-accessible cookies for AuthProvider
+      response.cookies.set('sb-access-token-client', access_token, {
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7 // 7 days
+      });
+      response.cookies.set('sb-refresh-token-client', refresh_token, {
+        httpOnly: false,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         maxAge: 60 * 60 * 24 * 30 // 30 days
@@ -79,6 +94,7 @@ export async function GET(request: NextRequest) {
         console.log('✅ Found existing session, redirecting to home');
         const response = NextResponse.redirect(new URL('/', requestUrl.origin));
         
+        // Set httpOnly cookies for server-side authentication
         response.cookies.set('sb-access-token', sessionData.session.access_token, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
@@ -87,6 +103,20 @@ export async function GET(request: NextRequest) {
         });
         response.cookies.set('sb-refresh-token', sessionData.session.refresh_token, {
           httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 60 * 60 * 24 * 30 // 30 days
+        });
+        
+        // Set client-accessible cookies for AuthProvider
+        response.cookies.set('sb-access-token-client', sessionData.session.access_token, {
+          httpOnly: false,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 60 * 60 * 24 * 7 // 7 days
+        });
+        response.cookies.set('sb-refresh-token-client', sessionData.session.refresh_token, {
+          httpOnly: false,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'lax',
           maxAge: 60 * 60 * 24 * 30 // 30 days
@@ -153,6 +183,7 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(new URL('/', requestUrl.origin));
     
+    // Set httpOnly cookies for server-side authentication
     response.cookies.set('sb-access-token', data.session.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -165,7 +196,22 @@ export async function GET(request: NextRequest) {
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30 // 30 days
     });
-    console.log('🏠 Redirecting to home page with auth cookies');
+    
+    // Set client-accessible cookies for AuthProvider
+    response.cookies.set('sb-access-token-client', data.session.access_token, {
+      httpOnly: false, // Allow client-side access
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7 // 7 days
+    });
+    response.cookies.set('sb-refresh-token-client', data.session.refresh_token, {
+      httpOnly: false, // Allow client-side access
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30 // 30 days
+    });
+    
+    console.log('🏠 Redirecting to home page with auth cookies (both httpOnly and client-accessible)');
     return response;
 
   } catch (error) {

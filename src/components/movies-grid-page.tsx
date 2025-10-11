@@ -1,15 +1,17 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Info } from 'lucide-react'
+import { Info, Play } from 'lucide-react'
 import WatchlistToggleButton from '@/components/list/WatchlistToggleButton'
 import { useMyList } from '@/components/list/useMyList'
 import { TMDBAPI } from '@/lib/api/tmdb'
+import { createStreamingService, StreamingService } from '@/lib/services/streaming'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { Button } from '@/components/ui/button'
 import { GenreSelect } from '@/components/ui/genre-select'
 import { AppSelect } from '@/components/ui/app-select'
+import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 
 interface MoviesGridPageProps {
   onNavigate: (category: string) => void
@@ -29,8 +31,7 @@ interface GridMovieItem {
   genre?: string[]
 }
 
-// Local TMDB instance (mirrors pattern in other components)
-const tmdbApi = new TMDBAPI(process.env.NEXT_PUBLIC_TMDB_API_KEY || '')
+// We'll create TMDB API and StreamingService dynamically from config
 
 // Primary high-level categories for Phase 1/2
 const CATEGORIES: { id: string; label: string }[] = [
@@ -56,6 +57,11 @@ const movieCache = new Map<CacheKey, { items: GridMovieItem[]; totalPages: numbe
 export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList, onMoreInfo }: MoviesGridPageProps) {
   // Watchlist integration (direct to unify with overlay behavior)
   const { watchlist, addWatch, removeWatch } = useMyList()
+  
+  // Dynamic service instances
+  const [tmdbApi, setTmdbApi] = useState<TMDBAPI | null>(null)
+  const [streamingService, setStreamingService] = useState<StreamingService | null>(null)
+  
   const [category, setCategory] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('moviesGrid:lastCategory') || 'popular'
@@ -84,6 +90,10 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
   })
   const [announce, setAnnounce] = useState<string>('')
 
+  // Search overlay state
+  const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -99,28 +109,94 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
   // View mode toggle (grid/list)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
-  // Ensure search overlay events are handled
+  // Search overlay event handlers
   useEffect(() => {
-    const handleOpenSearch = (e: CustomEvent) => {
-      // Handle search overlay opening if needed
+    const handleOpenRealTimeSearch = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      const initialQuery = typeof detail.query === 'string' ? detail.query : ''
+      
+      // Only open if not already open to prevent double-opening
+      if (!showRealTimeSearch) {
+        setShowRealTimeSearch(true)
+        // Set the initial search query if provided
+        if (initialQuery) {
+          setSearchQuery(initialQuery)
+        }
+      }
     }
-    
-    window.addEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
+
+    const handleCloseRealTimeSearch = () => {
+      setShowRealTimeSearch(false)
+      setSearchQuery("")
+    }
+
+    // Global event handlers for search overlay actions
+    const handleSearchPlayMovie = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      console.log('🎬 [MOVIES PAGE] Search play movie received:', detail)
+      
+      if (detail.id && detail.title) {
+        // Close search overlay first
+        setShowRealTimeSearch(false)
+        
+        // Call the onPlay handler
+        onPlay(detail.id, detail.title)
+      }
+    }
+
+    const handleSearchMoreInfo = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      console.log('ℹ️ [MOVIES PAGE] Search more info received:', detail)
+      
+      if (detail.id) {
+        // Close search overlay first
+        setShowRealTimeSearch(false)
+        
+        // Call the onMoreInfo handler
+        onMoreInfo(detail.id)
+      }
+    }
+
+    window.addEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch as EventListener)
+    window.addEventListener('app:closeRealTimeSearch', handleCloseRealTimeSearch)
+    window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie as EventListener)
+    window.addEventListener('app:searchMoreInfo', handleSearchMoreInfo as EventListener)
     
     return () => {
-      window.removeEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
+      window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch as EventListener)
+      window.removeEventListener('app:closeRealTimeSearch', handleCloseRealTimeSearch)
+      window.removeEventListener('app:searchPlayMovie', handleSearchPlayMovie as EventListener)
+      window.removeEventListener('app:searchMoreInfo', handleSearchMoreInfo as EventListener)
     }
-  }, [])
+  }, [showRealTimeSearch])
 
-  // Load genres once
+  // Initialize services and load genres
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        const data = await tmdbApi.getMovieGenres()
-        if (mounted) setGenres(data.genres || [])
+        // Fetch configuration from API (same pattern as ClientOnlyMovieApp)
+        const configResponse = await fetch('/api/config')
+        const configData = await configResponse.json()
+
+        if (!configData.success) {
+          throw new Error(configData.error || 'Failed to load configuration')
+        }
+
+        const tmdbInstance = new TMDBAPI(configData.config.tmdbApiKey)
+        const streamingInstance = createStreamingService(configData.config)
+        
+        if (mounted) {
+          setTmdbApi(tmdbInstance)
+          setStreamingService(streamingInstance)
+          
+          // Load genres
+          const data = await tmdbInstance.getMovieGenres()
+          setGenres(data.genres || [])
+        }
       } catch (e) {
-        console.warn('Failed to load genres', e)
+        console.warn('Failed to initialize services or load genres', e)
+        setError('Failed to initialize movie services')
       }
     })()
     return () => { mounted = false }
@@ -128,6 +204,11 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
 
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
   const fetchCategoryPage = useCallback((targetCategory: string, targetPage: number, append: boolean, targetGenre: number | null = selectedGenre, targetSort: string = sort) => {
+    if (!tmdbApi) {
+      console.warn('TMDB API not initialized yet')
+      return
+    }
+    
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       const genrePart = targetGenre ? `g${targetGenre}-` : ''
@@ -179,7 +260,7 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
         }
 
         const transformed: GridMovieItem[] = (results.results || []).map((item: any) => ({
-          id: item.id?.toString(),
+          id: item.imdb_id || `tmdb_${item.id}`, // Use proper streaming service ID format
           title: item.title || item.name || 'Untitled',
           poster: item.poster_path ? tmdbApi.getPosterUrl(item.poster_path, 'w500') : '/placeholder-poster.svg',
           backdrop: item.backdrop_path ? tmdbApi.getBackdropUrl(item.backdrop_path, 'w1280') : undefined,
@@ -201,16 +282,18 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
         setIsAppending(false)
       }
     }, 180)
-  }, [selectedGenre, sort])
+  }, [selectedGenre, sort, tmdbApi])
 
-  // Load first page or when category changes
+  // Load first page or when category changes (only after tmdbApi is initialized)
   useEffect(() => {
-    setPage(1)
-    fetchCategoryPage(category, 1, false)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('moviesGrid:lastCategory', category)
+    if (tmdbApi) {
+      setPage(1)
+      fetchCategoryPage(category, 1, false)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('moviesGrid:lastCategory', category)
+      }
     }
-  }, [category, selectedGenre, sort, fetchCategoryPage])
+  }, [category, selectedGenre, sort, fetchCategoryPage, tmdbApi])
 
   // Infinite scroll observer
   useEffect(() => {
@@ -279,6 +362,24 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
     if (typeof window !== 'undefined') {
       localStorage.setItem('moviesGrid:sort', sid)
     }
+  }
+
+  // Simple play handler that delegates to parent
+  const handlePlay = (movieId: string, title?: string) => {
+    onPlay(movieId, title || 'Unknown Movie')
+  }
+
+  // Show real-time search overlay
+  if (showRealTimeSearch) {
+    return (
+      <RealTimeSearchGridOverlay
+        initialQuery={searchQuery}
+        activeCategory={activeCategory}
+        onClose={() => setShowRealTimeSearch(false)}
+        onPlay={(id, title) => onPlay(id, title)}
+        onMoreInfo={(id) => onMoreInfo(id)}
+      />
+    )
   }
 
   return (
@@ -378,7 +479,7 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                   window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie }))
                   onMoreInfo(movie.id)
                 }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) } else if (e.key === ' ') { e.preventDefault(); onPlay(movie.id, movie.title) } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) } else if (e.key === ' ') { e.preventDefault(); handlePlay(movie.id, movie.title) } }}
                 aria-label={`${movie.title}${movie.year ? ' (' + movie.year + ')' : ''}`}
               >
                 {movie.poster ? (
@@ -391,10 +492,17 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
                   <div className="flex gap-2">
                     <button
-                      onClick={(e) => { e.stopPropagation(); onPlay(movie.id, movie.title); window.dispatchEvent(new CustomEvent('app:moviePlay', { detail: movie })) }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('🎬 [MoviesGrid] Play button clicked for:', movie.title, movie.id);
+                        handlePlay(movie.id, movie.title);
+                        window.dispatchEvent(new CustomEvent('app:moviePlay', { detail: movie }))
+                      }}
                       className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
                       title="Play"
-                    >▶</button>
+                    >
+                      <Play className="h-5 w-5" />
+                    </button>
                     <WatchlistToggleButton
                       inList={inWatch}
                       size={40}
@@ -434,7 +542,7 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                   window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie }))
                   onMoreInfo(movie.id)
                 }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) } else if (e.key === ' ') { e.preventDefault(); onPlay(movie.id, movie.title) } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { window.dispatchEvent(new CustomEvent('app:movieMoreInfo', { detail: movie })); onMoreInfo(movie.id) } else if (e.key === ' ') { e.preventDefault(); handlePlay(movie.id, movie.title) } }}
                 aria-label={`${movie.title}${movie.year ? ' (' + movie.year + ')' : ''}`}
               >
                 {movie.poster ? (
@@ -451,10 +559,17 @@ export function MoviesGridPage({ onNavigate, activeCategory, onPlay, onAddToList
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={(e) => { e.stopPropagation(); onPlay(movie.id, movie.title); window.dispatchEvent(new CustomEvent('app:moviePlay', { detail: movie })) }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log('🎬 [MoviesGrid-List] Play button clicked for:', movie.title, movie.id);
+                      handlePlay(movie.id, movie.title);
+                      window.dispatchEvent(new CustomEvent('app:moviePlay', { detail: movie }))
+                    }}
                     className="h-10 w-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform focus:outline-none focus:ring-2 focus:ring-white"
                     title="Play"
-                  >▶</button>
+                  >
+                    <Play className="h-5 w-5" />
+                  </button>
                   <WatchlistToggleButton
                     inList={inWatch}
                     size={40}

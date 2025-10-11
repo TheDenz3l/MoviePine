@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { StreamingService } from '@/lib/services/streaming'
+import { StreamingService, createStreamingService } from '@/lib/services/streaming'
 import { StreamingSeries } from '@/lib/services/streaming'
 import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MoviepireNavigation } from '@/components/moviepire-navigation'
@@ -9,6 +9,7 @@ import { NetflixCarousel as NewNetflixCarousel } from '@/components/netflix-styl
 import { useMyList } from '@/components/list/useMyList'
 import { MoviepireFooter } from '@/components/moviepire-footer'
 import { RealTimeSearchPage } from '@/components/real-time-search-page'
+import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGridOverlay'
 import { ContinueWatching } from '@/components/continue-watching/ContinueWatching'
 
 interface TVSeriesPageProps {
@@ -57,41 +58,93 @@ export function TVSeriesPage({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
+  const [showRealTimeSearchGrid, setShowRealTimeSearchGrid] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [gridSearchQuery, setGridSearchQuery] = useState("")
 
-  const streamingService = new StreamingService({
-    tmdbApiKey: process.env.NEXT_PUBLIC_TMDB_API_KEY || '',
-    torboxApiKey: process.env.NEXT_PUBLIC_TORBOX_API_KEY || '',
-    debridService: 'realdebrid',
-    debridApiKey: process.env.NEXT_PUBLIC_REAL_DEBRID_API_KEY || ''
-  })
+  // Remove direct StreamingService instantiation - we'll fetch config dynamically
+  const [streamingService, setStreamingService] = useState<StreamingService | null>(null)
 
   useEffect(() => {
     loadTVData()
-    
-    // Listen for search overlay events
-    const handleOpenSearch = (e: CustomEvent) => {
-      setSearchQuery(e.detail?.query || "")
-      setShowRealTimeSearch(true)
+  }, [])
+
+  // Separate useEffect for event listeners to prevent refresh loops
+  useEffect(() => {
+    // Listen for search overlay events - Updated to use new grid overlay
+    const handleOpenRealTimeSearch = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      const initialQuery = typeof detail.query === 'string' ? detail.query : ''
+      
+      // Only open if not already open to prevent double-opening
+      if (!showRealTimeSearchGrid) {
+        setShowRealTimeSearchGrid(true)
+        // Set the initial search query if provided
+        if (initialQuery) {
+          setGridSearchQuery(initialQuery)
+        }
+      }
     }
     
-    const handleCloseSearch = () => {
-      setShowRealTimeSearch(false)
-      setSearchQuery("")
+    const handleCloseRealTimeSearch = () => {
+      setShowRealTimeSearchGrid(false)
+      setGridSearchQuery("")
     }
 
-    window.addEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
-    window.addEventListener('app:closeRealTimeSearch', handleCloseSearch)
+    // Global event handlers for search overlay actions
+    const handleSearchPlayMovie = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      console.log('🎬 [TV SERIES PAGE] Search play movie received:', detail)
+      
+      if (detail.id && detail.title) {
+        // Close search overlay first
+        setShowRealTimeSearchGrid(false)
+        
+        // Call the onPlay handler
+        onPlay(detail.id, detail.title)
+      }
+    }
+
+    const handleSearchMoreInfo = (e: CustomEvent) => {
+      const detail = e.detail || {}
+      console.log('ℹ️ [TV SERIES PAGE] Search more info received:', detail)
+      
+      if (detail.id) {
+        // Close search overlay first
+        setShowRealTimeSearchGrid(false)
+        
+        // Call the onMoreInfo handler
+        onMoreInfo(detail.id)
+      }
+    }
+
+    window.addEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch as EventListener)
+    window.addEventListener('app:closeRealTimeSearch', handleCloseRealTimeSearch)
+    window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie as EventListener)
+    window.addEventListener('app:searchMoreInfo', handleSearchMoreInfo as EventListener)
 
     return () => {
-      window.removeEventListener('app:openRealTimeSearch', handleOpenSearch as EventListener)
-      window.removeEventListener('app:closeRealTimeSearch', handleCloseSearch)
+      window.removeEventListener('app:openRealTimeSearch', handleOpenRealTimeSearch as EventListener)
+      window.removeEventListener('app:closeRealTimeSearch', handleCloseRealTimeSearch)
+      window.removeEventListener('app:searchPlayMovie', handleSearchPlayMovie as EventListener)
+      window.removeEventListener('app:searchMoreInfo', handleSearchMoreInfo as EventListener)
     }
-  }, [])
+  }, []) // Empty dependency array to prevent re-running
 
   const loadTVData = async () => {
     try {
       setIsLoading(true)
+      
+      // Fetch configuration from API (same pattern as ClientOnlyMovieApp)
+      const configResponse = await fetch('/api/config')
+      const configData = await configResponse.json()
+
+      if (!configData.success) {
+        throw new Error(configData.error || 'Failed to load configuration')
+      }
+
+      const service = createStreamingService(configData.config)
+      setStreamingService(service)
       
       // Load all TV series data
       const [
@@ -106,16 +159,16 @@ export function TVSeriesPage({
         sciFi,
         crime
       ] = await Promise.all([
-        streamingService.getTrendingSeries(),
-        streamingService.getPopularSeries(),
-        streamingService.getTopRatedSeries(),
-        streamingService.getOnTheAirSeries(),
-        streamingService.getSeriesByGenre(16), // Animation (anime)
-        streamingService.getSeriesByGenre(18), // Drama
-        streamingService.getSeriesByGenre(35), // Comedy
-        streamingService.getSeriesByGenre(10759), // Action & Adventure
-        streamingService.getSeriesByGenre(10765), // Sci-Fi & Fantasy
-        streamingService.getSeriesByGenre(80) // Crime
+        service.getTrendingSeries(),
+        service.getPopularSeries(),
+        service.getTopRatedSeries(),
+        service.getOnTheAirSeries(),
+        service.getSeriesByGenre(16), // Animation (anime)
+        service.getSeriesByGenre(18), // Drama
+        service.getSeriesByGenre(35), // Comedy
+        service.getSeriesByGenre(10759), // Action & Adventure
+        service.getSeriesByGenre(10765), // Sci-Fi & Fantasy
+        service.getSeriesByGenre(80) // Crime
       ])
 
       setTrendingSeries(trending)
@@ -141,8 +194,11 @@ export function TVSeriesPage({
     }
   }
 
-  const handlePlay = (movie: any) => {
-    onPlay(movie.id, movie.title || 'Unknown Series')
+  const handlePlay = (movieId: string, title?: string) => {
+    // For TV series, we need to append episode information for streaming
+    // Default to S01E01 (Season 1, Episode 1) if no episode is specified
+    const episodeId = movieId.includes(':S') ? movieId : `${movieId}:S01E01`
+    onPlay(episodeId, title || 'Unknown Series')
   }
 
   const handleSearchResultSelect = (result: SearchResult) => {
@@ -186,7 +242,20 @@ export function TVSeriesPage({
     return allSeries.find(s => s.id === seriesId)
   }
 
-  // Show real-time search overlay
+  // Show new real-time search grid overlay
+  if (showRealTimeSearchGrid) {
+    return (
+      <RealTimeSearchGridOverlay
+        initialQuery={gridSearchQuery}
+        activeCategory={activeCategory}
+        onClose={() => setShowRealTimeSearchGrid(false)}
+        onPlay={(id, title) => onPlay(id, title)}
+        onMoreInfo={(id) => onMoreInfo(id)}
+      />
+    )
+  }
+
+  // Show legacy real-time search overlay (keep for backward compatibility)
   if (showRealTimeSearch) {
     return (
       <RealTimeSearchPage
@@ -248,7 +317,7 @@ export function TVSeriesPage({
       )}
 
       {/* TV Series Carousels Grid */}
-      <div className="relative z-10 space-y-8 pb-16 bg-[rgb(18,18,18)] overflow-visible">
+      <div className="relative z-10 space-y-0 pb-20 bg-[rgb(18,18,18)] overflow-visible">
         <div className="pointer-events-none absolute -top-40 left-0 right-0 h-40 bg-gradient-to-b from-transparent via-[rgba(18,18,18,0.55)] to-[rgb(18,18,18)]" />
         
         {/* Continue Watching Section - Modern Database-driven System */}

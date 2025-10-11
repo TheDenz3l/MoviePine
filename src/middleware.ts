@@ -3,8 +3,24 @@ import { NextResponse, type NextRequest, type NextFetchEvent } from 'next/server
 import { rateLimiters } from '@/lib/rateLimitMiddleware'
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
-  // Apply rate limiting first
-  const rateLimitResponse = await rateLimiters.api(request, event);
+  const pathname = request.nextUrl.pathname;
+  
+  // Apply different rate limiting based on route type
+  let rateLimitResponse: Response | undefined;
+  
+  if (pathname.startsWith('/api/auth/')) {
+    // More lenient rate limiting for auth routes (10 requests per minute)
+    rateLimitResponse = await rateLimiters.auth(request, event);
+  } else if (pathname.startsWith('/api/me/')) {
+    // Lenient rate limiting for authenticated user routes (200 requests per 15 minutes)
+    const userRateLimit = rateLimiters.user(200, 15 * 60 * 1000);
+    rateLimitResponse = await userRateLimit(request, event);
+  } else if (pathname.startsWith('/api/')) {
+    // Standard rate limiting for other API routes (100 requests per 15 minutes)
+    rateLimitResponse = await rateLimiters.api(request, event);
+  }
+  // No rate limiting for non-API routes (pages, static assets, etc.)
+  
   if (rateLimitResponse) {
     return rateLimitResponse;
   }
@@ -76,8 +92,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
-     * - Any API route that explicitly handles authentication (e.g., /api/auth/*)
      */
-    '/((?!api/auth|public|_next/static|_next/image|favicon.ico).*)',
+    '/((?!public|_next/static|_next/image|favicon.ico).*)',
   ],
 }

@@ -57,6 +57,9 @@ export class RealDebridAPI {
 
   constructor(apiKey: string) {
     this.apiKey = apiKey
+    
+    // Log initialization
+    console.log('🔐 Real-Debrid API initialized with key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'NO KEY')
   }
 
   private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -98,13 +101,23 @@ export class RealDebridAPI {
         const expectedErrors = [
           'hoster_unsupported',     // Error code 16 - hoster not supported
           'parameter_missing',      // Error code 1 - missing parameters
-          'bad_token',             // Error code 2 - invalid API key
+          'bad_token',             // Error code 8 - invalid API key
           'permission_denied',     // Error code 8 - access denied
         ]
         
         const isExpectedError = expectedErrors.includes(errorData.error)
 
         if (isExpectedError) {
+          // For bad_token errors, provide helpful guidance
+          if (errorData.error === 'bad_token') {
+            console.warn('⚠️ Real-Debrid API key is invalid or expired')
+            console.warn('📝 To fix this:')
+            console.warn('   1. Go to https://real-debrid.com/apitoken')
+            console.warn('   2. Generate a new API token')
+            console.warn('   3. Update NEXT_PUBLIC_DEBRID_API_KEY in .env.local')
+            console.warn('   4. Restart your Next.js dev server')
+          }
+          
           // For expected errors, return a special error object that can be handled gracefully
           throw {
             isExpectedError: true,
@@ -137,8 +150,14 @@ export class RealDebridAPI {
       const user = await this.getUser()
       console.log(`✅ Real-Debrid connected: ${user.username} (Premium: ${user.premium ? 'Yes' : 'No'})`)
       return true
-    } catch (error) {
-      console.error('❌ Real-Debrid connection failed:', error)
+    } catch (error: any) {
+      // Check if it's a bad token error
+      if (error?.errorType === 'bad_token' || error?.errorCode === 8) {
+        console.warn('⚠️ Real-Debrid API key is invalid or expired. Please update NEXT_PUBLIC_DEBRID_API_KEY in .env.local')
+        console.warn('📝 Get a new API key from: https://real-debrid.com/apitoken')
+      } else {
+        console.error('❌ Real-Debrid connection failed:', error)
+      }
       return false
     }
   }

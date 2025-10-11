@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!.env.local.example
 
 # vercel
 .vercel
@@ -42,3 +44,30 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# nested git repositories
+y-router/
+
+# Python virtual environment
+.venv/
+venv/
+__pycache__/
+
+# Process ID files
+*.pid
+.bridge.out.log
+.y-router-proxy.pid
+
+# Test files with potential sensitive data
+test-*.js
+test-*.html
+debug-*.html
+
+# Database files
+*.db
+*.sqlite
+
+# Scripts that might contain credentials
+*-wrapper.sh
+ccr-*.sh
+easy-setup.sh

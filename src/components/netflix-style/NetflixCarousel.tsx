@@ -111,7 +111,7 @@ export function NetflixCarousel({
         {/* Scrollable Cards Container */}
         <div
           ref={scrollContainerRef}
-          className="flex space-x-4 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth pb-4 pt-4 pl-2 pr-2"
+          className="flex space-x-4 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth pb-4 pt-8 pl-2 pr-2"
           style={{
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
@@ -122,7 +122,7 @@ export function NetflixCarousel({
             <NetflixCard
               key={movie.id}
               movie={movie}
-              onPlay={onPlay}
+              onPlay={(movieId, title) => onPlay?.(movieId, title)}
               onAddToList={onAddToList}
               onMoreInfo={onMoreInfo}
               showTitle={showMovieTitles}

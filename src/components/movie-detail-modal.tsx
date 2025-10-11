@@ -33,7 +33,7 @@ interface MovieDetailModalProps {
   movie: Movie | null
   isOpen: boolean
   onClose: () => void
-  onPlay: (movieId: string) => void
+  onPlay: (movieId: string, title?: string) => void
   onAddToList?: (movieId: string) => void // now optional; internal watchlist handles visual state
   onMovieSelect?: (movie: Movie) => void
 }
@@ -383,7 +383,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
     }, 300)
 
     if (opts.play) {
-      setTimeout(() => onPlay(similarMovie.id), 50)
+      setTimeout(() => onPlay(similarMovie.id, similarMovie.title), 50)
     }
   }
 
@@ -467,7 +467,7 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
 
               <div className="flex items-center space-x-2">
                 <Button
-                  onClick={() => onPlay(activeMovie.id)}
+                  onClick={() => onPlay(activeMovie.id, activeMovie.title)}
                   className="bg-white text-black hover:bg-gray-200 font-semibold px-5 py-2 rounded text-sm flex items-center space-x-1.5 shadow"
                 >
                   <Play className="h-3 w-3 fill-current" />
@@ -662,11 +662,11 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                               <Play className="h-5 w-5" />
                             </button>
                             <div className="h-10 w-10 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                              <WatchlistToggleButton 
-                                inList={inWatch(similarMovie.id)} 
-                                size={40} 
-                                variant="overlay" 
-                                onToggle={() => toggleWatch(similarMovie.id)} 
+                              <WatchlistToggleButton
+                                inList={inWatch(similarMovie.id)}
+                                size={40}
+                                variant="overlay"
+                                onToggle={() => toggleWatch(similarMovie.id)}
                               />
                             </div>
                             <button
@@ -678,9 +678,6 @@ export function MovieDetailModal({ movie, isOpen, onClose, onPlay, onAddToList, 
                               <Info className="h-5 w-5" />
                             </button>
                           </div>
-                        </div>
-                        <div className="absolute top-2 right-2">
-                          <ImdbRating rating={similarMovie.rating} size="micro" testId="tmdb-rating" />
                         </div>
                       </div>
                     ))

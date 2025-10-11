@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   description: "Your ultimate destination for streaming movies and TV shows with Torrentio and Torbox integration",
 };
 
+// Force dynamic rendering to avoid static generation issues encountered during build
+export const dynamic = 'force-dynamic'
+
 export default function RootLayout({
   children,
 }: Readonly<{

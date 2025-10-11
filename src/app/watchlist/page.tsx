@@ -1,8 +1,7 @@
-import dynamic from 'next/dynamic'
+"use client"
+// Page marked as a Client Component so we can safely use client-only hooks/state.
+import WatchlistContent from './WatchlistContent'
 
-// Disable SSR because the watchlist hook depends on client auth state.
-const WatchlistContent = dynamic(() => import('./WatchlistContent'), { ssr: false })
-
-export default function Page() {
+export default function Page(){
 	return <WatchlistContent />
 }

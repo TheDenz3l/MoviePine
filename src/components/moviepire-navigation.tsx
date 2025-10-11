@@ -180,6 +180,15 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
     { id: 'watchlist', label: 'Watchlist', icon: Bookmark },
   ]
 
+  const handleNavClick = (itemId: string) => {
+    if (itemId === 'home') {
+      // Redirect to localhost:3000 for Browse button
+      window.location.href = 'http://localhost:3000'
+    } else {
+      onNavigate(itemId)
+    }
+  }
+
   return (
     <nav
       className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4"
@@ -206,7 +215,7 @@ export function MoviepireNavigation({ onNavigate, activeCategory, onSearchResult
           return (
             <button
               key={item.id}
-              onClick={() => onNavigate(item.id)}
+              onClick={() => handleNavClick(item.id)}
               className={`flex items-center text-sm font-bold transition-colors duration-200 hover:text-white ${
                 activeCategory === item.id
                   ? 'text-red-600'

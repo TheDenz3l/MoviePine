@@ -12,11 +12,12 @@ export async function GET(req: NextRequest) {
     const userId = 'eb553c02-c01d-4cbb-9acb-94c80dbb5763'
     
     // Create a temporary session by signing in the user programmatically
+    // Supabase Admin API createUser does not accept user_id; use id for explicit UUID
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: 'unlockfreedom1@gmail.com',
-      user_id: userId,
+      id: userId,
       email_confirm: true
-    })
+    } as any)
 
     if (error && !error.message.includes('already')) {
       return NextResponse.json({ 

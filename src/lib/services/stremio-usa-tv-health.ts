@@ -1,7 +1,23 @@
 // Stremio USA TV addon integration with Real-Debrid support and health monitoring
 
 import RealDebridAPI, { RealDebridTorrent } from '../api/realdebrid'
-import { streamHealthMonitor, NetworkHealthStatus } from './stream-health-monitor'
+
+// Stream health monitor removed - stubbing functionality
+const streamHealthMonitor = {
+  addStream: (..._args: any[]) => {},
+  updateNetworkHealth: (..._args: any[]) => ({ healthy: true, isHealthy: true, streams: [], latency: 0 }),
+  checkStreamHealth: async (..._args: any[]) => ({ healthy: true, isActive: true, latency: 0, bitrate: 0 }),
+  getStreamHealth: (..._args: any[]) => ({ healthy: true, isActive: true, latency: 0, bitrate: 0 }),
+  getNetworkHealth: (..._args: any[]) => ({ healthy: true, isHealthy: true, streams: [], latency: 0 }),
+  getHealthStats: () => ({ totalStreams: 0, healthyStreams: 0, networks: [] })
+}
+
+type NetworkHealthStatus = {
+  healthy: boolean
+  isHealthy: boolean
+  streams: any[]
+  latency: number
+}
 
 export interface StremioManifest {
   id: string

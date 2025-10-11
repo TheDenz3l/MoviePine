@@ -19,7 +19,7 @@ interface Movie {
 
 interface NetflixHeroSectionProps {
   movie: Movie
-  onPlay: (movieId: string) => void
+  onPlay: (movieId: string, title?: string) => void
   onMoreInfo: (movieId: string) => void
   onSearchResultSelect?: (result: { id: string; title: string; year: number; poster: string; type: 'movie' | 'tv' }) => void
   onNavigateToSearch?: (query: string) => void
@@ -78,7 +78,7 @@ export function NetflixHeroSection({ movie, onPlay, onMoreInfo }: NetflixHeroSec
           {/* Action Buttons - Netflix style */}
           <div className="flex items-center space-x-4">
             <Button
-              onClick={() => onPlay(movie.id)}
+              onClick={() => onPlay(movie.id, movie.title)}
               className="bg-white text-black hover:bg-gray-200 px-8 py-3 text-lg font-semibold flex items-center space-x-3 rounded-md"
               size="lg"
             >

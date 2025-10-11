@@ -6,6 +6,10 @@ export interface AppConfig {
   torrentioProviders: string[]
   debridService?: 'realdebrid' | 'premiumize' | 'alldebrid'
   debridApiKey?: string
+  debridioManifestUrl?: string
+  debridioEnabled?: boolean
+  webSafeMode?: boolean // Only fetch browser-compatible streams (MP4/H.264/AAC)
+  allowTranscoding?: boolean // Allow transcoding for incompatible formats
 }
 
 export function getConfig(): AppConfig {
@@ -20,6 +24,14 @@ export function getConfig(): AppConfig {
     : ['rarbg', '1337x', 'thepiratebay', 'kickass']
 
   const debridService = process.env.NEXT_PUBLIC_DEBRID_SERVICE as 'realdebrid' | 'premiumize' | 'alldebrid' | undefined
+  const debridioEnabled = process.env.NEXT_PUBLIC_DEBRIDIO_ENABLED === 'true'
+  
+  // Debug: Log environment variables
+  console.log('🔧 [CONFIG] Reading environment variables:', {
+    hasDebridioManifestUrl: !!process.env.NEXT_PUBLIC_DEBRIDIO_MANIFEST_URL,
+    debridioEnabled: debridioEnabled,
+    debridioEnabledRaw: process.env.NEXT_PUBLIC_DEBRIDIO_ENABLED
+  })
 
   return {
     tmdbApiKey,
@@ -27,6 +39,10 @@ export function getConfig(): AppConfig {
     torrentioProviders,
     debridService,
     debridApiKey: process.env.NEXT_PUBLIC_DEBRID_API_KEY,
+    debridioManifestUrl: process.env.NEXT_PUBLIC_DEBRIDIO_MANIFEST_URL,
+    debridioEnabled,
+    webSafeMode: process.env.NEXT_PUBLIC_WEB_SAFE_MODE === 'true',
+    allowTranscoding: process.env.NEXT_PUBLIC_ALLOW_TRANSCODING !== 'false', // Default true
   }
 }
 
@@ -34,6 +50,8 @@ export function getConfig(): AppConfig {
 export const defaultConfig: AppConfig = {
   tmdbApiKey: '', // Empty - will trigger fallback mode
   torrentioProviders: ['rarbg', '1337x', 'thepiratebay', 'kickass'],
+  webSafeMode: false,
+  allowTranscoding: true,
 }
 
 export function getConfigOrDefault(): AppConfig {

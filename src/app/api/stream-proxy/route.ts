@@ -1,96 +1,199 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Guess a better video mime type when Real-Debrid (or others) return a generic download type
-function guessContentType(url: string, original?: string | null): string {
-  if (original && !/force-download|octet-stream/i.test(original)) return original
-  const lower = url.toLowerCase().split('?')[0]
-  if (lower.endsWith('.mp4')) return 'video/mp4'
-  if (lower.endsWith('.mkv')) return 'video/x-matroska'
-  if (lower.endsWith('.webm')) return 'video/webm'
-  if (lower.endsWith('.mov')) return 'video/quicktime'
-  if (lower.endsWith('.m4v')) return 'video/x-m4v'
-  if (lower.endsWith('.avi')) return 'video/x-msvideo'
-  if (lower.endsWith('.wmv')) return 'video/x-ms-wmv'
-  if (lower.endsWith('.flv')) return 'video/x-flv'
-  if (lower.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl'
-  return original || 'application/octet-stream'
-}
-
+/**
+ * Stream Proxy for Real-Debrid and other sources
+ * 
+ * Proxies video streams to handle:
+ * - CORS issues
+ * - Range requests for seeking
+ * - Headers forwarding
+ */
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const url = searchParams.get('url')
+    const searchParams = request.nextUrl.searchParams
+    const streamUrl = searchParams.get('url')
 
-    if (!url) {
-      return NextResponse.json(
-        { error: 'URL parameter is required' },
-        { status: 400 }
-      )
+    if (!streamUrl) {
+      return NextResponse.json({
+        success: false,
+        error: 'Missing url parameter'
+      }, { status: 400 })
     }
 
-    console.log(`🎬 Proxying video stream: ${url.substring(0, 100)}...`)
+    console.log(`🎬 [STREAM-PROXY] Proxying stream: ${streamUrl.substring(0, 100)}...`)
 
-    // Fetch the video stream (supports range)
-    const upstream = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'video/*;q=0.9,*/*;q=0.5',
-        'Accept-Encoding': 'identity',
-        ...(request.headers.get('range') ? { 'Range': request.headers.get('range') as string } : {})
-      }
+    // Get range header for seeking support
+    const range = request.headers.get('range')
+    
+    const headers: HeadersInit = {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity',
+    }
+
+    if (range) {
+      headers['Range'] = range
+      console.log(`🎬 [STREAM-PROXY] Range request: ${range}`)
+    }
+
+    // Fetch the actual stream with timeout
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+    
+    const response = await fetch(streamUrl, {
+      headers,
+      redirect: 'follow',
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout))
+
+    if (!response.ok && response.status !== 206) {
+      console.error(`❌ [STREAM-PROXY] HTTP ${response.status}: ${response.statusText}`)
+      return new NextResponse(`Stream error: ${response.statusText}`, { 
+        status: response.status 
+      })
+    }
+
+    // Get response headers
+    const contentType = response.headers.get('content-type') || 'video/mp4'
+    const contentLength = response.headers.get('content-length')
+    const acceptRanges = response.headers.get('accept-ranges') || 'bytes'
+    const contentRange = response.headers.get('content-range')
+
+    console.log(`✅ [STREAM-PROXY] Stream ready:`, {
+      status: response.status,
+      contentType,
+      contentLength,
+      acceptRanges,
+      hasRange: !!contentRange
     })
 
-    if (!upstream.ok && upstream.status !== 206) {
-      console.log(`❌ Failed to fetch video stream: ${upstream.status} ${upstream.statusText}`)
-      return NextResponse.json(
-        { error: `HTTP ${upstream.status}: ${upstream.statusText}` },
-        { status: upstream.status }
-      )
-    }
-
-    const originalType = upstream.headers.get('content-type')
-    const contentType = guessContentType(url, originalType)
-    const contentLength = upstream.headers.get('content-length')
-    const contentRange = upstream.headers.get('content-range')
-    const acceptRanges = upstream.headers.get('accept-ranges') || 'bytes'
-
-    console.log(`✅ Video stream response: ${upstream.status}, Normalized-Type: ${contentType}, Original-Type: ${originalType}`)
-
-    const headers = new Headers({
+    // Build response headers with comprehensive CORS support for audio/video
+    const responseHeaders: HeadersInit = {
       'Content-Type': contentType,
       'Accept-Ranges': acceptRanges,
+      // CORS headers - must be permissive for media playback
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Access-Control-Allow-Headers': 'Range, Content-Range, Content-Length, Content-Type'
-    })
-    if (contentLength) headers.set('Content-Length', contentLength)
-    if (contentRange) headers.set('Content-Range', contentRange)
-    if (/m3u8/i.test(contentType)) headers.set('Cache-Control', 'no-cache')
-    else headers.set('Cache-Control', 'public, max-age=3600')
+      'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Authorization, X-Requested-With',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, Date, Server, Transfer-Encoding, X-Content-Duration',
+      'Access-Control-Allow-Credentials': 'false',
+      'Access-Control-Max-Age': '86400',
+      // Caching for media content
+      'Cache-Control': 'public, max-age=3600, immutable',
+      // Security headers for media
+      'X-Content-Type-Options': 'nosniff',
+    }
 
-    return new NextResponse(upstream.body, {
-      status: contentRange ? 206 : (upstream.status === 206 ? 206 : 200),
-      headers
+    if (contentLength) {
+      responseHeaders['Content-Length'] = contentLength
+    }
+
+    if (contentRange) {
+      responseHeaders['Content-Range'] = contentRange
+    }
+
+    // Return the stream
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers: responseHeaders
     })
 
   } catch (error) {
-    console.error('❌ Error proxying video stream:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    console.error(`❌ [STREAM-PROXY] Error:`, error)
+    
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
   }
 }
 
-// Handle OPTIONS requests for CORS preflight
-export async function OPTIONS() {
+// Handle OPTIONS for CORS preflight
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
-    status: 200,
+    status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Access-Control-Allow-Headers': 'Range, Content-Range, Content-Length, Content-Type'
+      'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Authorization, X-Requested-With',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, Date, Server, Transfer-Encoding, X-Content-Duration',
+      'Access-Control-Allow-Credentials': 'false',
+      'Access-Control-Max-Age': '86400',
     }
   })
+}
+
+// Handle HEAD for metadata requests
+export async function HEAD(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const streamUrl = searchParams.get('url')
+
+    if (!streamUrl) {
+      return NextResponse.json({
+        success: false,
+        error: 'Missing url parameter'
+      }, { status: 400 })
+    }
+
+    console.log(`🎬 [STREAM-PROXY HEAD] Checking stream metadata: ${streamUrl.substring(0, 100)}...`)
+
+    const headers: HeadersInit = {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept': '*/*',
+    }
+
+    const response = await fetch(streamUrl, {
+      method: 'HEAD',
+      headers,
+      redirect: 'follow',
+    })
+
+    if (!response.ok) {
+      console.error(`❌ [STREAM-PROXY HEAD] HTTP ${response.status}: ${response.statusText}`)
+      return new NextResponse(null, { 
+        status: response.status,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Authorization, X-Requested-With',
+        }
+      })
+    }
+
+    const contentType = response.headers.get('content-type') || 'video/mp4'
+    const contentLength = response.headers.get('content-length')
+    const acceptRanges = response.headers.get('accept-ranges') || 'bytes'
+
+    console.log(`✅ [STREAM-PROXY HEAD] Metadata ready:`, {
+      contentType,
+      contentLength,
+      acceptRanges,
+    })
+
+    return new NextResponse(null, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': contentLength || '0',
+        'Accept-Ranges': acceptRanges,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Authorization, X-Requested-With',
+        'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type',
+      }
+    })
+
+  } catch (error) {
+    console.error(`❌ [STREAM-PROXY HEAD] Error:`, error)
+    
+    return new NextResponse(null, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Content-Type, Accept, Authorization, X-Requested-With',
+      }
+    })
+  }
 }

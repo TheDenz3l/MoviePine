@@ -301,19 +301,6 @@ export class StremioUSATVService {
     console.log(`🩺 Health check complete: ${healthyNetworks.length}/${networks.length} networks have active streams`)
     return healthyNetworks
   }
-        description: meta.description || `${meta.name} - Live TV Channel`,
-        isLive: true,
-        country: meta.country || 'US',
-        language: meta.language || 'en',
-        meta: meta
-      }))
-
-      return networks.length > 0 ? networks : this.getMockNetworks()
-    } catch (error) {
-      console.error('❌ Error fetching networks:', error)
-      return this.getMockNetworks()
-    }
-  }
 
   async getStreamsByNetworkId(networkId: string): Promise<USATVStream[]> {
     try {

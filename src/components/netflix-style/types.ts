@@ -11,7 +11,7 @@ export interface NetflixMovie {
 export interface NetflixCarouselProps {
   title: string
   movies: NetflixMovie[]
-  onPlay?: (movie: NetflixMovie) => void
+  onPlay?: (movieId: string, title?: string) => void
   onAddToList?: (movie: NetflixMovie) => void
   onMoreInfo?: (movie: NetflixMovie) => void
   showMovieTitles?: boolean
@@ -20,7 +20,7 @@ export interface NetflixCarouselProps {
 
 export interface NetflixCardProps {
   movie: NetflixMovie
-  onPlay?: (movie: NetflixMovie) => void
+  onPlay?: (movieId: string, title?: string) => void
   onAddToList?: (movie: NetflixMovie) => void
   onMoreInfo?: (movie: NetflixMovie) => void
   showTitle?: boolean
@@ -32,7 +32,7 @@ export interface NetflixGridProps {
     title: string
     movies: NetflixMovie[]
   }>
-  onPlay?: (movie: NetflixMovie) => void
+  onPlay?: (movieId: string, title?: string) => void
   onAddToList?: (movie: NetflixMovie) => void
   onMoreInfo?: (movie: NetflixMovie) => void
 }

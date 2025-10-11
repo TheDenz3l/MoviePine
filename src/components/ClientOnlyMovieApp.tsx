@@ -13,7 +13,6 @@ import { NetflixMovieRow } from '@/components/netflix-movie-row'
 import { NetflixHeroSection } from '@/components/netflix-hero-section'
 import { MovieDetailModal } from '@/components/movie-detail-modal'
 import { NetflixFloatingNav } from '@/components/netflix-floating-nav'
-import { VideoPlayerModal } from '@/components/video-player-modal'
 import { detectSafari, getBrowserInfo } from '@/lib/utils/browser-detection'
 import { RecentlyPlayedRow } from '@/components/recently-played-row'
 // Moviepire components
@@ -33,6 +32,8 @@ import { RealTimeSearchGridOverlay } from '@/components/search/RealTimeSearchGri
 import { RecentlyPlayedService } from '@/lib/services/recently-played-service'
 import { ContinueWatching } from '@/components/continue-watching/ContinueWatching'
 import { useWatchlistToast } from '@/components/watchlist/WatchlistToast'
+import { NetflixPlayer } from '@/components/NetflixPlayer'
+import type { VideoSource } from '@/lib/video/types'
 // import MoviepireGrid from '@/components/moviepire-grid' // Replaced by unified NetflixCarousel style
 // Removed MoviepireRails in favor of full NetflixPosterGrid replacement
 // import { SearchResultsPage } from '@/components/search-results-page'
@@ -71,24 +72,12 @@ export default function ClientOnlyMovieApp() {
   // Separate modal movie so hero remains static when opening info / browsing similar
   const [modalMovie, setModalMovie] = useState<StreamingMovie | StreamingSeries | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false)
-  const [playingMovieId, setPlayingMovieId] = useState<string | null>(null)
-  const [playingMovieTitle, setPlayingMovieTitle] = useState<string>('')
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [showRealTimeSearch, setShowRealTimeSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [seamlessSearchResults, setSeamlessSearchResults] = useState<any[]>([])
   const [seamlessSearchQuery, setSeamlessSearchQuery] = useState("")
   const [isSeamlessSearching, setIsSeamlessSearching] = useState(false)
-  // Remove legacy overlay state
-  const [playingMovieData, setPlayingMovieData] = useState<{
-    id: string
-    title: string
-    poster: string
-    year?: number
-    genre?: string[]
-  } | null>(null)
-  const [resumeTime, setResumeTime] = useState<number>(0)
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMoviepireModalOpen, setIsMoviepireModalOpen] = useState(false)
   const [selectedMoviepireMovie, setSelectedMoviepireMovie] = useState<StreamingMovie | null>(null)
@@ -99,17 +88,15 @@ export default function ClientOnlyMovieApp() {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [selectedSearchMovie, setSelectedSearchMovie] = useState<StreamingMovie | null>(null)
 
-  // Direct streaming URL for Live TV streams
-  const [directStreamingUrl, setDirectStreamingUrl] = useState<string | null>(null)
-
   // Safari browser detection for compatibility filtering
   const [isSafari, setIsSafari] = useState<boolean>(false)
 
-  // Add a force update state to trigger re-renders
-  const [forceUpdateCounter, setForceUpdateCounter] = useState(0)
-
-  // Ref to prevent React Strict Mode double invocation issues
-  const isVideoPlayerOpenRef = useRef(false)
+  // Netflix Player state
+  const [showPlayer, setShowPlayer] = useState(false)
+  const [playerSrc, setPlayerSrc] = useState<string>('')
+  const [playerTitle, setPlayerTitle] = useState<string>('')
+  const [playerStartTime, setPlayerStartTime] = useState<number>(0)
+  const [playerMovieId, setPlayerMovieId] = useState<string>('')
 
   // Watchlist toast notifications
   const { ToastContainer } = useWatchlistToast()
@@ -125,25 +112,6 @@ export default function ClientOnlyMovieApp() {
     rating: w.rating || 0,
     genre: w.content_type ? [w.content_type === 'series' ? 'Series' : 'Movie'] : []
   })).slice(0, 36), [watchlist])
-
-  // Robust video player state setter that prevents Strict Mode issues
-  const setVideoPlayerOpen = useCallback((open: boolean) => {
-    console.log('🎬 [DEBUG] setVideoPlayerOpen called with:', open)
-    
-    // Use functional update to avoid stale closure issues
-    setIsVideoPlayerOpen(prev => {
-      console.log('🎬 [DEBUG] Functional update: prev=', prev, 'new=', open)
-      isVideoPlayerOpenRef.current = open
-      return open
-    })
-    
-    console.log('🎬 [DEBUG] setIsVideoPlayerOpen called, ref set to:', open)
-  }, []) // Empty dependency array is correct since we use functional updates
-
-  // Debug: Monitor isVideoPlayerOpen changes (can be removed after testing)
-  useEffect(() => {
-    console.log('🎬 [DEBUG STATE] isVideoPlayerOpen changed to:', isVideoPlayerOpen)
-  }, [isVideoPlayerOpen])
 
   // Safari browser detection for optimal streaming compatibility
   useEffect(() => {
@@ -255,21 +223,9 @@ export default function ClientOnlyMovieApp() {
         // Close search overlay first
         setShowRealTimeSearch(false)
         
-        // Create a complete movie object from search data
-        const movieData = {
-          id: detail.id,
-          title: detail.title,
-          poster: detail.poster || '',
-          year: detail.year || new Date().getFullYear(),
-          genre: detail.type ? [detail.type === 'movie' ? 'Movie' : 'TV Show'] : ['Unknown']
-        }
-        
-        console.log('🎬 [EVENT] Opening video player for search result:', detail.title)
-        setPlayingMovieId(detail.id)
-        setPlayingMovieTitle(detail.title)
-        setPlayingMovieData(movieData)
-        setResumeTime(0)
-        setVideoPlayerOpen(true)
+        // Video player removed - show alert instead
+        alert(`🎬 Play functionality has been removed.\n\nTitle: ${detail.title}\nID: ${detail.id}`)
+        console.log('🎬 Play button clicked from search (video player removed):', detail)
       }
     }
     window.addEventListener('app:searchPlayMovie', handleSearchPlayMovie)
@@ -370,109 +326,110 @@ export default function ClientOnlyMovieApp() {
   }
 
   // Event handlers for movie interactions
-  const handlePlay = (movieIdOrUrl: string, titleOverride?: string, resumeFromTime?: number) => {
-    console.log('🎬 [DEBUG] handlePlay called with:', {
-      movieIdOrUrl: movieIdOrUrl.substring(0, 100) + (movieIdOrUrl.length > 100 ? '...' : ''),
-      titleOverride,
-      resumeFromTime
-    })
+  const handlePlay = async (movieIdOrUrl: string, titleOverride?: string, resumeFromTime?: number) => {
+    const title = titleOverride || 'Content'
+    console.log('🎬 Play button clicked:', { movieIdOrUrl, titleOverride, resumeFromTime, isSafari })
     
-    // Check if this is a direct URL (for Live TV streams)
-  // Treat absolute http(s), blob, and app-relative URLs (e.g., /api/stream-transcoder?...) as direct
-  const isDirectUrl = movieIdOrUrl.startsWith('http://') || movieIdOrUrl.startsWith('https://') || movieIdOrUrl.startsWith('blob:') || movieIdOrUrl.startsWith('/')
-    console.log('🎬 [DEBUG] isDirectUrl:', isDirectUrl)
-    
-    if (isDirectUrl) {
-      // Handle direct streaming URL (Live TV)
-      const liveId = `live_tv_${Date.now()}`
-      console.log('🎬 [DEBUG] Playing direct stream URL:', movieIdOrUrl.substring(0, 50) + '...')
-      console.log('🎬 [DEBUG] Setting Live TV state:', {
-        directStreamingUrl: movieIdOrUrl.substring(0, 50) + '...',
-        playingMovieId: liveId,
-        playingMovieTitle: titleOverride || 'Live TV Stream'
-      })
+    try {
+      let streamUrl = movieIdOrUrl
       
-      setDirectStreamingUrl(movieIdOrUrl)
-      setPlayingMovieId(liveId) // Generate a unique ID for tracking
-      setPlayingMovieTitle(titleOverride || 'Live TV Stream')
-      setPlayingMovieData({
-        id: liveId,
-        title: titleOverride || 'Live TV Stream',
-        poster: '',
-        year: new Date().getFullYear(),
-        genre: ['Live TV']
-      })
-      setResumeTime(0) // Live TV doesn't support resume
-      
-      console.log('🎬 [DEBUG] Opening video player modal for Live TV')
-      setVideoPlayerOpen(true)
-      
-      // Force a re-render
-      setForceUpdateCounter(prev => prev + 1)
-      
-      return
-    }
-
-    // Original movie ID handling
-    const movieId = movieIdOrUrl
-    
-    // If no explicit resumeFromTime provided, try RecentlyPlayedService
-    if (resumeFromTime == null) {
-      try {
-        const storedResume = RecentlyPlayedService.getResumeTime(movieId)
-        if (storedResume > 0) {
-          resumeFromTime = storedResume
+      // If it's not a direct URL, fetch the streaming URL
+      if (!movieIdOrUrl.startsWith('http')) {
+        // IMPORTANT: For TV shows, we need to specify Season:Episode format
+        // If it's a TV show ID without episode info, default to S01E01
+        let processedId = movieIdOrUrl
+        if (movieIdOrUrl.includes('tmdb_tv_') && !movieIdOrUrl.includes(':')) {
+          console.log('� Detected TV show without episode info, defaulting to S01E01')
+          processedId = `${movieIdOrUrl}:1:1`  // Format: tmdb_tv_12345:season:episode
         }
-      } catch {}
+        
+        console.log('�📡 Fetching streaming URL for ID:', processedId)
+        const configResponse = await fetch('/api/config')
+        const configData = await configResponse.json()
+        
+        if (!configData.success) {
+          alert('❌ Failed to load streaming configuration. Please check your API settings.')
+          return
+        }
+        
+        console.log('✅ Config loaded, creating streaming service...')
+        const service = createStreamingService(configData.config)
+        
+        console.log('🔍 Getting streaming URL...', { movieId: processedId, isSafari })
+        const url = await service.getStreamingUrl(processedId, undefined, isSafari)
+        
+        if (!url) {
+          console.error('❌ No streaming URL returned from service')
+          console.error('Content details:', { id: processedId, title })
+          
+          // Check console for specific error details
+          console.log('💡 Check the browser console for detailed error information')
+          
+          // Better error message based on content type
+          if (processedId.includes('tmdb_tv_') || processedId.includes(':')) {
+            // TV Show error
+            alert(`❌ No Streams Available for "${title}"\n\n` +
+              `This TV show episode could not be streamed.\n\n` +
+              `Common reasons:\n` +
+              `• Episode not released yet\n` +
+              `• No torrents available for this episode\n` +
+              `• Content not cached on Real-Debrid\n\n` +
+              `Try:\n` +
+              `• Different episode or season\n` +
+              `• More popular shows\n` +
+              `• Check Real-Debrid subscription\n\n` +
+              `ID: ${processedId}`)
+          } else {
+            // Movie error - check if it's a brand new release
+            const isVeryNewRelease = title.includes('2025') || title.includes('2024')
+            
+            if (isVeryNewRelease) {
+              alert(`⚠️ "${title}" - Brand New Release\n\n` +
+                `This movie is very new and may not be cached yet on Real-Debrid.\n\n` +
+                `What this means:\n` +
+                `• Torrents exist but aren't cached (instant) yet\n` +
+                `• Real-Debrid needs to download them first\n` +
+                `• This can take hours or days\n\n` +
+                `Your options:\n` +
+                `1️⃣ Try a more established movie (6+ months old)\n` +
+                `2️⃣ Wait a few hours and try again\n` +
+                `3️⃣ Manually add torrent to Real-Debrid first\n` +
+                `4️⃣ Check Real-Debrid website for cache status\n\n` +
+                `💡 Popular Marvel/Disney movies cache fastest!\n\n` +
+                `Movie ID: ${processedId}`)
+            } else {
+              alert(`❌ No Streams Available for "${title}"\n\n` +
+                `Could not find playable streams.\n\n` +
+                `Possible reasons:\n` +
+                `• No torrents found for this movie\n` +
+                `• Content not cached on Real-Debrid\n` +
+                `• Movie too obscure or regional\n` +
+                `• Real-Debrid subscription issue\n\n` +
+                `Try:\n` +
+                `• More popular/mainstream movies\n` +
+                `• Recent blockbusters or classics\n` +
+                `• Check Real-Debrid account status\n\n` +
+                `Movie ID: ${processedId}`)
+            }
+          }
+          return
+        }
+        
+        console.log('✅ Streaming URL obtained:', url.substring(0, 100) + '...')
+        streamUrl = url
+      }
+      
+      // Set player state and show player
+      console.log('🎬 Opening player with URL:', streamUrl.substring(0, 100) + '...')
+      setPlayerSrc(streamUrl)
+      setPlayerTitle(title)
+      setPlayerStartTime(resumeFromTime || 0)
+      setPlayerMovieId(movieIdOrUrl)
+      setShowPlayer(true)
+    } catch (error) {
+      console.error('❌ Failed to start playback:', error)
+      alert(`❌ Failed to start playback\n\n${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck console for details.`)
     }
-    console.log('🎬 Playing movie:', movieId, resumeFromTime ? `(resume from ${resumeFromTime}s)` : '')
-
-    // Find the movie to get its data - check main arrays first
-    let movie = movies.find(m => m.id === movieId) || 
-                trendingMovies.find(m => m.id === movieId) ||
-                trendingSeries.find(s => s.id === movieId)
-    let title = movie?.title || titleOverride || 'Unknown Movie'
-
-    // If not found in main arrays, create a basic movie object for search results
-    if (!movie && titleOverride) {
-      console.log('🔍 Creating movie object for search result:', movieId, titleOverride)
-      // Create a basic movie-like object from the provided title
-      movie = {
-        id: movieId,
-        title: titleOverride,
-        poster: '', // Will be populated if needed
-        year: new Date().getFullYear(), // Default to current year
-        genre: ['Unknown'],
-        rating: 0,
-        description: 'Search result - details loading...',
-        runtime: undefined,
-        imdbId: undefined,
-        tmdbId: parseInt(movieId, 10) || undefined
-      } as StreamingMovie
-      title = titleOverride
-    }
-
-    // Prepare movie data for recently played tracking
-    const movieData = movie ? {
-      id: movie.id,
-      title: movie.title,
-      poster: movie.poster || '',
-      year: movie.year,
-      genre: movie.genre
-    } : {
-      id: movieId,
-      title: title,
-      poster: '',
-      year: new Date().getFullYear(),
-      genre: ['Unknown']
-    }
-
-    console.log('🎬 Opening video player for:', title)
-    setPlayingMovieId(movieId)
-    setPlayingMovieTitle(title)
-    setPlayingMovieData(movieData)
-    setResumeTime(resumeFromTime || 0)
-    setVideoPlayerOpen(true)
   }
 
   const handleAddToList = (movieId: string) => {
@@ -641,18 +598,6 @@ export default function ClientOnlyMovieApp() {
     setSelectedSearchMovie(null)
   }
 
-  const handleCloseVideoPlayer = () => {
-    console.log('🎬 [DEBUG] handleCloseVideoPlayer called')
-    console.log('🎬 [DEBUG] Stack trace for close:', new Error().stack)
-    setVideoPlayerOpen(false)
-    setPlayingMovieId(null)
-    setPlayingMovieTitle('')
-    setPlayingMovieData(null)
-    setResumeTime(0)
-    setDirectStreamingUrl(null) // Clear direct streaming URL
-    // Note: Continue Watching will automatically refresh via modern database system
-  }
-
   // Search handlers - separate from main app to avoid affecting hero section
   const handleSearchResultSelect = (result: { id: string; title: string; year?: number; poster: string; backdrop?: string; type?: 'movie' | 'tv' }) => {
     // Detach async work so the handler type is void
@@ -789,92 +734,6 @@ export default function ClientOnlyMovieApp() {
     const params = new URLSearchParams(searchParams?.toString() || '')
     params.set('q', query)
     router.push(`?${params.toString()}`)
-  }
-
-  const handleGetStreamingUrl = async (movieId: string): Promise<string | null> => {
-    console.log('🎬 [DEBUG] handleGetStreamingUrl called with:', movieId)
-    console.log('🎬 [DEBUG] Current directStreamingUrl state:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
-    
-    try {
-      // If we have a direct streaming URL (Live TV), return it directly
-      if (directStreamingUrl && movieId.startsWith('live_tv_')) {
-        console.log('🎬 [DEBUG] Returning direct streaming URL for Live TV')
-        return directStreamingUrl
-      }
-      
-      console.log('🎬 [DEBUG] Fetching streaming URL from service for movieId:', movieId)
-      const configResponse = await fetch('/api/config')
-      const configData = await configResponse.json()
-
-      if (configData.success) {
-        const service = createStreamingService(configData.config)
-        return await service.getStreamingUrl(movieId, undefined, isSafari)
-      }
-
-      throw new Error('Failed to load streaming configuration')
-    } catch (error) {
-      console.error('Error getting streaming URL:', error)
-      throw error
-    }
-  }
-
-  const handleGetStreamingResult = async (movieId: string): Promise<{
-    url: string;
-    subtitles: string[];
-    realSubtitles?: Array<{
-      language: string
-      label: string
-      url: string
-      isExternal: boolean
-    }>
-  } | null> => {
-    console.log('🎬 [DEBUG] handleGetStreamingResult called with:', movieId)
-    console.log('🎬 [DEBUG] Current directStreamingUrl state:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
-    
-    try {
-      // If we have a direct streaming URL (Live TV), return it directly
-      if (directStreamingUrl && movieId.startsWith('live_tv_')) {
-        console.log('🎬 [DEBUG] Returning direct streaming result for Live TV')
-        return {
-          url: directStreamingUrl,
-          subtitles: [], // Live TV typically doesn't have subtitle files
-          realSubtitles: []
-        }
-      }
-      
-      console.log('🎬 [DEBUG] Fetching streaming result from service for movieId:', movieId)
-      
-      // Try to reuse previous stream if available to ensure seamless resume
-      try {
-        const stored = RecentlyPlayedService.getStreamInfo(movieId)
-        if (stored) {
-          return { url: stored.url, subtitles: stored.subtitles }
-        }
-      } catch {}
-
-      const configResponse = await fetch('/api/config')
-      const configData = await configResponse.json()
-
-      if (configData.success) {
-        const service = createStreamingService(configData.config)
-        const result = await service.getStreamingResult(movieId, undefined, isSafari)
-        if (result) {
-          // Persist chosen stream for resume
-          try { RecentlyPlayedService.setStreamInfo(movieId, result.url, result.subtitles) } catch {}
-          return {
-            url: result.url,
-            subtitles: result.subtitles,
-            realSubtitles: result.realSubtitles
-          }
-        }
-        return null
-      }
-
-      throw new Error('Failed to load streaming configuration')
-    } catch (error) {
-      console.error('Error getting streaming result:', error)
-      throw error
-    }
   }
 
   // Transform StreamingMovie to MovieCard format
@@ -1134,19 +993,6 @@ export default function ClientOnlyMovieApp() {
           onSearch={handleSearch}
           activeCategory={activeCategory}
         />
-
-        {/* Ensure the video player modal is mounted on Live TV pages too */}
-        <VideoPlayerModal
-          isOpen={isVideoPlayerOpen}
-          onClose={handleCloseVideoPlayer}
-          movieId={playingMovieId}
-          movieTitle={playingMovieTitle}
-          onGetStreamingUrl={handleGetStreamingUrl}
-          onGetStreamingResult={handleGetStreamingResult}
-          movieData={playingMovieData || undefined}
-          startTime={resumeTime}
-          directStreamingUrl={directStreamingUrl}
-        />
       </>
     )
   }
@@ -1166,12 +1012,6 @@ export default function ClientOnlyMovieApp() {
       />
     )
   }
-
-  console.log('🎬 [DEBUG PARENT] Main component render - isVideoPlayerOpen:', isVideoPlayerOpen, 'directStreamingUrl:', directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : 'null')
-
-  // Force re-render verification
-  const renderTime = new Date().getTime()
-  console.log('🎬 [DEBUG RENDER] Component rendering at:', renderTime, 'isVideoPlayerOpen:', isVideoPlayerOpen, 'forceUpdateCounter:', forceUpdateCounter)
 
   return (
   <div className="min-h-screen text-white relative bg-[rgb(18,18,18)] transition-colors duration-300">
@@ -1218,7 +1058,7 @@ export default function ClientOnlyMovieApp() {
                       rating: movie.rating,
                       genre: movie.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                     }}
@@ -1238,7 +1078,7 @@ export default function ClientOnlyMovieApp() {
                       rating: movie.rating,
                       genre: movie.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                     }}
@@ -1258,7 +1098,7 @@ export default function ClientOnlyMovieApp() {
                       rating: series.rating,
                       genre: series.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
                     }}
@@ -1278,7 +1118,7 @@ export default function ClientOnlyMovieApp() {
                       rating: series.rating,
                       genre: series.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
                     }}
@@ -1298,7 +1138,7 @@ export default function ClientOnlyMovieApp() {
                       rating: movie.rating,
                       genre: movie.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                     }}
@@ -1318,7 +1158,7 @@ export default function ClientOnlyMovieApp() {
                       rating: series.rating,
                       genre: series.genre
                     }))}
-                    onPlay={(movie) => handlePlay(movie.id)}
+                    onPlay={(movieId, title) => handlePlay(movieId, title)}
                     onAddToList={(movie) => {
                       window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id, type: 'series' } }))
                     }}
@@ -1343,7 +1183,7 @@ export default function ClientOnlyMovieApp() {
                   rating: movie.rating,
                   genre: movie.genre
                 }))}
-                onPlay={(movie) => handlePlay(movie.id)}
+                onPlay={(movieId, title) => handlePlay(movieId, title)}
                 onAddToList={(movie) => {
                   window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                 }}
@@ -1365,7 +1205,7 @@ export default function ClientOnlyMovieApp() {
                   rating: movie.rating,
                   genre: movie.genre
                 }))}
-                onPlay={(movie) => handlePlay(movie.id)}
+                onPlay={(movieId, title) => handlePlay(movieId, title)}
                 onAddToList={(movie) => {
                   window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                 }}
@@ -1385,7 +1225,7 @@ export default function ClientOnlyMovieApp() {
                 <NewNetflixCarousel
                   title="Watch List"
                   movies={watchlistTransformed}
-                  onPlay={(movie) => handlePlay(movie.id)}
+                  onPlay={(movieId, title) => handlePlay(movieId, title)}
                   onAddToList={(movie) => {
                     window.dispatchEvent(new CustomEvent('app:toggleWatchlist', { detail: { id: movie.id } }))
                   }}
@@ -1407,29 +1247,6 @@ export default function ClientOnlyMovieApp() {
         onPlay={handlePlay}
   // onAddToList removed
         onMovieSelect={handleModalMovieSelect}
-      />
-
-      {/* Debug logging for VideoPlayerModal props */}
-      {(() => {
-        console.log('🎬 [DEBUG PARENT] Rendering VideoPlayerModal with props:', {
-          isOpen: isVideoPlayerOpen,
-          movieId: playingMovieId,
-          movieTitle: playingMovieTitle,
-          directStreamingUrl: directStreamingUrl ? directStreamingUrl.substring(0, 50) + '...' : null,
-          timestamp: Date.now()
-        })
-        return null
-      })()}
-      <VideoPlayerModal
-        isOpen={isVideoPlayerOpen}
-        onClose={handleCloseVideoPlayer}
-        movieId={playingMovieId}
-        movieTitle={playingMovieTitle}
-        onGetStreamingUrl={handleGetStreamingUrl}
-        onGetStreamingResult={handleGetStreamingResult}
-        movieData={playingMovieData || undefined}
-        startTime={resumeTime}
-        directStreamingUrl={directStreamingUrl} // Pass direct URL as prop
       />
 
       {/* Moviepire Modal */}
@@ -1476,6 +1293,23 @@ export default function ClientOnlyMovieApp() {
 
       {/* Watchlist Toast Notifications */}
       <ToastContainer />
+
+      {/* Netflix Player */}
+      {showPlayer && playerSrc && (
+        <NetflixPlayer
+          src={playerSrc}
+          title={playerTitle}
+          startTime={playerStartTime}
+          autoPlay={true}
+          onClose={() => {
+            setShowPlayer(false)
+            setPlayerSrc('')
+            setPlayerTitle('')
+            setPlayerStartTime(0)
+            setPlayerMovieId('')
+          }}
+        />
+      )}
 
     </div>
   )
